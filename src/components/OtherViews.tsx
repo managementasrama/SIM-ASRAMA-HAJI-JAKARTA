@@ -5550,7 +5550,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
                   <span className="font-semibold text-slate-700 dark:text-slate-200">Project Endpoint URL:</span>
                   <span className="font-mono text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded text-[10px] border border-emerald-200 dark:border-emerald-800">
-                    ijvbtubyjxqjethugzlm.supabase.co
+                    iiopgzyxzvmnmkgnrzvc.supabase.co
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
@@ -5644,7 +5644,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800">
                     <p className="font-semibold">Petunjuk Pembuatan Tabel di Supabase:</p>
                     <ol className="list-decimal list-inside mt-1 space-y-1 text-[11px]">
-                      <li>Buka Dashboard Supabase Anda: <strong>https://supabase.com/dashboard/project/ijvbtubyjxqjethugzlm</strong></li>
+                      <li>Buka Dashboard Supabase Anda: <strong>https://supabase.com/dashboard/project/iiopgzyxzvmnmkgnrzvc</strong></li>
                       <li>Pilih menu <strong>SQL Editor</strong> di bilah navigasi kiri.</li>
                       <li>Klik <strong>New Query</strong>, tempelkan skrip di bawah ini, lalu klik <strong>Run</strong>.</li>
                       <li>Tabel sinkronisasi snapshot &amp; tabel individual akan otomatis terbuat beserta kebijakan RLS.</li>

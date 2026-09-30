@@ -31,12 +31,12 @@ function sanitizeSupabaseUrl(url?: string): string {
 const rawEnvUrl = 
   (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_SUPABASE_URL) ||
   (typeof process !== 'undefined' && (process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL)) ||
-  'https://ijvbtubyjxqjethugzlm.supabase.co';
+  'https://iiopgzyxzvmnmkgnrzvc.supabase.co';
 
 const rawEnvKey = 
-  (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY) ||
-  (typeof process !== 'undefined' && (process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)) ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqdmJ0dWJ5anhxamV0aHVnemxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5NzEwMDksImV4cCI6MjEwNTU0NzAwOX0.Kq8voFP02KShzjqQ7XPgL2OJi07oV_d0iY01hYYZ4sU';
+  (typeof import.meta !== 'undefined' && ((import.meta as any)?.env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY)) ||
+  (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)) ||
+  'sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80';
 
 export const SUPABASE_URL = sanitizeSupabaseUrl(rawEnvUrl);
 export const SUPABASE_ANON_KEY = (rawEnvKey || '').trim();

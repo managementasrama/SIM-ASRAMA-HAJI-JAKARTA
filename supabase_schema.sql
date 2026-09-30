@@ -6,7 +6,7 @@
 --        Inspeksi QC, Reservasi Rombongan/Instansi, Koperasi & Multi-User)
 --
 -- Petunjuk Penggunaan:
--- 1. Buka Dashboard Supabase Anda: https://supabase.com/dashboard/project/ijvbtubyjxqjethugzlm
+-- 1. Buka Dashboard Supabase Anda: https://supabase.com/dashboard/project/iiopgzyxzvmnmkgnrzvc
 -- 2. Pilih menu "SQL Editor" di bilah navigasi kiri.
 -- 3. Klik "New Query", tempelkan (paste) seluruh isi skrip ini, lalu klik "RUN".
 -- 4. Skrip ini aman dijalankan berulang kali (Idempotent / IF NOT EXISTS).
