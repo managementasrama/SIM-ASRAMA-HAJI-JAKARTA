@@ -412,19 +412,22 @@ export class DataStorageService {
               });
             }
 
-            // Inisialisasi roomCapacityRates katalog jika belum ada atau lengkapi jika ada konfigurasi yang belum terdaftar
+            // Inisialisasi & pembersihan duplikasi roomCapacityRates katalog jika belum ada
             if (!Array.isArray(parsed.roomCapacityRates) || parsed.roomCapacityRates.length === 0) {
               parsed.roomCapacityRates = [...initialRoomCapacityRates];
             } else {
-              // Pastikan semua 24 konfigurasi 3 tipe (Ekonomi, Standar, Superior) dan Double s/d 8 Bed selalu tersedia
-              initialRoomCapacityRates.forEach(initRate => {
-                const exists = parsed.roomCapacityRates.some((r: any) => 
-                  r.roomType?.toLowerCase() === initRate.roomType.toLowerCase() && 
-                  r.bedType?.toLowerCase() === initRate.bedType.toLowerCase()
-                );
-                if (!exists) {
-                  parsed.roomCapacityRates.push({ ...initRate });
+              const seenRateIds = new Set<string>();
+              const seenCombos = new Set<string>();
+              parsed.roomCapacityRates = parsed.roomCapacityRates.filter((r: any) => {
+                if (!r || !r.id) return false;
+                const idKey = String(r.id).trim();
+                const comboKey = `${String(r.roomType || '').trim().toLowerCase()}::${String(r.bedType || '').trim().toLowerCase()}`;
+                if (seenRateIds.has(idKey) || (comboKey !== '::' && seenCombos.has(comboKey))) {
+                  return false;
                 }
+                seenRateIds.add(idKey);
+                if (comboKey !== '::') seenCombos.add(comboKey);
+                return true;
               });
             }
 
@@ -1248,12 +1251,24 @@ export class DataStorageService {
     if (!Array.isArray(db.roomCapacityRates) || db.roomCapacityRates.length === 0) {
       return [...initialRoomCapacityRates];
     }
-    return db.roomCapacityRates;
+    const seenRateIds = new Set<string>();
+    const seenCombos = new Set<string>();
+    return db.roomCapacityRates.filter((r) => {
+      if (!r || !r.id) return false;
+      const idKey = String(r.id).trim();
+      const comboKey = `${String(r.roomType || '').trim().toLowerCase()}::${String(r.bedType || '').trim().toLowerCase()}`;
+      if (seenRateIds.has(idKey) || (comboKey !== '::' && seenCombos.has(comboKey))) {
+        return false;
+      }
+      seenRateIds.add(idKey);
+      if (comboKey !== '::') seenCombos.add(comboKey);
+      return true;
+    });
   }
 
   public saveRoomCapacityRate(rate: RoomCapacityRate): RoomCapacityRate {
     const db = this.getDatabase();
-    const rates = db.roomCapacityRates && db.roomCapacityRates.length > 0 
+    const rates = Array.isArray(db.roomCapacityRates) 
       ? db.roomCapacityRates 
       : [...initialRoomCapacityRates];
 
@@ -1266,18 +1281,13 @@ export class DataStorageService {
       updatedAt: new Date().toISOString()
     };
 
-    const idx = rates.findIndex(r => r.id === rateWithId.id || (
-      r.roomType.toLowerCase() === rateWithId.roomType.toLowerCase() && 
-      r.bedType.toLowerCase() === rateWithId.bedType.toLowerCase()
-    ));
+    // Filter out any existing entries with this id OR matching roomType & bedType to guarantee no duplicates
+    const remainingRates = rates.filter(r => 
+      r.id !== rateWithId.id && 
+      !(r.roomType.toLowerCase() === rateWithId.roomType.toLowerCase() && r.bedType.toLowerCase() === rateWithId.bedType.toLowerCase())
+    );
 
-    let updatedRates: RoomCapacityRate[];
-    if (idx >= 0) {
-      updatedRates = [...rates];
-      updatedRates[idx] = { ...updatedRates[idx], ...rateWithId };
-    } else {
-      updatedRates = [...rates, rateWithId];
-    }
+    const updatedRates = [...remainingRates, rateWithId];
 
     this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
     return rateWithId;
@@ -1285,24 +1295,10 @@ export class DataStorageService {
 
   public deleteRoomCapacityRate(rateId: string): { success: boolean; message: string } {
     const db = this.getDatabase();
-    const rates = db.roomCapacityRates || [];
+    const rates = Array.isArray(db.roomCapacityRates) ? db.roomCapacityRates : [];
     const item = rates.find(r => r.id === rateId);
     if (!item) {
       return { success: false, message: 'Data konfigurasi kapasitas kamar tidak ditemukan.' };
-    }
-
-    // Cek apakah ada kamar yang sedang menggunakan tipe dan konfigurasi bed ini
-    const rooms = db.rooms || [];
-    const usingRooms = rooms.filter(r => 
-      r.type?.toLowerCase() === item.roomType.toLowerCase() && 
-      r.bedType?.toLowerCase() === item.bedType.toLowerCase()
-    );
-
-    if (usingRooms.length > 0) {
-      return {
-        success: false,
-        message: `Konfigurasi '${item.roomType} - ${item.bedType}' tidak dapat dihapus karena sedang dipakai oleh ${usingRooms.length} kamar aktif (misal: ${usingRooms.slice(0, 3).map(r => r.roomNumber).join(', ')}). Ubah tipe kamar tersebut terlebih dahulu.`
-      };
     }
 
     const updatedRates = rates.filter(r => r.id !== rateId);

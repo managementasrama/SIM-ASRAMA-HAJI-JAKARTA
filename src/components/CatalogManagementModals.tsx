@@ -840,6 +840,34 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
     isMeetingFacility(type)
   );
 
+  // Daftar tarif/bed yang terdaftar di katalog untuk tipe kamar ini
+  const registeredBedRatesForType = useMemo(() => {
+    return (roomCapacityRates || []).filter(r => 
+      r.roomType.toLowerCase() === type.toLowerCase() && r.isActive !== false
+    );
+  }, [roomCapacityRates, type]);
+
+  // Daftar semua pilihan bed (termasuk yang ada di katalog atau standar)
+  const allBedOptions = useMemo(() => {
+    const defaultBeds = [
+      'Double Bed',
+      '2 Single Bed',
+      '3 Single Bed',
+      '4 Single Bed',
+      '5 Single Bed',
+      '6 Single Bed',
+      '7 Single Bed',
+      '8 Single Bed'
+    ];
+    const registeredBeds = registeredBedRatesForType.map(r => r.bedType);
+    return Array.from(new Set([...registeredBeds, ...defaultBeds]));
+  }, [registeredBedRatesForType]);
+
+  const isCurrentBedRegistered = useMemo(() => {
+    if (isSerbagunaRoom) return true;
+    return registeredBedRatesForType.some(r => r.bedType.toLowerCase() === bedType.toLowerCase());
+  }, [isSerbagunaRoom, registeredBedRatesForType, bedType]);
+
   const handleFloorChange = (newFloorVal: number) => {
     const validFloor = Math.max(1, Math.min(20, newFloorVal || 1));
     setFloor(validFloor);
@@ -939,10 +967,23 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
   if (!isOpen) return null;
 
   const handleTypeOrBedChange = (newType: string, newBed: string) => {
-    setType(newType);
-    setBedType(newBed);
+    let resolvedBed = newBed;
+    const isMtg = newType === 'Ruang Pertemuan / Aula' || newType === 'Gedung Serbaguna (SG)' || newType.toLowerCase().includes('serbaguna');
 
-    if (newType === 'Ruang Pertemuan / Aula' || newType === 'Gedung Serbaguna (SG)' || newType.toLowerCase().includes('serbaguna')) {
+    if (!isMtg) {
+      const availableRatesForNewType = (roomCapacityRates || []).filter(r => 
+        r.roomType.toLowerCase() === newType.toLowerCase() && r.isActive !== false
+      );
+      const isNewBedAvailable = availableRatesForNewType.some(r => r.bedType.toLowerCase() === newBed.toLowerCase());
+      if (!isNewBedAvailable && availableRatesForNewType.length > 0) {
+        resolvedBed = availableRatesForNewType[0].bedType;
+      }
+    }
+
+    setType(newType);
+    setBedType(resolvedBed);
+
+    if (isMtg) {
       const isSG = newType.toLowerCase().includes('serbaguna') || building.toLowerCase().includes('serbaguna');
       if (capacity <= 8) setCapacity(isSG ? 1000 : 500);
       if (pricePerNight <= 1500000) setPricePerNight(isSG ? 15000000 : 8500000);
@@ -952,7 +993,7 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
       return;
     }
 
-    const matchedRate = findRoomRate(newType, newBed, roomCapacityRates);
+    const matchedRate = findRoomRate(newType, resolvedBed, roomCapacityRates);
     if (matchedRate) {
       setCapacity(matchedRate.capacityPax);
       setPricePerNight(matchedRate.pricePerNight);
@@ -969,13 +1010,19 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
       return;
     }
 
+    const finalType = selectedTypeMode === 'CUSTOM' ? (customTypeInput.trim() || 'Kustom') : type;
+
+    if (!isSerbagunaRoom && !isCurrentBedRegistered) {
+      showToast(`Tempat tidur '${bedType}' belum terdaftar di Katalog Tipe Kamar untuk tipe '${finalType}'. Pilihlah opsi bed yang tersedia atau daftarkan terlebih dahulu di Katalog Tipe Kamar.`, 'warning');
+      return;
+    }
+
     const facilitiesArray = facilitiesText
       .split(',')
       .map(f => f.trim())
       .filter(f => f.length > 0);
 
     const parsedCap = Number(capacity) || 1;
-    const finalType = selectedTypeMode === 'CUSTOM' ? (customTypeInput.trim() || 'Kustom') : type;
     const matchedCatalogRate = findRoomRate(finalType, bedType, roomCapacityRates);
     const finalPrice = !isSerbagunaRoom && matchedCatalogRate
       ? matchedCatalogRate.pricePerNight
@@ -1259,23 +1306,52 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
               {!isSerbagunaRoom ? (
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                    <span>Tempat Tidur (Bed)</span>
+                    <span>Tempat Tidur (Bed) <span className="text-rose-500">*</span></span>
                     <span className="text-[10px] text-emerald-600 font-semibold">Kapasitas {capacity} Pax</span>
                   </label>
                   <select
                     value={bedType}
                     onChange={e => handleTypeOrBedChange(type, e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer ${
+                      !isCurrentBedRegistered
+                        ? 'border-rose-400 dark:border-rose-600 ring-1 ring-rose-400'
+                        : 'border-slate-300 dark:border-slate-700'
+                    }`}
                   >
-                    <option value="Double Bed">Double Bed (2 Orang)</option>
-                    <option value="2 Single Bed">2 Single Bed (2 Orang)</option>
-                    <option value="3 Single Bed">3 Single Bed (3 Orang)</option>
-                    <option value="4 Single Bed">4 Single Bed (4 Orang)</option>
-                    <option value="5 Single Bed">5 Single Bed (5 Orang)</option>
-                    <option value="6 Single Bed">6 Single Bed (6 Orang)</option>
-                    <option value="7 Single Bed">7 Single Bed (7 Orang)</option>
-                    <option value="8 Single Bed">8 Single Bed (8 Orang)</option>
+                    {allBedOptions.map(opt => {
+                      const matched = registeredBedRatesForType.find(r => r.bedType.toLowerCase() === opt.toLowerCase());
+                      const isRegistered = Boolean(matched);
+                      return (
+                        <option 
+                          key={opt} 
+                          value={opt} 
+                          disabled={!isRegistered}
+                          className={!isRegistered ? 'text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800' : 'text-slate-900 dark:text-slate-100 font-bold'}
+                        >
+                          {isRegistered 
+                            ? `✓ ${opt} (${matched?.capacityPax || 2} Pax • ${formatRupiah(matched?.pricePerNight || 0)})`
+                            : `✕ ${opt} (Belum Terdaftar di Katalog Tipe Kamar)`}
+                        </option>
+                      );
+                    })}
                   </select>
+
+                  {!isCurrentBedRegistered ? (
+                    <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-[10.5px] text-rose-800 dark:text-rose-200 flex items-start space-x-1.5 animate-in fade-in">
+                      <i className="fa-solid fa-triangle-exclamation text-rose-600 mt-0.5 shrink-0"></i>
+                      <div>
+                        <span className="font-bold">Bed Belum Terdaftar:</span>
+                        <p className="mt-0.5 text-[10px] leading-relaxed">
+                          Pilihan <strong>{bedType}</strong> belum terdaftar di sub menu <strong>Katalog Tipe Kamar</strong> untuk tipe <strong>{type}</strong> sehingga tidak dapat dipilih. Pilihlah opsi bertanda centang hijau (✓), atau daftarkan konfigurasi baru ini terlebih dahulu di Katalog Tipe Kamar.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
+                      <i className="fa-solid fa-circle-check text-[9px]"></i>
+                      Terdaftar di Katalog Resmi ({registeredBedRatesForType.find(r => r.bedType.toLowerCase() === bedType.toLowerCase())?.capacityPax} Pax • Terkoneksi)
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1">

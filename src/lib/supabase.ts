@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { CompleteStorageDatabase } from '../services/dataStorage';
 import { initialRoomCapacityRates } from '../data';
+import { deduplicateRoomCapacityRates } from './utils';
 import type { 
   Building, 
   Room, 
@@ -465,7 +466,7 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
         breakfastMenuItems: (breakfastMenuRes.data || []).map(mapSupabaseBreakfastMenuItemToAppMenuItem),
         breakfastOrders: (breakfastOrdersRes.data || []).map(mapSupabaseBreakfastOrderToAppBreakfastOrder),
         roomCapacityRates: ratesRes.data && ratesRes.data.length > 0
-          ? ratesRes.data.map(mapSupabaseRoomCapacityRateToAppRate)
+          ? deduplicateRoomCapacityRates(ratesRes.data.map(mapSupabaseRoomCapacityRateToAppRate))
           : initialRoomCapacityRates,
         passwordResetRequests: pwdRes.data || []
       };
@@ -898,19 +899,36 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
   }
 
   // Simpan Master Tarif Kapasitas Kamar (room_capacity_rates)
-  if (db.roomCapacityRates && db.roomCapacityRates.length > 0) {
-    const ratePayloads = db.roomCapacityRates.map(r => ({
-      id: r.id,
-      room_type: r.roomType,
-      bed_type: r.bedType,
-      capacity_pax: r.capacityPax,
-      price_per_night: r.pricePerNight,
-      description: r.description || null,
-      facilities: r.facilities || [],
-      is_active: r.isActive ?? true,
-      updated_at: r.updatedAt || new Date().toISOString()
-    }));
-    await supabase.from('room_capacity_rates').upsert(ratePayloads, { onConflict: 'id' });
+  if (db.roomCapacityRates) {
+    const cleanRates = deduplicateRoomCapacityRates(db.roomCapacityRates);
+    if (cleanRates.length > 0) {
+      const ratePayloads = cleanRates.map(r => ({
+        id: r.id,
+        room_type: r.roomType,
+        bed_type: r.bedType,
+        capacity_pax: r.capacityPax,
+        price_per_night: r.pricePerNight,
+        description: r.description || null,
+        facilities: r.facilities || [],
+        is_active: r.isActive ?? true,
+        updated_at: r.updatedAt || new Date().toISOString()
+      }));
+      await supabase.from('room_capacity_rates').upsert(ratePayloads, { onConflict: 'id' });
+    }
+
+    // Hapus dari Supabase row tarif kamar yang sudah dihapus oleh pengguna
+    try {
+      const activeRateIds = db.roomCapacityRates.map(r => r.id);
+      const { data: existingRates } = await supabase.from('room_capacity_rates').select('id');
+      if (existingRates && existingRates.length > 0) {
+        const toDelete = existingRates.map(r => r.id).filter(id => !activeRateIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from('room_capacity_rates').delete().in('id', toDelete);
+        }
+      }
+    } catch (delErr) {
+      console.warn('Gagal membersihkan rate terhapus di Supabase:', delErr);
+    }
   }
 }
 

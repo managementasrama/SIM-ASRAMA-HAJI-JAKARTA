@@ -577,7 +577,7 @@ export function Dashboard() {
 
   // Building Occupancy Breakdown - Synchronized with Master Catalog & RoomsView Order
   const buildingsList = useMemo(() => {
-    // 1. Gather all unique buildings from rooms and dynamic catalog
+    // 1. Gather all unique buildings from dynamic catalog and rooms
     const catalogBuildingNames = (buildings || []).map(b => b.name);
     const roomBuildingNames = Array.from(new Set(rooms.map(r => r.building))).filter(Boolean);
     const combinedNames = Array.from(new Set([...catalogBuildingNames, ...roomBuildingNames]));
@@ -638,14 +638,40 @@ export function Dashboard() {
   }, [buildings, rooms]);
 
   const buildingStats = useMemo(() => {
+    // Helper helper getRoomBuildingKey identik dengan RoomsView
+    const resolveRoomBuilding = (r: Room): string => {
+      const matchingMr = (meetingRooms || []).find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
+      if (matchingMr) {
+        if (matchingMr.category === 'SERBAGUNA') return 'Gedung Serbaguna (SG)';
+        if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') return 'Ruang Pertemuan';
+        if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
+          return matchingMr.building;
+        }
+        return 'Ruang Pertemuan';
+      }
+      if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
+        return 'Gedung Serbaguna (SG)';
+      }
+      if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula') {
+        return 'Ruang Pertemuan';
+      }
+      return r.building;
+    };
+
     return buildingsList.map(b => {
-      const bRooms = rooms.filter(r => r.building === b.name);
+      const bRooms = rooms.filter(r => {
+        const bKey = resolveRoomBuilding(r);
+        return bKey.toLowerCase() === b.name.toLowerCase() || r.building.toLowerCase() === b.name.toLowerCase();
+      });
+
       const catalogInfo = (buildings || []).find(bld => bld.name.toLowerCase() === b.name.toLowerCase());
       const total = bRooms.length > 0 ? bRooms.length : (catalogInfo?.totalRooms || 0);
       const occupied = bRooms.filter(r => r.status === 'TERISI').length;
       const reserved = bRooms.filter(r => r.status === 'BOOKED').length;
       const maintenance = bRooms.filter(r => r.status === 'MAINTENANCE').length;
-      const vacant = bRooms.filter(r => r.status === 'KOSONG').length;
+      const vacant = bRooms.length > 0 
+        ? bRooms.filter(r => r.status === 'KOSONG').length 
+        : Math.max(0, total - occupied - reserved - maintenance);
       const readyQc = bRooms.filter(r => r.qcStatus === 'LOLOS_QC').length;
       const occPercent = total > 0 ? Math.round((occupied / total) * 100) : 0;
 

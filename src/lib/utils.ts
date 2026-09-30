@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { Transaction, Room } from "../types"
+import { Transaction, Room, RoomCapacityRate } from "../types"
 import QRCode from 'qrcode';
 import { dataStorage } from "../services/dataStorage";
 
@@ -439,50 +439,93 @@ export function ensureBlackSignatureDataUrl(signatureDataUrl: string): Promise<s
 /**
  * Memperbarui nomor kamar secara otomatis ketika nomor lantai ("Lantai Ke-") diubah/diisi.
  * Mengikuti konvensi baku UPT Asrama Haji Jakarta:
- * Angka pertama pada nomor kamar menunjukkan lantai tempat kamar berada (contoh: 101 -> Lantai 1, 201 -> Lantai 2, A-105 -> A-205).
+ * Nomor lantai berada pada digit awal nomor unit kamar setelah pemisah/kode gedung (misal Gedung D5 Lantai 3 -> D5-301, Gedung A Lantai 2 -> A-201).
  */
 export function updateRoomNumberWithFloor(currentRoomNumber: string, newFloor: number, bldCode?: string): string {
   const safeFloor = Math.max(1, Math.min(20, newFloor || 1));
   const trimmed = (currentRoomNumber || '').trim();
 
+  // Jika string nomor kamar memiliki tanda pemisah '-' (contoh: "D5-201", "A-101", "SG-1")
+  if (trimmed.includes('-')) {
+    const lastHyphenIndex = trimmed.lastIndexOf('-');
+    const prefix = trimmed.slice(0, lastHyphenIndex + 1); // contoh "D5-" atau "A-"
+    const roomPart = trimmed.slice(lastHyphenIndex + 1).trim(); // contoh "201"
+
+    const matchDigits = roomPart.match(/^(\d+)(.*)$/);
+    if (matchDigits) {
+      const digits = matchDigits[1];
+      const suffix = matchDigits[2] || '';
+      let newDigits = '';
+      if (digits.length >= 3) {
+        // Ganti digit lantai (angka pertama untuk 3 digit misal 201 -> 301, atau 2 digit awal untuk 4 digit misal 1001)
+        if (digits.length === 3) {
+          newDigits = `${safeFloor}${digits.slice(1)}`;
+        } else {
+          newDigits = `${safeFloor}${digits.slice(-2)}`;
+        }
+      } else {
+        newDigits = `${safeFloor}01`;
+      }
+      return `${prefix}${newDigits}${suffix}`;
+    }
+    return `${prefix}${safeFloor}01`;
+  }
+
+  // Jika belum ada tanda pemisah '-', cek apakah diawali prefix gedung atau langsung angka
+  const pfx = bldCode ? `${bldCode.trim().toUpperCase()}-` : '';
   if (!trimmed) {
-    const pfx = bldCode ? `${bldCode.trim().toUpperCase()}-` : '';
     return `${pfx}${safeFloor}01`;
   }
 
-  // Cari kelompok angka pertama di dalam string nomor kamar
-  const match = trimmed.match(/^(.*?)(\d+)(.*?)$/);
-  if (match) {
-    const prefix = match[1];
-    const digits = match[2];
-    const suffix = match[3];
-
-    let newDigits = '';
-    if (digits.length >= 2) {
-      // Ganti angka pertama dengan safeFloor
-      newDigits = `${safeFloor}${digits.slice(1)}`;
-    } else {
-      newDigits = `${safeFloor}01`;
-    }
-    return `${prefix}${newDigits}${suffix}`;
+  const matchLettersDigits = trimmed.match(/^([A-Za-z]+)(\d*)$/);
+  if (matchLettersDigits) {
+    const letters = matchLettersDigits[1];
+    return `${letters}-${safeFloor}01`;
   }
 
-  // Jika belum ada angka sama sekali di nomor kamar
-  const separator = trimmed.endsWith('-') ? '' : '-';
-  return `${trimmed}${separator}${safeFloor}01`;
+  const pureDigitsMatch = trimmed.match(/^(\d+)$/);
+  if (pureDigitsMatch) {
+    const digits = pureDigitsMatch[1];
+    if (digits.length >= 2) {
+      return `${pfx}${safeFloor}${digits.slice(1)}`;
+    }
+    return `${pfx}${safeFloor}01`;
+  }
+
+  return `${pfx}${safeFloor}01`;
 }
 
 /**
- * Mendeteksi lantai dari angka pertama pada urutan digit nomor kamar.
- * Contoh: "101" -> 1, "205" -> 2, "A-302" -> 3, "B-412" -> 4.
+ * Mendeteksi lantai dari digit nomor unit kamar (bukan dari digit kode gedung).
+ * Contoh:
+ * - "D5-301" -> 3 (lantai 3, bukan 5)
+ * - "A-205"  -> 2
+ * - "101"    -> 1
+ * - "B-1205" -> 12
  */
 export function extractFloorFromRoomNumber(roomNum: string): number | null {
   if (!roomNum) return null;
-  const match = roomNum.match(/\d+/);
+  const trimmed = roomNum.trim();
+
+  // Jika terdapat hyphen '-', ambil bagian kamar setelah hyphen terakhir
+  let targetNumStr = trimmed;
+  if (trimmed.includes('-')) {
+    const lastHyphenIndex = trimmed.lastIndexOf('-');
+    targetNumStr = trimmed.slice(lastHyphenIndex + 1).trim();
+  }
+
+  const match = targetNumStr.match(/\d+/);
   if (match && match[0].length > 0) {
-    const firstDigit = parseInt(match[0][0], 10);
-    if (!isNaN(firstDigit) && firstDigit >= 1 && firstDigit <= 20) {
-      return firstDigit;
+    const numStr = match[0];
+    if (numStr.length === 3) {
+      const flr = parseInt(numStr[0], 10);
+      if (!isNaN(flr) && flr >= 1 && flr <= 20) return flr;
+    } else if (numStr.length >= 4) {
+      const flr = parseInt(numStr.slice(0, numStr.length - 2), 10);
+      if (!isNaN(flr) && flr >= 1 && flr <= 20) return flr;
+    } else if (numStr.length >= 1) {
+      const flr = parseInt(numStr[0], 10);
+      if (!isNaN(flr) && flr >= 1 && flr <= 20) return flr;
     }
   }
   return null;
@@ -492,9 +535,8 @@ export function extractFloorFromRoomNumber(roomNum: string): number | null {
  * Menghitung nomor kamar berikutnya secara otomatis berdasarkan kamar terakhir yang terdaftar
  * pada gedung dan lantai yang dipilih.
  * Contoh:
- * - Jika terdaftar di lantai 1 kamar terakhir A-101 -> otomatis A-102.
- * - Jika mengetik lantai 2 dan kamar terakhir A-210 -> otomatis A-211.
- * - Jika di lantai tersebut belum ada kamar -> otomatis <Prefix><Floor>01 (misal A-101 atau A-201).
+ * - Gedung D5 Lantai 3 -> D5-301 (atau D5-302 jika D5-301 sudah ada).
+ * - Gedung A Lantai 2 -> A-201 (atau A-202 jika A-201 sudah ada).
  */
 export function getNextRoomNumber(
   allRooms: Room[] = [],
@@ -510,19 +552,21 @@ export function getNextRoomNumber(
     (r.building || '').trim().toLowerCase() === bNameClean
   );
 
-  // Tentukan prefix gedung (misal "A-", "B-", "C-")
+  // Tentukan prefix gedung (misal "D5-", "A-", "B-", "SG-")
   let prefix = '';
   if (buildingCode && buildingCode.trim()) {
-    prefix = `${buildingCode.trim().toUpperCase()}-`;
+    const cleanCode = buildingCode.trim().toUpperCase();
+    prefix = cleanCode.endsWith('-') ? cleanCode : `${cleanCode}-`;
   } else if (buildingRooms.length > 0) {
     const sample = buildingRooms.find(r => r.roomNumber && r.roomNumber.includes('-'));
     if (sample) {
-      const match = sample.roomNumber.match(/^([A-Za-z0-9]+-)/);
-      if (match) prefix = match[1];
+      const lastHyphen = sample.roomNumber.lastIndexOf('-');
+      prefix = sample.roomNumber.slice(0, lastHyphen + 1).toUpperCase();
     }
   }
 
   if (!prefix && buildingName) {
+    // Tangkap kode gedung misal "Gedung D5 (Madinah)" -> "D5-", "Gedung A (Arafah)" -> "A-"
     const matchGedung = buildingName.match(/Gedung\s+([A-Za-z0-9]+)/i);
     if (matchGedung) {
       prefix = `${matchGedung[1].toUpperCase()}-`;
@@ -541,32 +585,62 @@ export function getNextRoomNumber(
   }
 
   // Cari nomor urut kamar terbesar di lantai ini
-  let maxNumber = 0;
+  let maxSeqNumber = 0;
   let detectedFloorPrefix = prefix;
-  let targetPadLength = 3;
 
   floorRooms.forEach(r => {
     const raw = (r.roomNumber || '').trim();
-    // Tangkap prefix dan angka terakhir, contoh: "A-101" -> prefix "A-", digits "101"
-    const match = raw.match(/^(.*?)([0-9]+)$/);
-    if (match) {
-      const pfx = match[1];
-      const numStr = match[2];
-      const num = parseInt(numStr, 10);
-      if (!isNaN(num) && num > maxNumber) {
-        maxNumber = num;
-        detectedFloorPrefix = pfx;
-        targetPadLength = numStr.length;
+    if (raw.includes('-')) {
+      const lastHyphenIndex = raw.lastIndexOf('-');
+      detectedFloorPrefix = raw.slice(0, lastHyphenIndex + 1);
+      const roomPart = raw.slice(lastHyphenIndex + 1).trim();
+      const match = roomPart.match(/^(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeqNumber) {
+          maxSeqNumber = num;
+        }
+      }
+    } else {
+      const match = raw.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeqNumber) {
+          maxSeqNumber = num;
+        }
       }
     }
   });
 
-  if (maxNumber > 0) {
-    const nextNumber = maxNumber + 1;
-    const nextNumStr = String(nextNumber).padStart(targetPadLength, '0');
-    return `${detectedFloorPrefix || prefix}${nextNumStr}`;
+  if (maxSeqNumber > 0) {
+    // Misal maxSeqNumber adalah 301 -> kamar berikutnya 302
+    // Pastikan angka lantai tetap sesuai safeFloor
+    const nextNumber = maxSeqNumber + 1;
+    return `${detectedFloorPrefix || prefix}${nextNumber}`;
   }
 
   return `${prefix}${safeFloor}01`;
+}
+
+/**
+ * Deduplikasi daftar konfigurasi tarif kapasitas kamar berdasarkan ID dan kombinasi roomType::bedType
+ */
+export function deduplicateRoomCapacityRates(rates: RoomCapacityRate[]): RoomCapacityRate[] {
+  if (!Array.isArray(rates)) return [];
+  const seenIds = new Set<string>();
+  const seenCombos = new Set<string>();
+  return rates.filter(r => {
+    if (!r) return false;
+    const idKey = String(r.id || '').trim();
+    const comboKey = `${String(r.roomType || '').trim().toLowerCase()}::${String(r.bedType || '').trim().toLowerCase()}`;
+    
+    // Cegah duplikasi ID ataupun duplikasi kombinasi roomType dan bedType
+    if (idKey && seenIds.has(idKey)) return false;
+    if (comboKey !== '::' && seenCombos.has(comboKey)) return false;
+
+    if (idKey) seenIds.add(idKey);
+    if (comboKey !== '::') seenCombos.add(comboKey);
+    return true;
+  });
 }
 

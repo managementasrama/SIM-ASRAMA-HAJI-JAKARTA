@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isTeknisiRole, isManagerTeknisi, isQcRole, isRecepRole, isKoperasiRole, isSuperAdmin } from '../store';
 import { OFFICIAL_TARIFFS, initialRoomCapacityRates, findRoomRate } from '../data';
 import { Room, Building, MeetingRoom, Transaction, RoomCapacityRate } from '../types';
-import { getRealTodayDate, getRealDateWithOffset, formatIndonesianDate, addDaysToDateStr, formatRupiah, getTxDays, compareBuildingOrder, isMeetingFacility } from '../lib/utils';
+import { getRealTodayDate, getRealDateWithOffset, formatIndonesianDate, addDaysToDateStr, formatRupiah, getTxDays, compareBuildingOrder, isMeetingFacility, deduplicateRoomCapacityRates } from '../lib/utils';
 import { BuildingModal, MeetingRoomModal, RoomModal, RoomCapacityRateModal, DeleteConfirmModal, ActionConfirmModal } from './CatalogManagementModals';
 
 // Helper for distinctive building-related icons for penginapan and other facilities
@@ -196,10 +196,15 @@ export function RoomsView() {
   const canManageMaster = isSuperAdm || currentUser?.role === 'Manager Resepsionis' || currentUser?.role === 'Manager';
   const canManageRooms = isSuperAdm || isRecep;
 
+  // Daftar tarif kapasitas kamar yang terbebas dari duplikasi
+  const cleanRatesList = useMemo(() => {
+    return deduplicateRoomCapacityRates(roomCapacityRates || []);
+  }, [roomCapacityRates]);
+
   // Daftar tipe kamar unik yang terdaftar pada katalog tarif
   const catalogRoomTypes = useMemo(() => {
     const types = new Set<string>();
-    (roomCapacityRates || []).forEach(r => {
+    cleanRatesList.forEach(r => {
       if (r.roomType && r.roomType.trim()) types.add(r.roomType.trim());
     });
     const defaults = ['Ekonomi', 'Standar', 'Superior'];
@@ -212,7 +217,7 @@ export function RoomsView() {
     });
     Array.from(types).sort().forEach(t => ordered.push(t));
     return ordered;
-  }, [roomCapacityRates]);
+  }, [cleanRatesList]);
 
   // Determine user's zone
   const hasAssignedZone = currentUser?.assignedBuilding && 
@@ -2553,7 +2558,7 @@ export function RoomsView() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Konfigurasi</span>
-              <span className="text-xl font-black text-slate-900 mt-1 block">{roomCapacityRates.length}</span>
+              <span className="text-xl font-black text-slate-900 mt-1 block">{cleanRatesList.length}</span>
               <span className="text-[10px] text-slate-500">{catalogRoomTypes.length} Tipe Kamar Terdaftar</span>
             </div>
 
@@ -2563,7 +2568,7 @@ export function RoomsView() {
                 <span className="w-2 h-2 rounded-full bg-teal-500"></span>
               </span>
               <span className="text-xl font-black text-teal-900 mt-1 block">
-                {roomCapacityRates.filter(r => r.roomType === 'Ekonomi').length} Konfigurasi
+                {cleanRatesList.filter(r => r.roomType === 'Ekonomi').length} Konfigurasi
               </span>
               <span className="text-[10px] text-teal-700">Kapasitas 2 s/d 8 Bed</span>
             </div>
@@ -2574,7 +2579,7 @@ export function RoomsView() {
                 <span className="w-2 h-2 rounded-full bg-blue-500"></span>
               </span>
               <span className="text-xl font-black text-blue-900 mt-1 block">
-                {roomCapacityRates.filter(r => r.roomType === 'Standar').length} Konfigurasi
+                {cleanRatesList.filter(r => r.roomType === 'Standar').length} Konfigurasi
               </span>
               <span className="text-[10px] text-blue-700">Kapasitas 2 s/d 8 Bed</span>
             </div>
@@ -2585,7 +2590,7 @@ export function RoomsView() {
                 <span className="w-2 h-2 rounded-full bg-purple-500"></span>
               </span>
               <span className="text-xl font-black text-purple-900 mt-1 block">
-                {roomCapacityRates.filter(r => r.roomType === 'Superior').length} Konfigurasi
+                {cleanRatesList.filter(r => r.roomType === 'Superior').length} Konfigurasi
               </span>
               <span className="text-[10px] text-purple-700">Kapasitas 2 s/d 8 Bed</span>
             </div>
@@ -2596,7 +2601,7 @@ export function RoomsView() {
                 <span className="w-2 h-2 rounded-full bg-amber-500"></span>
               </span>
               <span className="text-xl font-black text-amber-900 mt-1 block">
-                {roomCapacityRates.filter(r => !['Ekonomi', 'Standar', 'Superior'].includes(r.roomType)).length} Konfigurasi
+                {cleanRatesList.filter(r => !['Ekonomi', 'Standar', 'Superior'].includes(r.roomType)).length} Konfigurasi
               </span>
               <span className="text-[10px] text-amber-700">Deluxe, VIP, &amp; Kustom</span>
             </div>
@@ -2608,8 +2613,8 @@ export function RoomsView() {
               <span className="font-bold text-slate-700 mr-1">Filter Tipe Kamar:</span>
               {(['ALL', ...catalogRoomTypes]).map(t => {
                 const count = t === 'ALL' 
-                  ? roomCapacityRates.length 
-                  : roomCapacityRates.filter(r => r.roomType === t).length;
+                  ? cleanRatesList.length 
+                  : cleanRatesList.filter(r => r.roomType === t).length;
                 const isSel = rateTypeFilter === t;
                 return (
                   <button
@@ -2647,7 +2652,7 @@ export function RoomsView() {
 
           {/* Rates Cards Grid (5-GRID SYSTEM) */}
           {(() => {
-            const filteredRates = roomCapacityRates.filter(r => {
+            const filteredRates = cleanRatesList.filter(r => {
               if (rateTypeFilter !== 'ALL' && r.roomType !== rateTypeFilter) return false;
               if (rateSearch) {
                 const q = rateSearch.toLowerCase();
@@ -2672,7 +2677,7 @@ export function RoomsView() {
 
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {filteredRates.map(rate => {
+                {filteredRates.map((rate, rateIdx) => {
                   const matchingRooms = rooms.filter(rm => 
                     rm.type?.toLowerCase() === rate.roomType.toLowerCase() && 
                     rm.bedType?.toLowerCase() === rate.bedType.toLowerCase()
@@ -2684,7 +2689,7 @@ export function RoomsView() {
 
                   return (
                     <div 
-                      key={rate.id}
+                      key={rate.id || `rate-${rate.roomType}-${rate.bedType}-${rateIdx}`}
                       className="p-3 rounded-xl border border-slate-200 bg-white hover:border-emerald-400 hover:shadow-md transition flex flex-col justify-between space-y-2.5 text-xs group"
                     >
                       <div className="space-y-2">

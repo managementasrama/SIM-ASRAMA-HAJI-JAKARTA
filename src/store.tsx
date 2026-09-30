@@ -21,8 +21,9 @@ import {
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages } from './chatData';
 import { playNotificationSound } from './lib/sound';
-import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah } from './lib/utils';
+import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
+import { supabase } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -302,7 +303,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [buildings, setBuildings] = useState<Building[]>(() => dataStorage.getBuildings());
   const [meetingRooms, setMeetingRooms] = useState<MeetingRoom[]>(() => dataStorage.getMeetingRooms());
   const [rooms, setRooms] = useState<Room[]>(() => dataStorage.getRooms());
-  const [roomCapacityRates, setRoomCapacityRates] = useState<RoomCapacityRate[]>(() => dataStorage.getRoomCapacityRates());
+  const [roomCapacityRates, setRoomCapacityRatesState] = useState<RoomCapacityRate[]>(() => deduplicateRoomCapacityRates(dataStorage.getRoomCapacityRates()));
+  const setRoomCapacityRates = (ratesOrFn: RoomCapacityRate[] | ((prev: RoomCapacityRate[]) => RoomCapacityRate[])) => {
+    if (typeof ratesOrFn === 'function') {
+      setRoomCapacityRatesState(prev => deduplicateRoomCapacityRates(ratesOrFn(prev)));
+    } else {
+      setRoomCapacityRatesState(deduplicateRoomCapacityRates(ratesOrFn));
+    }
+  };
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const today = getRealTodayDate();
     const stored = dataStorage.getTransactions();
@@ -474,6 +482,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setQcInspections(cloudDb.qcInspections);
           setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
           setBreakfastOrders(cloudDb.breakfastOrders || []);
+          if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+            setRoomCapacityRates(cloudDb.roomCapacityRates);
+          }
+          if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
+            setPasswordResetRequests(cloudDb.passwordResetRequests);
+          }
           if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
           setSupabaseSyncState(dataStorage.getSupabaseSyncState());
         }
@@ -500,6 +514,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setQcInspections(cloudDb.qcInspections);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
+        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+          setRoomCapacityRates(cloudDb.roomCapacityRates);
+        }
+        if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
+          setPasswordResetRequests(cloudDb.passwordResetRequests);
+        }
         if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
         showToast('Sinkronisasi Supabase berhasil diperbarui!', 'success');
@@ -545,6 +565,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setChatMessages(db.chatMessages);
     setBreakfastMenuItems(db.breakfastMenuItems || []);
     setBreakfastOrders(db.breakfastOrders || []);
+    setRoomCapacityRates(db.roomCapacityRates || []);
+    setPasswordResetRequests(db.passwordResetRequests || []);
     setAppSettings(db.appSettings || dataStorage.getAppSettings());
   };
 
@@ -2879,8 +2901,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Akses Ditolak: Hanya Admin atau Manager Resepsionis yang dapat menambah konfigurasi tarif kamar!', 'error');
       return;
     }
-    dataStorage.saveRoomCapacityRate(rate);
+    const saved = dataStorage.saveRoomCapacityRate(rate);
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
+
+    // Sinkronkan langsung ke tabel Supabase Cloud
+    supabase.from('room_capacity_rates').upsert({
+      id: saved.id,
+      room_type: saved.roomType,
+      bed_type: saved.bedType,
+      capacity_pax: saved.capacityPax,
+      price_per_night: saved.pricePerNight,
+      description: saved.description || null,
+      facilities: saved.facilities || [],
+      is_active: saved.isActive ?? true,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' }).then(({ error }) => {
+      if (error && error.code !== '42P01') console.warn('Supabase rate upsert:', error.message);
+    });
+
     showToast(`Konfigurasi kamar ${rate.roomType} (${rate.bedType} - Rp ${rate.pricePerNight.toLocaleString('id-ID')}) berhasil disimpan!`, 'success');
     logAudit('Tambah Tarif Kamar', `Menambah konfigurasi kapasitas: ${rate.roomType} - ${rate.bedType} (Rp ${rate.pricePerNight})`);
   };
@@ -2890,8 +2928,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Akses Ditolak: Anda tidak memiliki hak untuk mengubah tarif & kapasitas kamar!', 'error');
       return;
     }
-    dataStorage.saveRoomCapacityRate(rate);
+    const saved = dataStorage.saveRoomCapacityRate(rate);
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
+
+    // Sinkronkan langsung ke tabel Supabase Cloud
+    supabase.from('room_capacity_rates').upsert({
+      id: saved.id,
+      room_type: saved.roomType,
+      bed_type: saved.bedType,
+      capacity_pax: saved.capacityPax,
+      price_per_night: saved.pricePerNight,
+      description: saved.description || null,
+      facilities: saved.facilities || [],
+      is_active: saved.isActive ?? true,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' }).then(({ error }) => {
+      if (error && error.code !== '42P01') console.warn('Supabase rate update:', error.message);
+    });
+
     showToast(`Konfigurasi kamar ${rate.roomType} (${rate.bedType}) berhasil diperbarui!`, 'success');
     logAudit('Ubah Tarif Kamar', `Memperbarui konfigurasi kapasitas: ${rate.roomType} - ${rate.bedType} (Rp ${rate.pricePerNight})`);
   };
@@ -2908,6 +2962,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return false;
     }
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
+
+    // Hapus juga langsung dari tabel Supabase Cloud
+    supabase.from('room_capacity_rates').delete().eq('id', rateId).then(({ error }) => {
+      if (error && error.code !== '42P01') console.warn('Supabase rate delete:', error.message);
+    });
+
     showToast(res.message, 'info');
     logAudit('Hapus Tarif Kamar', `Menghapus konfigurasi: ${item?.roomType || ''} - ${item?.bedType || rateId}`);
     return true;

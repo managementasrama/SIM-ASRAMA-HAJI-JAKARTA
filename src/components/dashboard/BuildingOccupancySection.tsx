@@ -70,21 +70,9 @@ export function BuildingOccupancySection({
           </div>
 
           <div className="flex items-center gap-1.5 self-start sm:self-auto">
-            <div 
-              onClick={() => setActiveTab('gedung')}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer hover:shadow-xs transition ${
-                maintKamar === 0
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-                  : 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
-              }`}
-              title="Klik untuk membuka denah visual interaktif"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${maintKamar === 0 ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${maintKamar === 0 ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-              </span>
-              <span>{maintKamar === 0 ? 'Prima' : `${maintKamar} Maint`}</span>
-            </div>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Realtime Sync
+            </span>
           </div>
         </div>
 
@@ -110,7 +98,7 @@ export function BuildingOccupancySection({
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
             }`}
           >
-            Asrama (A-D)
+            Gedung Hunian / Asrama
           </button>
           <button
             type="button"
@@ -121,7 +109,7 @@ export function BuildingOccupancySection({
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
             }`}
           >
-            Aula & Pertemuan
+            Aula &amp; Pertemuan
           </button>
         </div>
 
