@@ -1704,7 +1704,6 @@ export function Modals() {
                       </p>
                     </div>
                   )}
-                </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Nomor Kontak / Telepon</label>
                   <input type="text" value={phone} onChange={e => setPhone(e.target.value)} placeholder="0812xxxxxxxx" className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-hajj-600" />
