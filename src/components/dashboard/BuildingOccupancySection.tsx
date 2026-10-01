@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BuildingDetailModal } from './BuildingDetailModal';
 import { Room, Transaction, Maintenance } from '../../types';
+import { useAppContext } from '../../store';
 
 export interface BuildingStat {
   name: string;
@@ -51,6 +52,7 @@ export function BuildingOccupancySection({
   maintenances = [],
   onOpenRoomDetail,
 }: BuildingOccupancySectionProps) {
+  const context = useAppContext();
   const [bCategoryFilter, setBCategoryFilter] = useState<'ALL' | 'RESIDENTIAL' | 'SG' | 'AULA'>('ALL');
   const [selectedBuildingDetail, setSelectedBuildingDetail] = useState<BuildingStat | null>(null);
 
