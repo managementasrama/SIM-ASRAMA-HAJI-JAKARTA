@@ -33,16 +33,80 @@ export function BuildingDetailModal({
   const buildingRooms = useMemo(() => {
     if (!building) return [];
     const bName = building.name.toLowerCase();
-    return rooms.filter(r => {
+    const isSG = bName.includes('serbaguna') || bName.includes('sg');
+    const isAula = !isSG && (bName.includes('pertemuan') || bName.includes('aula'));
+
+    const filtered = rooms.filter(r => {
       const rBld = (r.building || '').toLowerCase();
-      if (bName.includes('pertemuan') || bName.includes('aula')) {
-        return rBld.includes('pertemuan') || rBld.includes('aula') || r.type?.toLowerCase().includes('pertemuan') || r.type?.toLowerCase().includes('aula');
+      const rType = (r.type || '').toLowerCase();
+      const rNum = (r.roomNumber || '').toLowerCase();
+
+      if (isSG) {
+        return rBld.includes('serbaguna') || rBld.includes('sg') || rType.includes('serbaguna') || rType.includes('sg') || rNum.includes('sg') || rNum.includes('multipurpose');
       }
-      if (bName.includes('serbaguna')) {
-        return rBld.includes('serbaguna') || r.type?.toLowerCase().includes('serbaguna');
+      if (isAula) {
+        const matchesAula = rBld.includes('pertemuan') || rBld.includes('aula') || rType.includes('pertemuan') || rType.includes('aula');
+        const matchesSG = rBld.includes('serbaguna') || rBld.includes('sg') || rType.includes('serbaguna') || rType.includes('sg') || rNum.includes('sg') || rNum.includes('multipurpose');
+        return matchesAula && !matchesSG;
       }
       return rBld === bName || rBld.includes(bName);
     }).sort((a, b) => (a.roomNumber || '').localeCompare(b.roomNumber || '', undefined, { numeric: true }));
+
+    // Fallback khusus jika unit Gedung Serbaguna belum tergenerate di rooms
+    if (isSG && filtered.length === 0) {
+      return [
+        {
+          id: 'mr-1',
+          building: 'Gedung Serbaguna (SG)',
+          roomNumber: 'Gedung SG-1 (SG-1)',
+          floor: 1,
+          type: 'Gedung Serbaguna (SG)',
+          bedType: 'Aula Konvensi Utama',
+          capacity: '1000 - 1500 Orang',
+          capacityNumber: 1500,
+          pricePerNight: 15000000,
+          facilities: ['AC Sentral', 'Panggung Utama', 'Sound System 10.000 Watt', 'Videotron LED', 'VIP Room'],
+          status: 'KOSONG' as const,
+          qcStatus: 'LOLOS_QC' as const,
+          activeTxId: null,
+          activeMaintId: null
+        },
+        {
+          id: 'mr-2',
+          building: 'Gedung Serbaguna (SG)',
+          roomNumber: 'Gedung SG-2 (SG-2)',
+          floor: 1,
+          type: 'Gedung Serbaguna (SG)',
+          bedType: 'Aula Serbaguna 2',
+          capacity: '800 - 1000 Orang',
+          capacityNumber: 1000,
+          pricePerNight: 12000000,
+          facilities: ['AC Sentral', 'Sound System', 'Proyektor Dual', 'Panggung'],
+          status: 'KOSONG' as const,
+          qcStatus: 'LOLOS_QC' as const,
+          activeTxId: null,
+          activeMaintId: null
+        },
+        {
+          id: 'mr-3',
+          building: 'Gedung Serbaguna (SG)',
+          roomNumber: 'Gedung Multipurpose',
+          floor: 1,
+          type: 'Gedung Serbaguna (SG)',
+          bedType: 'Ruang Fleksibel Serbaguna',
+          capacity: '500 - 700 Orang',
+          capacityNumber: 700,
+          pricePerNight: 9000000,
+          facilities: ['AC Sentral', 'Sound System', 'LCD Proyektor', 'Meja Kursi Seminar'],
+          status: 'KOSONG' as const,
+          qcStatus: 'LOLOS_QC' as const,
+          activeTxId: null,
+          activeMaintId: null
+        }
+      ];
+    }
+
+    return filtered;
   }, [building, rooms]);
 
   // Transaksi aktif di gedung ini
@@ -86,7 +150,9 @@ export function BuildingDetailModal({
                   {building.shortName}
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-gold-200 border border-white/20">
-                  {isAula ? 'Fasilitas Pertemuan & Acara' : 'Gedung Penginapan'}
+                  {building.name.includes('Serbaguna') || building.name.includes('SG') 
+                    ? '🏢 Fasilitas Konvensi & Serbaguna (SG)' 
+                    : (isAula ? '🏛️ Fasilitas Pertemuan & Aula' : '🏨 Gedung Penginapan')}
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5 truncate">

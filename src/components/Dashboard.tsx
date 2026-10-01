@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../store';
 import { motion } from 'motion/react';
-import { GroupType, Transaction, Room } from '../types';
+import { GroupType, Transaction, Room, MeetingRoom } from '../types';
 import { addDaysToDateStr, formatIndonesianDate, getRealTodayDate, compareBuildingOrder, isMeetingFacility, formatRupiah } from '../lib/utils';
 import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
@@ -583,7 +583,13 @@ export function Dashboard() {
     const combinedNames = Array.from(new Set([...catalogBuildingNames, ...roomBuildingNames]));
 
     // Separate residential buildings from meeting / multipurpose facilities
-    const regularBuildings = combinedNames.filter(name => !isMeetingFacility(name) && !name.toLowerCase().includes('serbaguna') && !name.toLowerCase().includes('sg'));
+    const regularBuildings = combinedNames.filter(name => 
+      !isMeetingFacility(name) && 
+      !name.toLowerCase().includes('serbaguna') && 
+      !name.toLowerCase().includes('sg') &&
+      !name.toLowerCase().includes('pertemuan') &&
+      !name.toLowerCase().includes('aula')
+    );
     
     // Sort regular buildings using compareBuildingOrder
     regularBuildings.sort((a, b) => compareBuildingOrder(a, b));
@@ -614,7 +620,15 @@ export function Dashboard() {
       );
     }
 
-    // Tepat SATU entri representatif untuk seluruh Ruang Pertemuan / Aula (menghilangkan duplikasi)
+    // Entri representatif untuk Gedung Serbaguna (SG)
+    result.push({
+      name: 'Gedung Serbaguna (SG)',
+      shortName: 'Gedung Serbaguna (SG)',
+      icon: 'fa-building-columns',
+      color: 'amber'
+    });
+
+    // Entri representatif untuk Ruang Pertemuan / Aula
     result.push({
       name: 'Ruang Pertemuan / Aula',
       shortName: 'Ruang Pertemuan / Aula',
@@ -626,39 +640,67 @@ export function Dashboard() {
   }, [buildings, rooms]);
 
   const buildingStats = useMemo(() => {
-    // Helper helper getRoomBuildingKey identik dengan RoomsView
-    const resolveRoomBuilding = (r: Room): string => {
+    // Helper untuk klasifikasi Serbaguna (SG) vs Ruang Pertemuan / Aula identik dengan RoomsView
+    const isMeetingRoomSG = (m: MeetingRoom): boolean => {
+      if (m.category === 'AULA' || m.category === 'RUANG_PERTEMUAN') return false;
+      if (m.category === 'SERBAGUNA') return true;
+      const nLower = (m.name || '').toLowerCase().trim();
+      const cLower = (m.code || '').toLowerCase().trim();
+      const bLower = (m.building || '').toLowerCase().trim();
+      if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
+        return false;
+      }
+      return (
+        nLower.includes('serbaguna') || 
+        nLower.includes('multipurpose') || 
+        nLower.startsWith('gedung sg') || 
+        nLower.startsWith('sg-') || 
+        cLower === 'mp' || 
+        cLower === 'sg-1' || 
+        cLower === 'sg-2' ||
+        bLower.includes('serbaguna')
+      );
+    };
+
+    const isRoomSG = (r: Room): boolean => {
       const matchingMr = (meetingRooms || []).find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
-      if (matchingMr) {
-        return 'Ruang Pertemuan / Aula';
-      }
-      if (
-        r.building === 'Gedung Serbaguna (SG)' || 
-        r.building === 'Gedung Serbaguna' || 
-        r.type === 'Gedung Serbaguna (SG)' ||
-        r.building === 'Ruang Pertemuan' || 
-        r.building === 'Ruang Pertemuan / Aula' || 
-        r.type === 'Ruang Pertemuan / Aula' ||
-        isMeetingFacility(r.building) || 
-        isMeetingFacility(r.type)
-      ) {
-        return 'Ruang Pertemuan / Aula';
-      }
-      return r.building;
+      if (matchingMr) return isMeetingRoomSG(matchingMr);
+      const bLower = (r.building || '').toLowerCase();
+      const tLower = (r.type || '').toLowerCase();
+      const numLower = (r.roomNumber || '').toLowerCase();
+      return bLower.includes('serbaguna') || bLower.includes('sg') || tLower.includes('serbaguna') || tLower.includes('sg') || numLower.includes('sg-') || numLower.includes('multipurpose');
+    };
+
+    const isRoomAula = (r: Room): boolean => {
+      if (isRoomSG(r)) return false;
+      const matchingMr = (meetingRooms || []).find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
+      if (matchingMr) return !isMeetingRoomSG(matchingMr);
+      const bLower = (r.building || '').toLowerCase();
+      const tLower = (r.type || '').toLowerCase();
+      return bLower.includes('pertemuan') || bLower.includes('aula') || tLower.includes('pertemuan') || tLower.includes('aula') || isMeetingFacility(r.building) || isMeetingFacility(r.type);
     };
 
     return buildingsList.map(b => {
-      const isThisAula = b.name === 'Ruang Pertemuan / Aula' || isMeetingFacility(b.name);
-      const bRooms = rooms.filter(r => {
-        const bKey = resolveRoomBuilding(r);
-        if (isThisAula) {
-          return bKey === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type);
-        }
-        return bKey.toLowerCase() === b.name.toLowerCase() || r.building.toLowerCase() === b.name.toLowerCase();
-      });
+      const isSG = b.name === 'Gedung Serbaguna (SG)' || b.name.includes('Serbaguna');
+      const isAula = b.name === 'Ruang Pertemuan / Aula' || (!isSG && (b.name.includes('Pertemuan') || b.name.includes('Aula') || isMeetingFacility(b.name)));
+
+      let bRooms: Room[] = [];
+      if (isSG) {
+        bRooms = rooms.filter(isRoomSG);
+      } else if (isAula) {
+        bRooms = rooms.filter(isRoomAula);
+      } else {
+        bRooms = rooms.filter(r => !isRoomSG(r) && !isRoomAula(r) && r.building.toLowerCase() === b.name.toLowerCase());
+      }
 
       const catalogInfo = (buildings || []).find(bld => bld.name.toLowerCase() === b.name.toLowerCase());
-      const total = bRooms.length > 0 ? bRooms.length : (catalogInfo?.totalRooms || 0);
+      const fallbackTotal = isSG 
+        ? ((meetingRooms || []).filter(isMeetingRoomSG).length || 3)
+        : isAula 
+          ? ((meetingRooms || []).filter(m => !isMeetingRoomSG(m)).length || 10)
+          : (catalogInfo?.totalRooms || 0);
+
+      const total = bRooms.length > 0 ? bRooms.length : fallbackTotal;
       const occupied = bRooms.filter(r => r.status === 'TERISI').length;
       const reserved = bRooms.filter(r => r.status === 'BOOKED').length;
       const maintenance = bRooms.filter(r => r.status === 'MAINTENANCE').length;
@@ -668,30 +710,28 @@ export function Dashboard() {
       const readyQc = bRooms.filter(r => r.qcStatus === 'LOLOS_QC').length;
       const occPercent = total > 0 ? Math.round((occupied / total) * 100) : 0;
 
-      const isAula = b.name === 'Ruang Pertemuan' || 
-                     b.name.includes('Pertemuan') || 
-                     b.name.includes('Aula') || 
-                     b.name.includes('Serbaguna') || 
-                     isMeetingFacility(b.name);
-
       let minPrice = 0;
       let maxPrice = 0;
       let priceLabel = '';
       let totalPax = 0;
       let capacityDesc = '';
 
-      if (isAula) {
-        const mrMatch = (meetingRooms || []).find(m => 
-          m.name.toLowerCase() === b.name.toLowerCase() || 
-          m.building?.toLowerCase() === b.name.toLowerCase() ||
-          b.name.toLowerCase().includes(m.name.toLowerCase())
-        );
-        const sessionPrice = mrMatch?.sessionRate || 8500000;
-        const dailyPrice = mrMatch?.dailyRate || 15000000;
+      if (isSG) {
+        const sgList = (meetingRooms || []).filter(isMeetingRoomSG);
+        const sessionPrice = sgList[0]?.sessionRate || 8500000;
+        const dailyPrice = sgList[0]?.dailyRate || 15000000;
         minPrice = sessionPrice;
         maxPrice = dailyPrice;
-        priceLabel = `Sesi: ${formatRupiah(sessionPrice)} • 12 Jam: ${formatRupiah(dailyPrice)}`;
-        capacityDesc = mrMatch?.capacity || '1.000 - 1.500 Orang';
+        priceLabel = `Sesi: ${formatRupiah(sessionPrice)} • Harian: ${formatRupiah(dailyPrice)}`;
+        capacityDesc = '800 - 1.500 Orang';
+      } else if (isAula) {
+        const aulaList = (meetingRooms || []).filter(m => !isMeetingRoomSG(m));
+        const sessionPrice = aulaList[0]?.sessionRate || 4500000;
+        const dailyPrice = aulaList[0]?.dailyRate || 7500000;
+        minPrice = sessionPrice;
+        maxPrice = dailyPrice;
+        priceLabel = `Sesi: ${formatRupiah(sessionPrice)} • Harian: ${formatRupiah(dailyPrice)}`;
+        capacityDesc = '300 - 500 Orang';
       } else {
         const prices = bRooms.map(r => {
           const matched = findRoomRate(r.type, r.bedType, roomCapacityRates);
@@ -719,7 +759,7 @@ export function Dashboard() {
         vacant,
         readyQc,
         occPercent,
-        isAula,
+        isAula: isSG || isAula,
         minPrice,
         maxPrice,
         priceLabel,

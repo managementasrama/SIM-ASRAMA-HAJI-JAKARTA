@@ -16,7 +16,8 @@ import {
   PasswordResetRequest,
   UserRole,
   EmailNotificationItem,
-  RoomCapacityRate
+  RoomCapacityRate,
+  UserPermissions
 } from './types';
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages } from './chatData';
@@ -91,6 +92,47 @@ export function isKeuanganRole(role?: string, department?: string): boolean {
          lower.includes('penerimaan') ||
          deptLower.includes('keuangan') ||
          deptLower.includes('perbendaharaan');
+}
+
+export function getUserEffectivePermissions(user?: User | null): UserPermissions {
+  if (!user) {
+    return {};
+  }
+  const role = user.role || '';
+  const isSuper = isSuperAdmin(role) || user.isOwner;
+  const isKeuangan = isKeuanganRole(role, user.department);
+  const isRecep = isRecepRole(role);
+  const isQc = isQcRole(role);
+  const isTek = isTeknisiRole(role);
+  const isKop = isKoperasiRole(role);
+
+  // Baseline defaults based on official SOP and Role
+  const defaults: UserPermissions = {
+    canConfigApp: isSuper,
+    canManageProfile: true,
+    canManageSignature: true,
+    canCrudRooms: isSuper || isRecep,
+    canCrudCheckin: isSuper || isRecep,
+    canCrudBooking: isSuper || isRecep,
+    canCrudGroup: isSuper || isRecep,
+    canCrudAula: isSuper || isRecep,
+    canRecordPayment: isSuper || isKeuangan,
+    canIssueInvoice: isSuper || isKeuangan || isRecep,
+    canIssueKwitansi: isSuper || isKeuangan,
+    canCrudMaintenance: isSuper || isTek || isQc,
+    canCrudQc: isSuper || isQc,
+    canCrudCatering: isSuper || isKop,
+    canManageUsers: isSuper,
+    canManagePermissions: isSuper,
+    canViewAuditLog: isSuper || isKeuangan || isRecep || isTek || isQc || isKop,
+    canExportReports: isSuper || isKeuangan || isRecep || isTek || isQc
+  };
+
+  // If account has customized permissions saved by Admin, merge them with priority
+  if (user.permissions) {
+    return { ...defaults, ...user.permissions };
+  }
+  return defaults;
 }
 
 interface AppContextType {
@@ -1054,11 +1096,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateUser = (updatedUser: User) => {
-    if (!isSuperAdmin(currentUser?.role)) {
+    if (!isSuperAdmin(currentUser?.role) && currentUser?.id !== updatedUser.id) {
       showToast("Akses Ditolak: Hanya Administrator yang berwenang mengubah data akun petugas!", "error");
       return;
     }
     setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    dataStorage.saveUser(updatedUser);
+    if (currentUser && currentUser.id === updatedUser.id) {
+      setCurrentUser(updatedUser);
+      try {
+        localStorage.setItem('sim_haji_current_user', JSON.stringify(updatedUser));
+        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(updatedUser));
+      } catch (_) {}
+    }
     logAudit("Ubah Akun", `Memperbarui akun: ${updatedUser.username} (${updatedUser.fullName}) - ${updatedUser.role}`);
     showToast(`Data petugas ${updatedUser.fullName} berhasil diperbarui di sistem!`, "success");
   };

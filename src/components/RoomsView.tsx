@@ -1842,9 +1842,7 @@ export function RoomsView() {
                       <div className="flex items-center space-x-3">
                         <div className="flex items-center space-x-2 text-xs flex-wrap gap-y-1">
                           <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold">{bRooms.filter(r => r.status === 'KOSONG').length} Tersedia</span>
-                          {!isSGBuilding && bName !== 'Ruang Pertemuan' && (
-                            <span className="px-2 py-1 bg-emerald-600 text-white rounded font-semibold">{bRooms.filter(r => r.status === 'TERISI').length} Terisi</span>
-                          )}
+                          <span className="px-2 py-1 bg-emerald-600 text-white rounded font-semibold">{bRooms.filter(r => r.status === 'TERISI').length} Terisi</span>
                           <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded font-semibold">{bRooms.filter(r => r.status === 'BOOKED').length} Booked</span>
                           <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded font-semibold">{bRooms.filter(r => r.status === 'MAINTENANCE').length} Maint</span>
                           <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded font-semibold" title="Kamar/Aula yang memerlukan inspeksi QC">

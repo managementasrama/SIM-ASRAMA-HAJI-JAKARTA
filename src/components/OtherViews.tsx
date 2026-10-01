@@ -3700,7 +3700,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     exportDatabaseBackup, importDatabaseBackup, resetDatabase, clearWorkSessions,
     rooms = [], transactions = [], maintenances = [], users = [],
     breakfastOrders = [], breakfastMenuItems = [], qcInspections = [],
-    supabaseSyncState, manualSyncSupabase, pushAllToSupabase, setActiveTab, dataStorage
+    supabaseSyncState, manualSyncSupabase, pushAllToSupabase, setActiveTab, dataStorage,
+    updateUser, appSettings, updateAppSettings
   } = useAppContext();
   const safeWorkSessions = workSessions || [];
   const fileImportRef = React.useRef<HTMLInputElement>(null);
@@ -4947,6 +4948,9 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           onOpenLaporanKwitansi={() => setActiveTab('laporanKamar')}
           onOpenGedungKamar={() => setActiveTab('gedung')}
           showToast={showToast}
+          onUpdateUser={updateUser}
+          appSettings={appSettings}
+          onUpdateAppSettings={updateAppSettings}
         />
       ) : activeSubView === 'AUDIT_TRAIL' ? (
         /* Audit Trail Tab */

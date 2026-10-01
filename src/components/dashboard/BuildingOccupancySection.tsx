@@ -51,12 +51,15 @@ export function BuildingOccupancySection({
   maintenances = [],
   onOpenRoomDetail,
 }: BuildingOccupancySectionProps) {
-  const [bCategoryFilter, setBCategoryFilter] = useState<'ALL' | 'RESIDENTIAL' | 'AULA'>('ALL');
+  const [bCategoryFilter, setBCategoryFilter] = useState<'ALL' | 'RESIDENTIAL' | 'SG' | 'AULA'>('ALL');
   const [selectedBuildingDetail, setSelectedBuildingDetail] = useState<BuildingStat | null>(null);
 
   const filteredBuildings = buildingStats.filter(b => {
-    const isAula = b.name.includes('Pertemuan') || b.name.includes('Aula') || b.name.includes('Serbaguna');
-    if (bCategoryFilter === 'RESIDENTIAL') return !isAula;
+    const isSG = b.name.includes('Serbaguna') || b.name.includes('SG');
+    const isAula = !isSG && (b.name.includes('Pertemuan') || b.name.includes('Aula'));
+    const isResidential = !isSG && !isAula;
+    if (bCategoryFilter === 'RESIDENTIAL') return isResidential;
+    if (bCategoryFilter === 'SG') return isSG;
     if (bCategoryFilter === 'AULA') return isAula;
     return true;
   });
@@ -75,7 +78,7 @@ export function BuildingOccupancySection({
                 Keterisian & Denah Per Gedung
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Monitoring visual okupansi {buildingStats.length} Gedung Asrama & Aula Terpadu
+                Monitoring visual okupansi {buildingStats.length} Gedung Asrama, Gedung Serbaguna (SG) &amp; Aula
               </p>
             </div>
           </div>
@@ -87,12 +90,12 @@ export function BuildingOccupancySection({
           </div>
         </div>
 
-        {/* Category Filter Tabs */}
-        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-xs font-semibold">
+        {/* Category Filter Tabs: Semua, Gedung Hunian, Gedung Serbaguna (SG), Ruang Pertemuan / Aula */}
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-xs font-semibold overflow-x-auto">
           <button
             type="button"
             onClick={() => setBCategoryFilter('ALL')}
-            className={`flex-1 py-1 px-2 rounded-lg transition cursor-pointer text-center ${
+            className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-lg transition cursor-pointer text-center text-xs ${
               bCategoryFilter === 'ALL'
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -103,24 +106,35 @@ export function BuildingOccupancySection({
           <button
             type="button"
             onClick={() => setBCategoryFilter('RESIDENTIAL')}
-            className={`flex-1 py-1 px-2 rounded-lg transition cursor-pointer text-center ${
+            className={`flex-1 min-w-[95px] py-1.5 px-2 rounded-lg transition cursor-pointer text-center text-xs ${
               bCategoryFilter === 'RESIDENTIAL'
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
             }`}
           >
-            Gedung Hunian / Asrama
+            Gedung Hunian
+          </button>
+          <button
+            type="button"
+            onClick={() => setBCategoryFilter('SG')}
+            className={`flex-1 min-w-[130px] py-1.5 px-2 rounded-lg transition cursor-pointer text-center text-xs ${
+              bCategoryFilter === 'SG'
+                ? 'bg-amber-600 text-white shadow-2xs font-bold'
+                : 'text-amber-800 dark:text-amber-300 hover:bg-amber-100/50'
+            }`}
+          >
+            🏢 Gedung Serbaguna (SG)
           </button>
           <button
             type="button"
             onClick={() => setBCategoryFilter('AULA')}
-            className={`flex-1 py-1 px-2 rounded-lg transition cursor-pointer text-center ${
+            className={`flex-1 min-w-[130px] py-1.5 px-2 rounded-lg transition cursor-pointer text-center text-xs ${
               bCategoryFilter === 'AULA'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                ? 'bg-purple-600 text-white shadow-2xs font-bold'
+                : 'text-purple-800 dark:text-purple-300 hover:bg-purple-100/50'
             }`}
           >
-            Aula &amp; Pertemuan
+            🏛️ Ruang Pertemuan / Aula
           </button>
         </div>
 
@@ -176,17 +190,32 @@ export function BuildingOccupancySection({
         {/* Building Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto pr-0.5">
           {filteredBuildings.map(b => {
-            const isAula = b.name.includes('Pertemuan') || b.name.includes('Aula') || b.name.includes('Serbaguna');
+            const isSG = b.name.includes('Serbaguna') || b.name.includes('SG');
+            const isAula = !isSG && (b.name.includes('Pertemuan') || b.name.includes('Aula'));
+            const cardBorder = isSG 
+              ? 'border-amber-300 dark:border-amber-700/80 hover:border-amber-500 bg-amber-50/30 dark:bg-amber-950/20' 
+              : isAula 
+              ? 'border-purple-300 dark:border-purple-700/80 hover:border-purple-500 bg-purple-50/30 dark:bg-purple-950/20' 
+              : 'border-slate-200/80 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50/80 dark:bg-slate-800/80';
+
+            const iconColor = isSG ? 'text-amber-600 dark:text-amber-400' : isAula ? 'text-purple-600 dark:text-purple-400' : 'text-slate-400 group-hover:text-blue-500';
+            const progressColor = isSG ? 'bg-amber-500' : isAula ? 'bg-purple-600' : 'bg-emerald-600';
+
             return (
               <div 
                 key={b.name} 
                 onClick={() => setSelectedBuildingDetail(b)}
-                className="p-3 bg-slate-50/80 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 space-y-2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xs cursor-pointer group"
+                className={`p-3 rounded-xl border ${cardBorder} hover:bg-white dark:hover:bg-slate-800 space-y-2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xs cursor-pointer group`}
               >
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center space-x-1.5 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                    <i className={`fa-solid ${b.icon} text-slate-400 group-hover:text-blue-500 text-xs transition-colors shrink-0`}></i>
+                    <i className={`fa-solid ${b.icon} ${iconColor} text-xs transition-colors shrink-0`}></i>
                     <span className="truncate">{b.shortName}</span>
+                    {isSG && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                        Konvensi
+                      </span>
+                    )}
                   </span>
                   <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 shrink-0">
                     {b.occupied}/{b.total} ({b.occPercent}%)
@@ -196,7 +225,7 @@ export function BuildingOccupancySection({
                 {/* Progress bar per building */}
                 <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden flex">
                   <div 
-                    className={`${isAula ? 'bg-purple-600' : 'bg-emerald-600'} h-full transition-all duration-500`} 
+                    className={`${progressColor} h-full transition-all duration-500`} 
                     style={{ width: `${b.occPercent}%` }} 
                   />
                   <div 

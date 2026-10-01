@@ -17,6 +17,27 @@ export type UserRole =
   | 'Manager'
   | string;
 
+export interface UserPermissions {
+  canConfigApp?: boolean;          // Konfigurasi Judul, Sub Judul, Logo & Favicon
+  canManageProfile?: boolean;       // Mengedit Profil & Password Akun Sendiri
+  canManageSignature?: boolean;     // Mengatur Tanda Tangan Digital & QR Code
+  canCrudRooms?: boolean;           // CRUD Kamar, Gedung & Master Tarif
+  canCrudCheckin?: boolean;         // Check-In & Check-Out Tamu
+  canCrudBooking?: boolean;         // Booking Tanggal Mendatang & Extend Sewa
+  canCrudGroup?: boolean;           // Pendaftaran & Kelola Rombongan
+  canCrudAula?: boolean;            // Sewa Ruang Pertemuan & Gedung Serbaguna (SG)
+  canRecordPayment?: boolean;       // Catat Setoran DP & Pelunasan 100%
+  canIssueInvoice?: boolean;        // Terbitkan & Cetak Faktur Tagihan (Invoice)
+  canIssueKwitansi?: boolean;       // Terbitkan & Cetak Kwitansi Ber-QR Resmi Sah
+  canCrudMaintenance?: boolean;     // CRUD Tiket Maintenance & Teknisi
+  canCrudQc?: boolean;              // CRUD Inspeksi Mutu QC & Checklist
+  canCrudCatering?: boolean;        // CRUD Menu & Pesanan Makan Koperasi
+  canManageUsers?: boolean;         // Menambah / Edit / Hapus Akun Petugas
+  canManagePermissions?: boolean;   // Mengatur Hak Akses & Otorisasi Akun
+  canViewAuditLog?: boolean;        // Melihat Log Audit & Sesi Jam Kerja
+  canExportReports?: boolean;       // Ekspor Laporan Excel (.xlsx) & PDF
+}
+
 export interface User {
   id: string;
   username: string;
@@ -34,6 +55,7 @@ export interface User {
   signatureUrl?: string;
   qrCodeUrl?: string;
   signatureHistory?: { id: string; timestamp: string; signatureUrl: string; method: 'UPLOAD' | 'DRAWN'; resolution?: string }[];
+  permissions?: UserPermissions;
 }
 
 export interface Building {
