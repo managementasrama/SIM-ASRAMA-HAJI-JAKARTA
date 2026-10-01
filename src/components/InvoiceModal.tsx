@@ -784,10 +784,12 @@ function InvoiceModalInner({
     <div 
       id="invoice-modal-overlay" 
       className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:overflow-visible print:block print:z-auto"
+      onClick={onClose}
     >
       <div 
         id="invoice-modal-card" 
         className={`bg-white rounded-2xl shadow-2xl ${activeDocTab === 'BOTH' ? 'max-w-[96vw] xl:max-w-7xl' : 'max-w-5xl'} w-full overflow-hidden border border-slate-200 flex flex-col max-h-[94vh] my-auto animate-in fade-in zoom-in duration-150 print:max-h-none print:h-auto print:shadow-none print:border-none print:w-full print:overflow-visible print:static print:m-0 print:rounded-none`}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header Toolbar */}
         <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-3.5 text-white flex items-center justify-between shrink-0 print:hidden border-b border-gold-500/20">
@@ -2001,8 +2003,14 @@ function InvoiceModalInner({
 
       {/* MODAL DIALOG CATAT PELUNASAN TAGIHAN & UANG MUKA (DP) */}
       {showPayModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 my-auto animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => setShowPayModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 my-auto animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             
             {/* Header Popup */}
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">

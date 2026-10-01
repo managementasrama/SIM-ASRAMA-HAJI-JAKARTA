@@ -977,8 +977,14 @@ export function Modals() {
   return (
     <>
       {isCheckinOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden">
-          <div className={`bg-white dark:bg-slate-800 rounded-2xl shadow-2xl ${isAula ? 'max-w-2xl' : 'max-w-xl'} w-full overflow-hidden border border-slate-100 dark:border-slate-700 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto min-w-0`}>
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden"
+          onClick={() => closeModal('modalCheckin')}
+        >
+          <div 
+            className={`bg-white dark:bg-slate-800 rounded-2xl shadow-2xl ${isAula ? 'max-w-2xl' : 'max-w-xl'} w-full overflow-hidden border border-slate-100 dark:border-slate-700 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto min-w-0`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="font-bold text-base flex items-center space-x-2 flex-wrap gap-1">
@@ -2592,8 +2598,14 @@ export function Modals() {
       )}
 
       {isMaintOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalMaintenance')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-slate-900 via-hajj-900 to-amber-950 px-6 py-4.5 text-white flex items-center justify-between shrink-0 border-b border-amber-500/30">
               <div className="flex items-center space-x-3">
@@ -2835,8 +2847,14 @@ export function Modals() {
       )}
 
       {isUpdateMaintOpen && targetMaintenance && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-emerald-900/10 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalUpdateMaintenance')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-emerald-900/10 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="bg-gradient-to-r from-emerald-800 via-hajj-800 to-slate-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div>
                 <div className="flex items-center space-x-2">
@@ -3085,8 +3103,14 @@ export function Modals() {
 
       {/* MODAL PENUGASAN TEKNISI OLEH MANAGER TEKNISI */}
       {isAssignTechOpen && targetMaintToAssign && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-emerald-900/10 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalAssignTechnician')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-emerald-900/10 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-slate-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div>
                 <div className="flex items-center space-x-2">
@@ -3212,8 +3236,14 @@ export function Modals() {
       )}
 
       {isUserMgmtOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalUserManagement')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header: Sesuai Style Booking Kamar */}
             <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-4 text-white flex items-center justify-between shrink-0 border-b border-gold-500/30">
               <div className="flex items-center space-x-3">
@@ -3770,8 +3800,14 @@ export function Modals() {
       )}
 
       {isKloterOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalKloter')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
               <div className="bg-gradient-to-r from-blue-800 to-indigo-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
                   <div>
                       <h3 className="font-bold text-base flex items-center"><i className="fa-solid fa-plane-arrival mr-2 text-gold-400"></i> Jadwal Kloter Jemaah Haji</h3>
@@ -3804,8 +3840,14 @@ export function Modals() {
       )}
 
       {isExportOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalExport')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Header */}
             <div className="bg-gradient-to-r from-emerald-800 via-teal-900 to-slate-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
@@ -4109,8 +4151,14 @@ export function Modals() {
       )}
 
       {isCalendarDetailOpen && calendarDetailData && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalCalendarDetail')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
               <div className="bg-gradient-to-r from-slate-900 via-hajj-900 to-slate-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
                   <div>
                       <div className="flex items-center space-x-2">
@@ -4627,8 +4675,14 @@ export function Modals() {
           : `Pilih Tamu Check-Out ${targetRoom?.type ? `(${targetRoom.type})` : ''}`;
 
         return (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto">
+          <div 
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+            onClick={() => closeModal('modalCheckoutSelection')}
+          >
+            <div 
+              className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
               
               {/* HEADER (Matches modalCheckin style) */}
               <div className={`${headerGradient} px-6 py-4 text-white flex items-center justify-between shrink-0`}>
@@ -4898,8 +4952,14 @@ export function Modals() {
       {isQcInspectionOpen && qcTargetRoom && (() => {
         const isQcAula = qcTargetRoom.building === 'Ruang Pertemuan' || qcTargetRoom.roomNumber.toLowerCase().includes('aula');
         return (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150">
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => closeModal('modalQcInspection')}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100 flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="bg-gradient-to-r from-teal-700 via-teal-800 to-slate-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div>
                 <div className="flex items-center space-x-2">

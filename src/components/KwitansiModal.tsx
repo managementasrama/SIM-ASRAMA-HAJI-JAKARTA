@@ -569,8 +569,14 @@ function KwitansiModalInner({
   // If user does not have authorization
   if (!isAuthorized) {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border-2 border-rose-300 text-center space-y-4">
+      <div 
+        className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div 
+          className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border-2 border-rose-300 text-center space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto text-2xl shadow-inner">
             <i className="fa-solid fa-shield-halved"></i>
           </div>
@@ -595,8 +601,14 @@ function KwitansiModalInner({
   // GATE: KWITANSI HANYA BERLAKU JIKA SUDAH LUNAS 100%
   if (!isLunas) {
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border-2 border-amber-300 text-center space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div 
+        className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div 
+          className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border-2 border-amber-300 text-center space-y-4 animate-in fade-in zoom-in-95 duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-inner border border-amber-200">
             <i className="fa-solid fa-receipt"></i>
           </div>
@@ -669,11 +681,16 @@ function KwitansiModalInner({
   }
 
   return (
-    <div id="kwitansi-modal-overlay" className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs overflow-y-auto flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static print:inset-auto print:overflow-visible print:block">
+    <div 
+      id="kwitansi-modal-overlay" 
+      className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs overflow-y-auto flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static print:inset-auto print:overflow-visible print:block"
+      onClick={onClose}
+    >
       {/* ELEGANT A5 PORTRAIT CONTAINER (THEMED WITH WEBSITE HAJJ & GOLD COLORS) */}
       <div 
         id="kwitansi-modal-card" 
         className="bg-white rounded-2xl shadow-2xl border border-gold-600/40 max-w-3xl w-full my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:max-h-none print:h-auto print:shadow-none print:border-none print:w-full print:m-0 print:rounded-none"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header Bar (Hidden on Print) */}
         <div className="no-print bg-gradient-to-r from-hajj-900 via-hajj-800 to-slate-900 text-white px-5 py-3.5 flex items-center justify-between gap-3 border-b border-gold-500/30">

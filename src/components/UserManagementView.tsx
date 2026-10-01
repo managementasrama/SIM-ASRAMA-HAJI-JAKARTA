@@ -1617,8 +1617,14 @@ export function UserManagementView() {
 
       {/* 5. QUICK PASSWORD MODAL */}
       {pwdTargetUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setPwdTargetUser(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
               <div className="flex items-center space-x-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-base">
@@ -1679,8 +1685,14 @@ export function UserManagementView() {
 
       {/* 6. IN-APP CONFIRMATION ACTION MODAL (SAFE FROM IFRAME RESTRICTIONS) */}
       {confirmActionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/50 space-y-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setConfirmActionModal(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/50 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center space-x-3">
               <div className="w-11 h-11 rounded-xl bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold text-lg shrink-0">
                 <i className="fa-solid fa-triangle-exclamation"></i>

@@ -1347,8 +1347,14 @@ export function MaintenanceReportsView() {
 
       {/* Maintenance Detail Popup Modal */}
       {selectedDetailMaintenance && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setSelectedDetailMaintenance(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-base shadow-inner">
@@ -3163,8 +3169,14 @@ export function BreakfastOrdersView() {
 
       {/* ================= MODAL: BUAT PESANAN SARAPAN BARU ================= */}
       {isAddOrderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 custom-scrollbar">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setIsAddOrderOpen(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 custom-scrollbar"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h4 className="font-bold text-slate-800 text-base flex items-center space-x-2">
                 <i className="fa-solid fa-bowl-rice text-orange-600"></i>
@@ -3422,8 +3434,14 @@ export function BreakfastOrdersView() {
 
       {/* ================= MODAL: TAMBAH / UBAH MENU SARAPAN ================= */}
       {isAddMenuOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setIsAddMenuOpen(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base shrink-0 border border-emerald-200 shadow-2xs">
@@ -3559,8 +3577,14 @@ export function BreakfastOrdersView() {
 
       {/* ================= MODAL: KONFIRMASI HAPUS PESANAN ================= */}
       {orderToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-center">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setOrderToDelete(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center text-xl mx-auto border border-rose-200 shadow-inner">
               <i className="fa-solid fa-trash-can"></i>
             </div>
@@ -3600,8 +3624,14 @@ export function BreakfastOrdersView() {
 
       {/* ================= MODAL: KONFIRMASI BATALKAN PESANAN ================= */}
       {orderToCancel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-center">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setOrderToCancel(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl mx-auto border border-amber-200 shadow-inner">
               <i className="fa-solid fa-ban"></i>
             </div>
@@ -3643,8 +3673,14 @@ export function BreakfastOrdersView() {
 
       {/* ================= MODAL: KONFIRMASI HAPUS MENU KATALOG ================= */}
       {menuToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-center">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setMenuToDelete(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 space-y-4 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center text-xl mx-auto border border-rose-200 shadow-inner">
               <i className="fa-solid fa-trash-can"></i>
             </div>
@@ -5908,8 +5944,14 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
           {/* Modal Skrip SQL Supabase */}
           {showSqlModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
+            <div 
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+              onClick={() => setShowSqlModal(false)}
+            >
+              <div 
+                className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-200"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
                   <div className="flex items-center space-x-2">
                     <i className="fa-solid fa-database text-emerald-600"></i>
@@ -6224,8 +6266,14 @@ END $$;`;
 
       {/* Modal Konfirmasi Reset Database */}
       {showResetConfirmModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+        <div 
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150"
+          onClick={() => setShowResetConfirmModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center text-xl shrink-0">
                 <i className="fa-solid fa-triangle-exclamation"></i>
@@ -6274,8 +6322,14 @@ END $$;`;
 
       {/* Modal Konfirmasi Reset Rekap Sesi Kerja */}
       {showResetSessionsModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+        <div 
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150"
+          onClick={() => setShowResetSessionsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl shrink-0">
                 <i className="fa-solid fa-broom"></i>

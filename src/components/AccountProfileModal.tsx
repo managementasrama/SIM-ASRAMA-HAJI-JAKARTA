@@ -337,8 +337,14 @@ export function AccountProfileModal({ isOpen, onClose, initialSection }: Account
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="p-4 bg-hajj-800 text-white flex items-center justify-between border-b border-gold-500/30">
           <div className="flex items-center space-x-3">
@@ -838,8 +844,14 @@ export function AccountProfileModal({ isOpen, onClose, initialSection }: Account
 
       {/* Signature Drawing Modal */}
       {showDrawModal && (
-        <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 animate-in fade-in zoom-in duration-200">
+        <div 
+          className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowDrawModal(false)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 text-slate-900 dark:text-slate-100 font-bold">
                 <i className="fa-solid fa-pen-nib text-hajj-700"></i>
@@ -911,8 +923,14 @@ export function AccountProfileModal({ isOpen, onClose, initialSection }: Account
 
       {/* Signature History Modal */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 animate-in fade-in zoom-in duration-200">
+        <div 
+          className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowHistoryModal(false)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4 animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 text-slate-900 dark:text-slate-100 font-bold">
                 <i className="fa-solid fa-clock-rotate-left text-hajj-700"></i>

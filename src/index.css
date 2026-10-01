@@ -44,9 +44,11 @@ html {
   width: 100%;
 }
 
+html.modal-open,
 body.modal-open {
   overflow: hidden !important;
   overscroll-behavior: none !important;
+  touch-action: none;
 }
 
 .dark body {

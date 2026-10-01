@@ -376,8 +376,14 @@ export function ExtendModal({
 
   if (!isCheckedIn) {
     return (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center space-y-4 my-auto border border-amber-300 animate-in fade-in zoom-in duration-150">
+      <div 
+        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+        onClick={handleDismiss}
+      >
+        <div 
+          className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center space-y-4 my-auto border border-amber-300 animate-in fade-in zoom-in duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto text-2xl border border-amber-300 shadow-inner">
             <i className="fa-solid fa-clock-rotate-left"></i>
           </div>
@@ -403,8 +409,14 @@ export function ExtendModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[94vh] my-auto animate-in fade-in zoom-in duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      onClick={handleDismiss}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[94vh] my-auto animate-in fade-in zoom-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-4 text-white flex items-center justify-between shrink-0 border-b border-gold-500/20">

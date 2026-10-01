@@ -1226,42 +1226,78 @@ export async function downloadDirectInvoicePdf(
 
 /**
  * Calculates precision column widths tailored to report type so that no text is truncated.
+ * Always calibrated to sum exactly to tableWidth (default: 273mm for A4 Landscape with 12mm margins).
  */
 export function calculateReportColumnWidths(headers: string[], reportType?: string, tableWidth = 273): number[] {
   const colCount = headers.length;
-  if (reportType === 'KAMAR' && colCount === 14) {
+  const normType = (reportType || '').toUpperCase();
+
+  // Helper to ensure width array sums exactly to tableWidth
+  const normalizeWidths = (arr: number[]): number[] => {
+    const sum = arr.reduce((a, b) => a + b, 0);
+    const diff = Number((tableWidth - sum).toFixed(1));
+    if (diff !== 0 && arr.length > 0) {
+      // Adjust the widest content column (usually notes or details)
+      let maxIdx = arr.length - 1;
+      let maxVal = 0;
+      arr.forEach((v, idx) => {
+        if (v > maxVal) {
+          maxVal = v;
+          maxIdx = idx;
+        }
+      });
+      arr[maxIdx] = Number((arr[maxIdx] + diff).toFixed(1));
+    }
+    return arr;
+  };
+
+  if ((normType === 'KAMAR' || normType.includes('KAMAR')) && colCount === 14) {
     // 14 cols: No, ID/Kode, Tipe Booking, Nama/Rombongan/PIC, Wilayah Gedung, Rincian Kamar/Aula, Kloter/Instansi, Tgl Masuk, Durasi, Satuan, Fasilitas Tambahan, Tarif & Biaya (PNBP), Kontak HP, Status
-    return [7, 16, 24, 30, 20, 37, 16, 15, 9, 10, 26, 26, 19, 18]; // sum = 273
+    return normalizeWidths([7, 16, 24, 28, 20, 38, 16, 15, 9, 10, 28, 26, 18, 18]); // sum = 273
   }
-  if (reportType === 'KAMAR' && colCount === 13) {
-    // 13 cols fallback
-    return [8, 18, 25, 34, 22, 42, 18, 17, 10, 11, 30, 19, 19]; // sum = 273
+  if ((normType === 'KAMAR' || normType.includes('KAMAR')) && colCount === 13) {
+    return normalizeWidths([8, 18, 25, 32, 22, 42, 18, 17, 10, 11, 30, 21, 19]); // sum = 273
   }
-  if (reportType === 'AULA' && colCount === 13) {
+  if ((normType === 'AULA' || normType.includes('AULA')) && colCount === 13) {
     // 13 cols: No, ID Reservasi, Tipe Reservasi, Nama Ruang/Aula, Penyelenggara/Instansi, PIC & Kontak, Agenda/Keperluan, Tgl Pemakaian, Durasi, Satuan, Layanan Konsumsi, Tarif Sewa (PNBP), Status
-    return [7, 16, 22, 24, 30, 23, 34, 16, 9, 10, 33, 27, 22]; // sum = 273
+    return normalizeWidths([7, 16, 22, 24, 30, 22, 34, 16, 9, 10, 34, 27, 22]); // sum = 273
   }
-  if (reportType === 'AULA' && colCount === 12) {
-    // 12 cols fallback
-    return [8, 18, 25, 26, 35, 25, 38, 18, 10, 11, 38, 21]; // sum = 273
+  if ((normType === 'AULA' || normType.includes('AULA')) && colCount === 12) {
+    return normalizeWidths([8, 18, 24, 26, 34, 24, 38, 18, 10, 11, 38, 24]); // sum = 273
   }
-  if (reportType === 'MAINTENANCE' && colCount === 11) {
+  if ((normType === 'MAINTENANCE' || normType.includes('MAINTENANCE')) && colCount === 11) {
     // 11 cols: No, Waktu, Tipe, Gedung, No.Kamar/Aula, Kategori, Urgensi, Teknisi, Pelapor, Deskripsi, Status
-    return [8, 20, 22, 24, 28, 24, 18, 24, 22, 60, 23]; // sum = 273
+    return normalizeWidths([7, 18, 22, 22, 24, 24, 17, 24, 22, 70, 23]); // sum = 273
   }
-  if (reportType === 'QC') {
+  if (normType === 'QC' || normType.includes('QC')) {
     if (colCount === 11) {
       // Readiness: No, Tipe, Gedung, No.Kamar/Aula, Tipe/Kelas, Kapasitas, Status Fisik, Vonis, Tgl, Petugas, Catatan
-      return [8, 22, 24, 28, 20, 18, 18, 26, 20, 24, 65]; // sum = 273
+      return normalizeWidths([7, 20, 22, 24, 20, 16, 18, 26, 18, 22, 80]); // sum = 273
     }
     if (colCount === 15) {
       // History: No, ID, Waktu, Tipe, Gedung, No.Kamar/Aula, QC, Kebersihan, Linen, AC, Sanitasi, Amenities, Vonis, Alur, Catatan
-      return [7, 14, 18, 19, 19, 21, 21, 14, 15, 15, 15, 16, 22, 17, 40]; // sum = 273
+      return normalizeWidths([7, 14, 18, 19, 19, 19, 19, 13, 15, 15, 15, 15, 23, 17, 46]); // sum = 273
     }
   }
-  if (reportType === 'SARAPAN' && colCount === 16) {
+  if ((normType === 'SARAPAN' || normType.includes('SARAPAN')) && colCount === 16) {
     // 16 cols: No, ID, Status, Prioritas, Gedung, No.Kamar, Nama, Kloter, HP, Tgl, Menu, Porsi, Hari, Total, StatusDapur, Catatan
-    return [7, 13, 15, 17, 17, 15, 26, 16, 15, 14, 26, 10, 10, 10, 28, 33]; // sum = 273
+    return normalizeWidths([6, 13, 15, 16, 17, 15, 25, 15, 15, 14, 26, 10, 9, 10, 26, 41]); // sum = 273
+  }
+  if ((normType === 'JAM_KERJA' || normType.includes('JAM_KERJA')) && colCount === 9) {
+    // 9 cols: No, ID Sesi, Nama Petugas, Role / Jabatan, Waktu Masuk, Waktu Keluar, Durasi Kerja, Status, Catatan
+    return normalizeWidths([8, 20, 36, 28, 28, 28, 22, 20, 83]); // sum = 273
+  }
+  if ((normType === 'AUDIT' || normType.includes('AUDIT')) && colCount === 6) {
+    // 6 cols: No, Waktu Aktivitas, Nama Pengguna, Role / Jabatan, Tindakan (Action), Rincian Aktivitas
+    return normalizeWidths([8, 26, 32, 28, 34, 145]); // sum = 273
+  }
+  if ((normType === 'LOG_UNDUH' || normType.includes('LOG')) && colCount === 8) {
+    // 8 cols: No, ID Verifikasi, Waktu Unduh, Petugas Pengunduh, Role Petugas, Nama Dokumen, Pejabat TTD & QR, Status
+    return normalizeWidths([8, 28, 24, 30, 26, 75, 54, 28]); // sum = 273
+  }
+  if ((normType === 'USERS' || normType.includes('USERS') || normType.includes('ANGGOTA')) && colCount === 9) {
+    // 9 cols: No, Nama Lengkap, Username, Role, Divisi, NIP, Telepon, Status TTD, Status Akun
+    return normalizeWidths([8, 38, 22, 32, 30, 24, 24, 25, 20]); // sum = 273
   }
 
   // Dynamic weights fallback
@@ -1273,11 +1309,12 @@ export function calculateReportColumnWidths(headers: string[], reportType?: stri
     if (l.includes('status') || l.includes('kategori') || l.includes('kloter')) return 2.8;
     if (l.includes('kamar') || l.includes('aula') || l.includes('gedung') || l.includes('wilayah')) return 3.6;
     if (l.includes('nama') || l.includes('teknisi') || l.includes('pemeriksa')) return 3.8;
-    if (l.includes('catatan') || l.includes('deskripsi') || l.includes('temuan') || l.includes('evaluasi')) return 6.0;
+    if (l.includes('catatan') || l.includes('deskripsi') || l.includes('temuan') || l.includes('evaluasi') || l.includes('rincian')) return 6.0;
     return 3.0;
   });
   const totalWeight = weights.reduce((a, b) => a + b, 0);
-  return weights.map(w => Number(((w / totalWeight) * tableWidth).toFixed(1)));
+  const rawList = weights.map(w => Number(((w / totalWeight) * tableWidth).toFixed(1)));
+  return normalizeWidths(rawList);
 }
 
 /**
@@ -1803,150 +1840,249 @@ export async function downloadReportPdfDirect(
     renderTableHeader(startY);
     let rowY = startY + headerHeight;
 
-    // Render Data Rows with Dynamic Text Wrapping and Full Grid Dividing Borders
-    rows.forEach((r, rIdx) => {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
-
-      // Split text to lines for each cell in this row
+    // Pre-calculate row heights and text lines to ensure accurate layout, wrap text, and zero truncation
+    const computedRowData = rows.map((r) => {
       const cellLines = r.map((cVal, cIdx) => {
         const cWidth = colWidths[cIdx] || 20;
         const strVal = String(cVal ?? '-');
-        return doc.splitTextToSize(strVal, cWidth - 2.4);
+        return doc.splitTextToSize(strVal, Math.max(4, cWidth - 2.4));
       });
-
       const maxLines = Math.max(1, ...cellLines.map(lines => lines.length));
-      const lineHeight = 2.9; // mm
-      const rowHeight = Math.max(5.5, maxLines * lineHeight + 2.5);
+      const lineHeight = 2.85; // mm
+      const rowHeight = Math.max(5.5, maxLines * lineHeight + 2.4);
+      return { cellLines, rowHeight };
+    });
 
-      // Page overflow check (A4 Landscape height = 210mm; limit table to 174mm to leave room for bottom info/signatures)
-      if (rowY + rowHeight > 174) {
+    const PAGE_BOTTOM_LIMIT = 194; // Safe bottom limit before footer (A4 Landscape is 210mm; footer starts at 201mm)
+    const SIGNATURE_HEIGHT = 31; // Height from signY down to NIP
+    const SIGNATURE_GAP = 8; // Clean, balanced breathing space between table/note and signature (neither mepet nor too far)
+    const hasNote = reportType === 'KAMAR' || reportType === 'AULA';
+    const noteHeight = hasNote ? 5.5 : 0;
+    const TOTAL_SIGNATURE_NEED = noteHeight + SIGNATURE_GAP + SIGNATURE_HEIGHT;
+
+    // Two-Phase Lookahead Pagination Planner:
+    // Ensures that the signature NEVER ends up alone on a separate page without readable table data.
+    // The final page is guaranteed to contain table headers, at least MIN_FINAL_ROWS rows of data, and the signature block!
+    const MIN_FINAL_ROWS = Math.min(3, rows.length);
+
+    interface PagePlan {
+      startRow: number;
+      endRow: number; // exclusive
+      isLastPage: boolean;
+    }
+
+    const pages: PagePlan[] = [];
+    const totalRowsCount = rows.length;
+
+    if (totalRowsCount === 0) {
+      pages.push({ startRow: 0, endRow: 0, isLastPage: true });
+    } else {
+      let curRowIdx = 0;
+      while (curRowIdx < totalRowsCount) {
+        const isFirstPage = pages.length === 0;
+        const availHeight = isFirstPage
+          ? PAGE_BOTTOM_LIMIT - (startY + headerHeight)
+          : PAGE_BOTTOM_LIMIT - (15 + headerHeight);
+
+        // Check if ALL remaining rows + signature can fit on this page together
+        let heightAllRemainingWithSig = TOTAL_SIGNATURE_NEED;
+        for (let i = curRowIdx; i < totalRowsCount; i++) {
+          heightAllRemainingWithSig += computedRowData[i].rowHeight;
+        }
+
+        if (heightAllRemainingWithSig <= availHeight) {
+          // Everything remaining fits on this page together with the signature!
+          pages.push({
+            startRow: curRowIdx,
+            endRow: totalRowsCount,
+            isLastPage: true
+          });
+          break;
+        }
+
+        // Not everything fits, so this page will not be the last page.
+        // How many rows can comfortably fit on this page?
+        let fittedRows = 0;
+        let usedH = 0;
+        while (curRowIdx + fittedRows < totalRowsCount) {
+          const nextH = computedRowData[curRowIdx + fittedRows].rowHeight;
+          if (usedH + nextH <= availHeight) {
+            usedH += nextH;
+            fittedRows++;
+          } else {
+            break;
+          }
+        }
+
+        // Ensure at least 1 row on this page
+        if (fittedRows === 0) {
+          fittedRows = 1;
+        }
+
+        const remainingAfterThis = totalRowsCount - (curRowIdx + fittedRows);
+
+        // If the rows remaining after this page would be fewer than MIN_FINAL_ROWS (e.g. 1 or 2 rows left),
+        // hold back some rows from this page so that the next (final) page has at least MIN_FINAL_ROWS readable rows!
+        if (remainingAfterThis > 0 && remainingAfterThis < MIN_FINAL_ROWS) {
+          const shortfall = MIN_FINAL_ROWS - remainingAfterThis;
+          const allowableReduction = Math.min(shortfall, fittedRows - 1);
+          fittedRows -= allowableReduction;
+        }
+
+        pages.push({
+          startRow: curRowIdx,
+          endRow: curRowIdx + fittedRows,
+          isLastPage: false
+        });
+
+        curRowIdx += fittedRows;
+      }
+    }
+
+    // Render Planned Pages
+    pages.forEach((pPlan, pIdx) => {
+      if (pIdx > 0) {
         doc.addPage();
-        rowY = 16;
+        rowY = 15;
         renderTableHeader(rowY);
         rowY += headerHeight;
       }
 
-      const isEven = rIdx % 2 === 0;
-      doc.setFillColor(isEven ? 255 : 249, isEven ? 255 : 250, isEven ? 255 : 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.2);
-      doc.rect(12, rowY, tableWidth, rowHeight, 'FD');
-
-      let xPos = 12;
-      r.forEach((_, cIdx) => {
-        const cWidth = colWidths[cIdx] || 20;
-        if (cIdx > 0) {
+      if (totalRowsCount === 0) {
+        // Empty state row
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.2);
+        doc.rect(12, rowY, tableWidth, 9, 'FD');
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...lightSlate);
+        doc.text('Tidak ada data transaksi / rekaman untuk periode yang dipilih.', 12 + (tableWidth / 2), rowY + 5.5, { align: 'center' });
+        rowY += 9;
+      } else {
+        // Render data rows planned for this page
+        for (let rIdx = pPlan.startRow; rIdx < pPlan.endRow; rIdx++) {
+          const { cellLines, rowHeight } = computedRowData[rIdx];
+          const isEven = rIdx % 2 === 0;
+          doc.setFillColor(isEven ? 255 : 249, isEven ? 255 : 250, isEven ? 255 : 252);
           doc.setDrawColor(226, 232, 240);
-          doc.line(xPos, rowY, xPos, rowY + rowHeight);
-        }
-        const lines = cellLines[cIdx];
-        const hLow = (headers[cIdx] || '').toLowerCase();
-        const isStatusCol = hLow.includes('status');
-        const isRight = hLow.includes('tarif') || hLow.includes('biaya') || hLow.includes('harga') || hLow.includes('pnbp');
-        const isCenter = !isRight && (cIdx === 0 || hLow === 'no' || hLow.includes('durasi') || hLow.includes('satuan') || isStatusCol || hLow.includes('tgl'));
-        const rawVal = String(r[cIdx] ?? '').trim();
+          doc.setLineWidth(0.2);
+          doc.rect(12, rowY, tableWidth, rowHeight, 'FD');
 
-        if (isStatusCol) {
-          if (rawVal === 'DIBATALKAN') {
-            doc.setTextColor(220, 38, 38);
-            doc.setFont('helvetica', 'bold');
-          } else if (rawVal === 'TERISI') {
-            doc.setTextColor(5, 150, 105);
-            doc.setFont('helvetica', 'bold');
-          } else if (rawVal === 'BOOKED') {
-            doc.setTextColor(37, 99, 235);
-            doc.setFont('helvetica', 'bold');
-          } else {
-            doc.setTextColor(...darkSlate);
-            doc.setFont('helvetica', 'normal');
-          }
-        } else if (isRight) {
-          doc.setTextColor(4, 120, 87); // emerald-700
-          doc.setFont('helvetica', 'bold');
-        } else {
-          doc.setTextColor(...darkSlate);
-          doc.setFont('helvetica', 'normal');
-        }
+          let xPos = 12;
+          rows[rIdx].forEach((_, cIdx) => {
+            const cWidth = colWidths[cIdx] || 20;
+            if (cIdx > 0) {
+              doc.setDrawColor(226, 232, 240);
+              doc.line(xPos, rowY, xPos, rowY + rowHeight);
+            }
+            const lines = cellLines[cIdx];
+            const hLow = (headers[cIdx] || '').toLowerCase();
+            const isStatusCol = hLow.includes('status') || hLow.includes('urgensi') || hLow.includes('vonis');
+            const isRight = hLow.includes('tarif') || hLow.includes('biaya') || hLow.includes('harga') || hLow.includes('pnbp');
+            const isCenter = !isRight && (cIdx === 0 || hLow === 'no' || hLow.includes('durasi') || hLow.includes('satuan') || isStatusCol || hLow.includes('tgl') || hLow.includes('kloter'));
+            const rawVal = String(rows[rIdx][cIdx] ?? '').trim();
 
-        if (isRight) {
-          if (lines.length === 1) {
-            doc.text(lines[0], xPos + cWidth - 1.2, rowY + (rowHeight / 2) + 1.2, { align: 'right' });
-          } else {
-            lines.forEach((lineText: string, lIdx: number) => {
-              doc.text(lineText, xPos + cWidth - 1.2, rowY + 3.4 + (lIdx * lineHeight), { align: 'right' });
-            });
-          }
-        } else if (isCenter && lines.length === 1) {
-          doc.text(lines[0], xPos + (cWidth / 2), rowY + (rowHeight / 2) + 1.2, { align: 'center' });
-        } else {
-          lines.forEach((lineText: string, lIdx: number) => {
-            doc.text(lineText, xPos + 1.2, rowY + 3.4 + (lIdx * lineHeight));
+            if (isStatusCol) {
+              if (rawVal === 'DIBATALKAN' || rawVal.includes('BATAL') || rawVal === 'RUSAK' || rawVal === 'DARURAT' || rawVal === 'REJECT') {
+                doc.setTextColor(220, 38, 38);
+                doc.setFont('helvetica', 'bold');
+              } else if (rawVal === 'TERISI' || rawVal === 'LOLOS_QC' || rawVal.includes('LOLOS') || rawVal === 'SELESAI' || rawVal === 'Lunas' || rawVal === 'SIAP_PAKAI') {
+                doc.setTextColor(5, 150, 105);
+                doc.setFont('helvetica', 'bold');
+              } else if (rawVal === 'BOOKED' || rawVal === 'Menunggu' || rawVal === 'DIPROSES') {
+                doc.setTextColor(37, 99, 235);
+                doc.setFont('helvetica', 'bold');
+              } else {
+                doc.setTextColor(...darkSlate);
+                doc.setFont('helvetica', 'normal');
+              }
+            } else if (isRight) {
+              doc.setTextColor(4, 120, 87); // emerald-700
+              doc.setFont('helvetica', 'bold');
+            } else {
+              doc.setTextColor(...darkSlate);
+              doc.setFont('helvetica', 'normal');
+            }
+
+            const lineHeight = 2.85;
+            if (isRight) {
+              if (lines.length === 1) {
+                doc.text(lines[0], xPos + cWidth - 1.2, rowY + (rowHeight / 2) + 1.1, { align: 'right' });
+              } else {
+                lines.forEach((lineText: string, lIdx: number) => {
+                  doc.text(lineText, xPos + cWidth - 1.2, rowY + 3.3 + (lIdx * lineHeight), { align: 'right' });
+                });
+              }
+            } else if (isCenter && lines.length === 1) {
+              doc.text(lines[0], xPos + (cWidth / 2), rowY + (rowHeight / 2) + 1.1, { align: 'center' });
+            } else {
+              lines.forEach((lineText: string, lIdx: number) => {
+                doc.text(lineText, xPos + 1.2, rowY + 3.3 + (lIdx * lineHeight));
+              });
+            }
+            xPos += cWidth;
           });
-        }
-        xPos += cWidth;
-      });
 
-      rowY += rowHeight;
+          rowY += rowHeight;
+        }
+      }
+
+      if (pPlan.isLastPage) {
+        if (hasNote) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(6.2);
+          doc.setTextColor(...lightSlate);
+          doc.text('*Catatan: Tarif resmi mengacu pada Standar Biaya Masukan & PNBP UPT Asrama Haji Jakarta. Bebas biaya tambahan tersembunyi.', 12, rowY + 3.8);
+          rowY += 5.5;
+        }
+
+        // Place signature at comfortable, balanced spacing: neither too far away nor too cramped
+        const signY = rowY + SIGNATURE_GAP;
+        const signX = 245;
+
+        // Render side-by-side QR Code and TTD Image ONLY if responsible manager has uploaded a signature
+        if (hasValidSignature) {
+          const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://asramahajijakarta.id';
+          const qrPayload = verificationCode 
+            ? `${origin}/?verify=${verificationCode}` 
+            : `UPT-ASRAMA-VERIFIED:${signatory.name}:${signatory.role}`;
+          const finalQrCode = generateQrCodeDataUrl(qrPayload);
+          const imgY = signY + 5.5;
+          if (finalQrCode) {
+            try {
+              doc.addImage(finalQrCode, 'PNG', signX - 28, imgY, 14, 14);
+            } catch (e) {
+              // ignore
+            }
+          }
+          if (signatory.signatureUrl) {
+            try {
+              doc.addImage(signatory.signatureUrl, 'PNG', signX - 14, imgY + 1, 26, 12);
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...darkSlate);
+        doc.text(`Jakarta, ${formatIndonesianDate(realToday)}`, signX, signY, { align: 'center' });
+        doc.text('Mengetahui / Menyetujui,', signX, signY + 3.8, { align: 'center' });
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.text(managerName, signX, signY + 21.5, { align: 'center' });
+        doc.setLineWidth(0.3);
+        doc.line(signX - 26, signY + 22.5, signX + 26, signY + 22.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...lightSlate);
+        doc.text(`${managerRole} • UPT Asrama Haji`, signX, signY + 26.5, { align: 'center' });
+        doc.text(managerNip, signX, signY + 29.8, { align: 'center' });
+      }
     });
-
-    if (reportType === 'KAMAR' || reportType === 'AULA') {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(6.5);
-      doc.setTextColor(...lightSlate);
-      doc.text('*Catatan: Tarif resmi mengacu pada Standar Biaya Masukan UPT Asrama Haji Jakarta. Bebas biaya tambahan tersembunyi.', 12, rowY + 4);
-      rowY += 6;
-    }
-
-    // Check if signature fits on current page (needs ~55mm)
-    if (rowY + 55 > 175) {
-      doc.addPage();
-      rowY = 30;
-    }
-
-    const signY = Math.max(rowY + 12, 135);
-    const signX = 245;
-
-    // Render side-by-side QR Code and TTD Image ONLY if responsible manager has uploaded a signature
-    if (hasValidSignature) {
-      const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://asramahajijakarta.id';
-      const qrPayload = verificationCode 
-        ? `${origin}/?verify=${verificationCode}` 
-        : `UPT-ASRAMA-VERIFIED:${signatory.name}:${signatory.role}`;
-      const finalQrCode = generateQrCodeDataUrl(qrPayload);
-      const imgY = signY + 6;
-      if (finalQrCode) {
-        try {
-          doc.addImage(finalQrCode, 'PNG', signX - 28, imgY, 14, 14);
-        } catch (e) {
-          // ignore
-        }
-      }
-      if (signatory.signatureUrl) {
-        try {
-          doc.addImage(signatory.signatureUrl, 'PNG', signX - 14, imgY + 1, 26, 12);
-        } catch (e) {
-          // ignore
-        }
-      }
-    }
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...darkSlate);
-    doc.text(`Jakarta, ${formatIndonesianDate(realToday)}`, signX, signY, { align: 'center' });
-    doc.text('Mengetahui / Menyetujui,', signX, signY + 4, { align: 'center' });
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.text(managerName, signX, signY + 22, { align: 'center' });
-    doc.setLineWidth(0.3);
-    doc.line(signX - 26, signY + 23, signX + 26, signY + 23);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(...lightSlate);
-    doc.text(`${managerRole} • UPT Asrama Haji`, signX, signY + 27, { align: 'center' });
-    doc.text(managerNip, signX, signY + 30.5, { align: 'center' });
     // Signature block clean
     if (!hasValidSignature) {
       // no extra manual text needed, footer handles notice

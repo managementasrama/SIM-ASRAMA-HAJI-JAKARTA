@@ -131,8 +131,14 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[92vh] sm:max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[92vh] sm:max-h-[90vh] my-auto animate-in fade-in zoom-in duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-3.5 sm:px-5 py-2.5 sm:py-3 text-white flex items-center justify-between shrink-0">

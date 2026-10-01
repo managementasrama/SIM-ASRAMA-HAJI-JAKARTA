@@ -147,8 +147,14 @@ export function AgendaListModal({ isOpen, onClose, type }: AgendaListModalProps)
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className={`p-4 sm:p-5 border-b flex items-center justify-between ${isCheckin ? 'bg-emerald-700 text-white' : 'bg-blue-700 text-white'}`}>
           <div className="flex items-center space-x-3">

@@ -94,8 +94,14 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
   const isKantorBuilding = category === 'KANTOR';
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={`bg-gradient-to-r ${
           isSerbagunaBuilding 
             ? 'from-slate-900 via-purple-950 to-slate-900' 
@@ -493,8 +499,14 @@ export function MeetingRoomModal({ isOpen, onClose, meetingRoomToEdit, defaultCa
     .map(f => f.trim().toLowerCase());
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="bg-gradient-to-r from-slate-900 via-purple-950 to-slate-900 text-white p-4 flex items-center justify-between border-b border-purple-800/40">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-400/40 flex items-center justify-center text-base shadow-inner">
@@ -1067,8 +1079,14 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
   const canManage = currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin' || isRecepRole(currentUser.role));
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={`bg-gradient-to-r ${
           isSerbagunaRoom 
             ? 'from-slate-900 via-purple-950 to-slate-900' 
@@ -1615,8 +1633,14 @@ export function RoomCapacityRateModal({ isOpen, onClose, rateToEdit }: RoomCapac
   const canManage = currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin' || isRecepRole(currentUser.role) || currentUser.role === 'Manager');
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-4 flex items-center justify-between border-b border-emerald-900/40">
           <div className="flex items-center space-x-2.5">
             <div className="w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-400/30 flex items-center justify-center text-base">
@@ -1846,8 +1870,14 @@ export function DeleteConfirmModal({ isOpen, onClose, title, itemName, itemType,
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-rose-200 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-4 bg-rose-50 border-b border-rose-100 flex items-center space-x-3 text-rose-800">
           <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-lg font-bold shrink-0">
             <i className="fa-solid fa-trash-can text-rose-600"></i>
@@ -1947,8 +1977,14 @@ export function ActionConfirmModal({
     : 'bg-blue-700 hover:bg-blue-800 text-white';
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={`p-4 border-b flex items-center space-x-3 ${bgHeader}`}>
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold shrink-0 ${iconColor}`}>
             <i className={`fa-solid ${icon}`}></i>

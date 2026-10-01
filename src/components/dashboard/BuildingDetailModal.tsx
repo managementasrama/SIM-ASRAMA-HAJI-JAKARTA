@@ -249,8 +249,14 @@ export function BuildingDetailModal({
   const isAula = building.isAula || building.name.includes('Pertemuan') || building.name.includes('Aula') || building.name.includes('Serbaguna');
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-100 dark:border-slate-700 flex flex-col max-h-[92vh] my-auto min-w-0">
+    <div 
+      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-100 dark:border-slate-700 flex flex-col max-h-[92vh] my-auto min-w-0"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-5 py-4 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3 min-w-0">

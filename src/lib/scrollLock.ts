@@ -41,7 +41,9 @@ export function lockBodyScroll() {
     }
 
     document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
     document.body.classList.add('modal-open');
+    document.documentElement.classList.add('modal-open');
   }
 }
 
@@ -52,8 +54,10 @@ export function unlockBodyScroll() {
 
   if (scrollLockCount === 0) {
     document.body.style.overflow = originalBodyOverflow || '';
+    document.documentElement.style.overflow = '';
     document.body.style.paddingRight = originalBodyPaddingRight || '';
     document.body.classList.remove('modal-open');
+    document.documentElement.classList.remove('modal-open');
 
     const targetY = savedScrollY;
 
