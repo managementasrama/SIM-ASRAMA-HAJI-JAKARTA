@@ -2049,6 +2049,81 @@ export function BreakfastOrdersView() {
 
   return (
     <div className="space-y-6">
+      {/* 1. INFORMASI UTAMA: TOTAL PESANAN, PORSI & STATUS ALUR PRODUKSI (Terletak di Bagian Paling Atas Halaman) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+        {/* 1. Total Pesanan */}
+        <div className="bg-white p-3 rounded-xl shadow-xs border border-orange-200 bg-orange-50/30">
+          <p className="text-[10px] font-bold text-orange-700 uppercase tracking-wider truncate flex items-center">
+            <i className="fa-solid fa-utensils text-orange-500 mr-1.5 text-[10px] shrink-0"></i>
+            Total Pesanan
+          </p>
+          <p className="text-base sm:text-lg font-black text-orange-800 mt-1">
+            {totalOrdersCount} <span className="text-[10px] sm:text-xs font-semibold text-orange-600">({totalPortions} porsi)</span>
+          </p>
+          <span className="text-[9px] text-orange-600 font-medium block truncate">{totalBoxes} box periode</span>
+        </div>
+
+        {/* 2. Menunggu */}
+        <div className="bg-white p-3 rounded-xl shadow-xs border border-amber-200 bg-amber-50/30">
+          <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider truncate flex items-center">
+            <i className="fa-regular fa-clock text-amber-500 mr-1.5 text-[10px] shrink-0"></i>
+            Menunggu
+          </p>
+          <p className="text-base sm:text-lg font-black text-amber-800 mt-1">
+            {menungguCount} <span className="text-[10px] sm:text-xs font-semibold text-amber-600">({menungguPortions} porsi)</span>
+          </p>
+          <span className="text-[9px] text-amber-600 font-medium block truncate">Antrean dapur</span>
+        </div>
+
+        {/* 3. Dimasak */}
+        <div className="bg-white p-3 rounded-xl shadow-xs border border-blue-200 bg-blue-50/30">
+          <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider truncate flex items-center">
+            <i className="fa-solid fa-fire text-blue-500 mr-1.5 text-[10px] shrink-0"></i>
+            Dimasak
+          </p>
+          <p className="text-base sm:text-lg font-black text-blue-800 mt-1">
+            {sedangDibuatCount} <span className="text-[10px] sm:text-xs font-semibold text-blue-600">({sedangDibuatPortions} porsi)</span>
+          </p>
+          <span className="text-[9px] text-blue-600 font-medium block truncate">Proses produksi</span>
+        </div>
+
+        {/* 4. Pengantaran */}
+        <div className="bg-white p-3 rounded-xl shadow-xs border border-purple-200 bg-purple-50/30">
+          <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider truncate flex items-center">
+            <i className="fa-solid fa-truck-ramp-box text-purple-500 mr-1.5 text-[10px] shrink-0"></i>
+            Pengantaran
+          </p>
+          <p className="text-base sm:text-lg font-black text-purple-800 mt-1">
+            {pengantaranCount} <span className="text-[10px] sm:text-xs font-semibold text-purple-600">({pengantaranPortions} porsi)</span>
+          </p>
+          <span className="text-[9px] text-purple-600 font-medium block truncate">Menuju kamar</span>
+        </div>
+
+        {/* 5. Selesai */}
+        <div className="bg-white p-3 rounded-xl shadow-xs border border-emerald-200 bg-emerald-50/30">
+          <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider truncate flex items-center">
+            <i className="fa-solid fa-circle-check text-emerald-500 mr-1.5 text-[10px] shrink-0"></i>
+            Selesai
+          </p>
+          <p className="text-base sm:text-lg font-black text-emerald-800 mt-1">
+            {selesaiCount} <span className="text-[10px] sm:text-xs font-semibold text-emerald-600">({selesaiPortions} porsi)</span>
+          </p>
+          <span className="text-[9px] text-emerald-600 font-medium block truncate">Telah disajikan</span>
+        </div>
+
+        {/* 6. Batal */}
+        <div className="bg-white p-3 rounded-xl shadow-xs border border-rose-200 bg-rose-50/40">
+          <p className="text-[10px] font-bold text-rose-700 uppercase tracking-wider truncate flex items-center">
+            <i className="fa-solid fa-ban text-rose-500 mr-1.5 text-[10px] shrink-0"></i>
+            Batal
+          </p>
+          <p className="text-base sm:text-lg font-black text-rose-800 mt-1">
+            {cancelledCount} <span className="text-[10px] sm:text-xs font-semibold text-rose-600">({cancelledPortions} porsi)</span>
+          </p>
+          <span className="text-[9px] text-rose-600 font-medium block truncate">Pesanan dibatalkan</span>
+        </div>
+      </div>
+
       {/* View Switcher Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl shadow-xs border border-slate-200">
         <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl">
@@ -2133,6 +2208,7 @@ export function BreakfastOrdersView() {
       {subView === 'ORDERS' ? (
         /* ================= SUBVIEW 1: ORDERS LIST & QUEUE ================= */
         <div className="space-y-6">
+
           {/* Building Management Sync & Selector Strip */}
           <div className="bg-white p-3.5 rounded-2xl shadow-xs border border-slate-200 space-y-2.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
@@ -2217,81 +2293,6 @@ export function BreakfastOrdersView() {
                   </button>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Metric Cards - Fokus pada 6 Indikator Alur Pesanan: Total Pesanan, Menunggu, Dimasak, Pengantaran, Selesai, dan Batal */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
-            {/* 1. Total Pesanan */}
-            <div className="bg-white p-3 rounded-xl shadow-xs border border-orange-200 bg-orange-50/30">
-              <p className="text-[10px] font-bold text-orange-700 uppercase tracking-wider truncate flex items-center">
-                <i className="fa-solid fa-utensils text-orange-500 mr-1.5 text-[10px] shrink-0"></i>
-                Total Pesanan
-              </p>
-              <p className="text-base sm:text-lg font-black text-orange-800 mt-1">
-                {totalOrdersCount} <span className="text-[10px] sm:text-xs font-semibold text-orange-600">({totalPortions} porsi)</span>
-              </p>
-              <span className="text-[9px] text-orange-600 font-medium block truncate">{totalBoxes} box periode</span>
-            </div>
-
-            {/* 2. Menunggu */}
-            <div className="bg-white p-3 rounded-xl shadow-xs border border-amber-200 bg-amber-50/30">
-              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider truncate flex items-center">
-                <i className="fa-regular fa-clock text-amber-500 mr-1.5 text-[10px] shrink-0"></i>
-                Menunggu
-              </p>
-              <p className="text-base sm:text-lg font-black text-amber-800 mt-1">
-                {menungguCount} <span className="text-[10px] sm:text-xs font-semibold text-amber-600">({menungguPortions} porsi)</span>
-              </p>
-              <span className="text-[9px] text-amber-600 font-medium block truncate">Antrean dapur</span>
-            </div>
-
-            {/* 3. Dimasak */}
-            <div className="bg-white p-3 rounded-xl shadow-xs border border-blue-200 bg-blue-50/30">
-              <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider truncate flex items-center">
-                <i className="fa-solid fa-fire text-blue-500 mr-1.5 text-[10px] shrink-0"></i>
-                Dimasak
-              </p>
-              <p className="text-base sm:text-lg font-black text-blue-800 mt-1">
-                {sedangDibuatCount} <span className="text-[10px] sm:text-xs font-semibold text-blue-600">({sedangDibuatPortions} porsi)</span>
-              </p>
-              <span className="text-[9px] text-blue-600 font-medium block truncate">Proses produksi</span>
-            </div>
-
-            {/* 4. Pengantaran */}
-            <div className="bg-white p-3 rounded-xl shadow-xs border border-purple-200 bg-purple-50/30">
-              <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider truncate flex items-center">
-                <i className="fa-solid fa-truck-ramp-box text-purple-500 mr-1.5 text-[10px] shrink-0"></i>
-                Pengantaran
-              </p>
-              <p className="text-base sm:text-lg font-black text-purple-800 mt-1">
-                {pengantaranCount} <span className="text-[10px] sm:text-xs font-semibold text-purple-600">({pengantaranPortions} porsi)</span>
-              </p>
-              <span className="text-[9px] text-purple-600 font-medium block truncate">Menuju kamar</span>
-            </div>
-
-            {/* 5. Selesai */}
-            <div className="bg-white p-3 rounded-xl shadow-xs border border-emerald-200 bg-emerald-50/30">
-              <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider truncate flex items-center">
-                <i className="fa-solid fa-circle-check text-emerald-500 mr-1.5 text-[10px] shrink-0"></i>
-                Selesai
-              </p>
-              <p className="text-base sm:text-lg font-black text-emerald-800 mt-1">
-                {selesaiCount} <span className="text-[10px] sm:text-xs font-semibold text-emerald-600">({selesaiPortions} porsi)</span>
-              </p>
-              <span className="text-[9px] text-emerald-600 font-medium block truncate">Telah disajikan</span>
-            </div>
-
-            {/* 6. Batal */}
-            <div className="bg-white p-3 rounded-xl shadow-xs border border-rose-200 bg-rose-50/40">
-              <p className="text-[10px] font-bold text-rose-700 uppercase tracking-wider truncate flex items-center">
-                <i className="fa-solid fa-ban text-rose-500 mr-1.5 text-[10px] shrink-0"></i>
-                Batal
-              </p>
-              <p className="text-base sm:text-lg font-black text-rose-800 mt-1">
-                {cancelledCount} <span className="text-[10px] sm:text-xs font-semibold text-rose-600">({cancelledPortions} porsi)</span>
-              </p>
-              <span className="text-[9px] text-rose-600 font-medium block truncate">Pesanan dibatalkan</span>
             </div>
           </div>
 
@@ -3726,13 +3727,15 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // Tab within this view: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'PDF_DOWNLOAD_LOGS' | 'DATABASE_MGMT'
-  const [activeSubView, setActiveSubView] = useState<'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'PDF_DOWNLOAD_LOGS' | 'DATABASE_MGMT'>(
-    defaultSubView === 'AUDIT_TRAIL' ? 'AUDIT_TRAIL' : defaultSubView === 'ROLE_PERMISSIONS' ? 'ROLE_PERMISSIONS' : (defaultSubView || 'WORK_SESSIONS')
+  // Tab within this view: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT'
+  const [activeSubView, setActiveSubView] = useState<'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT'>(
+    defaultSubView === 'ROLE_PERMISSIONS' ? 'ROLE_PERMISSIONS' : defaultSubView === 'AUDIT_TRAIL' || defaultSubView === 'PDF_DOWNLOAD_LOGS' ? 'AUDIT_TRAIL' : (defaultSubView || 'WORK_SESSIONS')
   );
 
-  // Sub-tab inside PDF_DOWNLOAD_LOGS: 'LOGS' | 'VERIFY'
-  const [pdfSubTab, setPdfSubTab] = useState<'LOGS' | 'VERIFY'>('LOGS');
+  // Sub-halaman di dalam Log Aktivitas Sistem (AUDIT_TRAIL): 'ALL_LOGS' | 'PDF_LOGS' | 'VERIFY'
+  const [auditSubTab, setAuditSubTab] = useState<'ALL_LOGS' | 'PDF_LOGS' | 'VERIFY'>(
+    defaultSubView === 'PDF_DOWNLOAD_LOGS' ? 'PDF_LOGS' : 'ALL_LOGS'
+  );
 
   // PDF Download Log Filters
   const [pdfDatePreset, setPdfDatePreset] = useState<'SEMUA' | 'HARI_INI' | 'KEMARIN' | '3_HARI' | '7_HARI' | 'KUSTOM'>('SEMUA');
@@ -3745,13 +3748,23 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     const targetSub = sessionStorage.getItem('audit_log_target_subview');
     if (targetSub) {
       sessionStorage.removeItem('audit_log_target_subview');
-      setActiveSubView(targetSub as any);
+      if (targetSub === 'PDF_DOWNLOAD_LOGS') {
+        setActiveSubView('AUDIT_TRAIL');
+        setAuditSubTab('PDF_LOGS');
+      } else {
+        setActiveSubView(targetSub as any);
+      }
     } else if (defaultSubView) {
-      setActiveSubView(defaultSubView);
+      if (defaultSubView === 'PDF_DOWNLOAD_LOGS') {
+        setActiveSubView('AUDIT_TRAIL');
+        setAuditSubTab('PDF_LOGS');
+      } else {
+        setActiveSubView(defaultSubView as any);
+      }
     }
     if (sessionStorage.getItem('verify_code_target')) {
-      setActiveSubView('PDF_DOWNLOAD_LOGS');
-      setPdfSubTab('VERIFY');
+      setActiveSubView('AUDIT_TRAIL');
+      setAuditSubTab('VERIFY');
     }
   }, [defaultSubView]);
 
@@ -4128,11 +4141,97 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
   const isFilterActive = selectedUser !== 'SEMUA' || selectedRole !== 'SEMUA' || sessionStatus !== 'SEMUA' || datePreset !== 'SEMUA' || customStartDate || customEndDate || searchQuery.trim() !== '';
 
-  // Filtered Audit Logs
+  // Helper untuk mengecek apakah log merupakan unduh PDF ber-QR & TTD yang sah
+  const isVerifiedPdfWithQrAndTtd = (log: AuditLog) => {
+    if (log.hasQrAndSignature === false) return false;
+    if (log.action !== 'UNDUH_PDF_BER_QR') return false;
+    if (!log.verificationCode || !log.verificationCode.trim()) return false;
+    if (!log.signatoryName || log.signatoryName.includes('Belum Ada')) return false;
+    return true;
+  };
+
+  // Deduplikasi absolut log aktivitas sistem (menjamin tidak ada satupun entri duplikat)
+  const deduplicatedAuditLogs = useMemo(() => {
+    const storageLogs = dataStorage.getAuditLogs() || [];
+    const pool = [...auditLogs, ...storageLogs];
+    const seenIds = new Set<string>();
+    const seenCodes = new Set<string>();
+    const seenContent = new Set<string>();
+    const cleanList: AuditLog[] = [];
+
+    for (const log of pool) {
+      if (!log) continue;
+      const normTime = (log.timestamp || '').trim();
+      const normUser = (log.user || '').trim().toLowerCase();
+      const normAction = (log.action || '').trim().toLowerCase();
+      const normDetails = (log.details || '').trim().toLowerCase();
+      const normCode = (log.verificationCode || '').trim().toLowerCase();
+      const normId = (log.id ? String(log.id) : '').trim();
+
+      // Normalize details for deduplication: remove surrounding spaces/brackets/VLOG tags
+      const cleanDetails = normDetails.replace(/\[vlog-[^\]]+\]/gi, '').trim();
+      const contentKey = `${normTime}|${normUser}|${normAction}|${cleanDetails}`;
+
+      if (normId && seenIds.has(normId)) continue;
+      if (normCode && seenCodes.has(normCode)) continue;
+      if (contentKey && seenContent.has(contentKey)) continue;
+
+      if (normId) seenIds.add(normId);
+      if (normCode) seenCodes.add(normCode);
+      if (contentKey) seenContent.add(contentKey);
+
+      cleanList.push(log);
+    }
+
+    return cleanList.sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime() || 0;
+      const timeB = new Date(b.timestamp).getTime() || 0;
+      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
+    });
+  }, [auditLogs, dataStorage]);
+
+  // Metrik ringkasan Log Aktivitas Sistem
+  const todayLogsCount = useMemo(() => {
+    return deduplicatedAuditLogs.filter(log => {
+      const t = log.timestamp || '';
+      return t.startsWith(realToday) || t.includes(realToday);
+    }).length;
+  }, [deduplicatedAuditLogs, realToday]);
+
+  const transaksiLogsCount = useMemo(() => {
+    return deduplicatedAuditLogs.filter(log => {
+      const a = (log.action || '').toLowerCase();
+      return a.includes('check-in') || a.includes('check-out') || a.includes('booking') || a.includes('reservasi') || a.includes('extend');
+    }).length;
+  }, [deduplicatedAuditLogs]);
+
+  const maintQcLogsCount = useMemo(() => {
+    return deduplicatedAuditLogs.filter(log => {
+      const a = (log.action || '').toLowerCase();
+      return a.includes('maintenance') || a.includes('perbaikan') || a.includes('qc') || a.includes('inspeksi');
+    }).length;
+  }, [deduplicatedAuditLogs]);
+
+  // Filtered Audit Logs dari data yang telah terbebas dari duplikasi
   const filteredAuditLogs = useMemo(() => {
-    return auditLogs.filter(log => {
+    return deduplicatedAuditLogs.filter(log => {
       // Date filter
-      const logDate = (log.timestamp || '').split(' ')[0];
+      let logDate = '';
+      if (log.timestamp) {
+        if (log.timestamp.includes('/')) {
+          const parts = log.timestamp.split(',')[0].trim().split('/');
+          if (parts.length === 3) {
+            logDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+        } else if (log.timestamp.includes('-')) {
+          logDate = log.timestamp.slice(0, 10);
+        }
+      }
+      if (!logDate) {
+        logDate = (log.timestamp || '').split(' ')[0];
+      }
+
       if (datePreset === 'HARI_INI' && logDate !== realToday) return false;
       if (datePreset === 'KEMARIN' && logDate !== realYesterday) return false;
       if (datePreset === '3_HARI' && logDate < dateMinus3) return false;
@@ -4143,59 +4242,44 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       }
 
       if (auditActionFilter !== 'SEMUA') {
-        if (auditActionFilter === 'AUTH' && !log.action.toLowerCase().includes('log')) return false;
-        if (auditActionFilter === 'CHECKIN' && !log.action.toLowerCase().includes('check-in')) return false;
-        if (auditActionFilter === 'CHECKOUT' && !log.action.toLowerCase().includes('check-out')) return false;
-        if (auditActionFilter === 'SARAPAN' && !log.action.toLowerCase().includes('sarapan')) return false;
-        if (auditActionFilter === 'MAINTENANCE' && !log.action.toLowerCase().includes('maintenance') && !log.action.toLowerCase().includes('perbaikan')) return false;
+        const act = (log.action || '').toLowerCase();
+        if (auditActionFilter === 'AUTH' && !act.includes('log') && !act.includes('masuk') && !act.includes('keluar')) return false;
+        if (auditActionFilter === 'CHECKIN' && !act.includes('check-in')) return false;
+        if (auditActionFilter === 'CHECKOUT' && !act.includes('check-out')) return false;
+        if (auditActionFilter === 'SARAPAN' && !act.includes('sarapan') && !act.includes('makan')) return false;
+        if (auditActionFilter === 'MAINTENANCE' && !act.includes('maintenance') && !act.includes('perbaikan')) return false;
+        if (auditActionFilter === 'QC' && !act.includes('qc') && !act.includes('inspeksi')) return false;
+        if (auditActionFilter === 'PDF_DOWNLOAD' && !act.includes('pdf') && !act.includes('unduh')) return false;
       }
       if (auditSearch.trim()) {
         const q = auditSearch.toLowerCase();
-        const matchUser = log.user.toLowerCase().includes(q);
-        const matchAction = log.action.toLowerCase().includes(q);
-        const matchDetails = log.details.toLowerCase().includes(q);
-        if (!matchUser && !matchAction && !matchDetails) return false;
+        const matchUser = (log.user || '').toLowerCase().includes(q);
+        const matchAction = (log.action || '').toLowerCase().includes(q);
+        const matchDetails = (log.details || '').toLowerCase().includes(q);
+        const matchRole = (log.role || '').toLowerCase().includes(q);
+        if (!matchUser && !matchAction && !matchDetails && !matchRole) return false;
       }
       return true;
     });
-  }, [auditLogs, auditActionFilter, auditSearch, datePreset, customStartDate, customEndDate, realToday, realYesterday, dateMinus3, dateMinus7]);
-
-  // Helper untuk mengecek apakah log merupakan unduh PDF ber-QR & TTD yang sah
-  const isVerifiedPdfWithQrAndTtd = (log: AuditLog) => {
-    // Hanya unduhan PDF yang memiliki QR code dan Tanda Tangan sah
-    if (log.hasQrAndSignature === false) return false;
-    if (log.action !== 'UNDUH_PDF_BER_QR') return false;
-    if (!log.verificationCode || !log.verificationCode.trim()) return false;
-    if (!log.signatoryName || log.signatoryName.includes('Belum Ada')) return false;
-    return true;
-  };
-
-  // Gabungkan auditLogs dari context dan dataStorage agar log unduh PDF selalu sinkron instan
-  const combinedAuditLogs = useMemo(() => {
-    const storageLogs = dataStorage.getAuditLogs() || [];
-    return [...auditLogs, ...storageLogs].filter((l, idx, arr) => 
-      arr.findIndex(x => (x.id && x.id === l.id) || (x.verificationCode && l.verificationCode && x.verificationCode === l.verificationCode)) === idx
-    );
-  }, [auditLogs, dataStorage]);
+  }, [deduplicatedAuditLogs, auditActionFilter, auditSearch, datePreset, customStartDate, customEndDate, realToday, realYesterday, dateMinus3, dateMinus7]);
 
   // Unique officers who downloaded verified PDFs with QR and TTD
   const uniquePdfOfficers = useMemo(() => {
     const set = new Set<string>();
-    combinedAuditLogs.forEach(log => {
+    deduplicatedAuditLogs.forEach(log => {
       if (isVerifiedPdfWithQrAndTtd(log)) {
         if (log.user) set.add(log.user);
       }
     });
     return Array.from(set);
-  }, [combinedAuditLogs]);
+  }, [deduplicatedAuditLogs]);
 
   // Filtered PDF Download Logs (Hanya yang ber-QR & TTD sah)
   const filteredPdfLogs = useMemo(() => {
-    return combinedAuditLogs.filter(log => {
+    return deduplicatedAuditLogs.filter(log => {
       if (!isVerifiedPdfWithQrAndTtd(log)) return false;
 
       // Date parsing
-      // Timestamp format could be "23/09/2026, 14:00" or ISO
       let logDate = '';
       if (log.timestamp) {
         if (log.timestamp.includes('/')) {
@@ -4237,11 +4321,11 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
       return true;
     });
-  }, [combinedAuditLogs, pdfDatePreset, pdfStartDate, pdfEndDate, pdfOfficerFilter, pdfSearch, realToday, realYesterday, dateMinus3, dateMinus7]);
+  }, [deduplicatedAuditLogs, pdfDatePreset, pdfStartDate, pdfEndDate, pdfOfficerFilter, pdfSearch, realToday, realYesterday, dateMinus3, dateMinus7]);
 
   const pdfLogsTotalCount = useMemo(() => {
-    return combinedAuditLogs.filter(isVerifiedPdfWithQrAndTtd).length;
-  }, [combinedAuditLogs]);
+    return deduplicatedAuditLogs.filter(isVerifiedPdfWithQrAndTtd).length;
+  }, [deduplicatedAuditLogs]);
 
   return (
     <div className="space-y-4">
@@ -4283,23 +4367,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
               activeSubView === 'AUDIT_TRAIL' ? 'bg-purple-100 text-purple-800' : 'bg-slate-200 text-slate-600'
             }`}>
-              {auditLogs.length}
-            </span>
-          </button>
-          <button
-            onClick={() => setActiveSubView('PDF_DOWNLOAD_LOGS')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 shrink-0 ${
-              activeSubView === 'PDF_DOWNLOAD_LOGS' 
-                ? 'bg-white text-rose-800 shadow-xs font-black' 
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <i className="fa-solid fa-file-pdf text-rose-600"></i>
-            <span>Log Unduh PDF</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-              activeSubView === 'PDF_DOWNLOAD_LOGS' ? 'bg-rose-100 text-rose-800' : 'bg-slate-200 text-slate-600'
-            }`}>
-              {pdfLogsTotalCount}
+              {deduplicatedAuditLogs.length}
             </span>
           </button>
 
@@ -4330,12 +4398,12 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             </button>
           )}
           <button
-            onClick={() => openModal('modalExport', { defaultType: activeSubView === 'WORK_SESSIONS' ? 'JAM_KERJA' : (activeSubView === 'PDF_DOWNLOAD_LOGS' ? 'LOG_UNDUH' : 'AUDIT') })}
-            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs flex items-center space-x-2 transition"
+            onClick={() => openModal('modalExport', { defaultType: activeSubView === 'WORK_SESSIONS' ? 'JAM_KERJA' : (activeSubView === 'AUDIT_TRAIL' && auditSubTab === 'PDF_LOGS' ? 'LOG_UNDUH' : 'AUDIT') })}
+            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs flex items-center space-x-2 transition cursor-pointer"
             title="Unduh Laporan Resmi (PDF & Excel .xlsx)"
           >
             <i className="fa-solid fa-file-arrow-down"></i>
-            <span>Unduh Laporan ({activeSubView === 'WORK_SESSIONS' ? 'Jam Kerja' : activeSubView === 'ROLE_PERMISSIONS' ? 'Hak Akses' : (activeSubView === 'PDF_DOWNLOAD_LOGS' ? 'Log Unduh' : 'Audit')})</span>
+            <span>Unduh Laporan ({activeSubView === 'WORK_SESSIONS' ? 'Jam Kerja' : activeSubView === 'ROLE_PERMISSIONS' ? 'Hak Akses' : (activeSubView === 'AUDIT_TRAIL' && auditSubTab === 'PDF_LOGS' ? 'Log Unduh' : 'Audit')})</span>
           </button>
         </div>
       </div>
@@ -4953,178 +5021,381 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           onUpdateAppSettings={updateAppSettings}
         />
       ) : activeSubView === 'AUDIT_TRAIL' ? (
-        /* Audit Trail Tab */
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
-          <div className="border-b border-slate-100 dark:border-slate-700 pb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100 flex items-center">
-                <i className="fa-solid fa-clock-rotate-left text-purple-600 mr-2"></i>
-                Log Aktivitas Sistem (Audit Trail)
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Catatan komprehensif riwayat aktivitas operasional seluruh petugas di dalam aplikasi.
-              </p>
-            </div>
-
-            {/* Audit Trail Search and Date/Action Filter */}
-            <div className="flex items-center flex-wrap gap-2">
-              <select
-                value={datePreset}
-                onChange={e => setDatePreset(e.target.value as any)}
-                className="p-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs outline-none font-semibold"
-                title="Filter Rentang Tanggal Log"
-              >
-                <option value="SEMUA">Semua Waktu</option>
-                <option value="HARI_INI">Hari Ini</option>
-                <option value="KEMARIN">Kemarin</option>
-                <option value="3_HARI">3 Hari Terakhir</option>
-                <option value="7_HARI">7 Hari Terakhir</option>
-                <option value="KUSTOM">Rentang Kustom</option>
-              </select>
-
-              <select
-                value={auditActionFilter}
-                onChange={e => setAuditActionFilter(e.target.value)}
-                className="p-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs outline-none font-semibold"
-              >
-                <option value="SEMUA">Semua Tindakan</option>
-                <option value="AUTH">Login & Logout</option>
-                <option value="CHECKIN">Check-In Tamu</option>
-                <option value="CHECKOUT">Check-Out Tamu</option>
-                <option value="SARAPAN">Pesanan Sarapan</option>
-                <option value="MAINTENANCE">Maintenance Kamar</option>
-              </select>
-
-              <input
-                type="text"
-                value={auditSearch}
-                onChange={e => setAuditSearch(e.target.value)}
-                placeholder="Cari log..."
-                className="p-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs outline-none w-40 sm:w-48"
-              />
-            </div>
-          </div>
-
-          {/* Custom Date Inputs if KUSTOM selected */}
-          {datePreset === 'KUSTOM' && (
-            <div className="flex flex-wrap items-center gap-3 text-xs bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-              <div className="flex items-center space-x-1.5">
-                <span className="text-slate-600 dark:text-slate-400 font-medium">Dari Tanggal:</span>
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={e => setCustomStartDate(e.target.value)}
-                  className="p-1 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-200"
-                />
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <span className="text-slate-600 dark:text-slate-400 font-medium">Sampai Tanggal:</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={e => setCustomEndDate(e.target.value)}
-                  className="p-1 border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-200"
-                />
-              </div>
-              {(customStartDate || customEndDate) && (
-                <button
-                  type="button"
-                  onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
-                  className="text-red-600 dark:text-red-400 font-bold hover:underline ml-2"
-                >
-                  Reset Tanggal
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-200">
-              <thead className="bg-slate-100 dark:bg-slate-900 uppercase text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                <tr>
-                  <th className="p-3">Waktu & Tanggal</th>
-                  <th className="p-3">Pengguna (Petugas)</th>
-                  <th className="p-3">Peran / Role</th>
-                  <th className="p-3">Tindakan / Aktivitas</th>
-                  <th className="p-3">Rincian Objek</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {filteredAuditLogs.length > 0 ? (
-                  filteredAuditLogs.map((log, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">
-                      <td className="p-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">{log.timestamp}</td>
-                      <td className="p-3 font-bold text-slate-800 dark:text-slate-100">{log.user}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 border border-purple-200 dark:border-purple-800">
-                          {log.role}
-                        </span>
-                      </td>
-                      <td className="p-3 font-semibold text-slate-700 dark:text-slate-300">{log.action}</td>
-                      <td className="p-3 text-slate-600 dark:text-slate-300">{log.details}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="p-6 text-center text-slate-400 dark:text-slate-500 italic">
-                      Tidak ada data log aktivitas yang cocok.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : activeSubView === 'PDF_DOWNLOAD_LOGS' ? (
-        /* Log Khusus Unduh PDF Ber-QR Code Tanda Tangan & Alat Verifikasi Keaslian */
-        <div className="space-y-5 animate-in fade-in duration-200">
-          {/* Sub Navigation Bar: Log Unduh vs Alat Verifikasi PDF & QR */}
+        /* ================= SUBVIEW: LOG AKTIVITAS SISTEM & RIWAYAT DOKUMEN RESMI ================= */
+        <div className="space-y-4">
+          {/* Sub Navigation Bar di dalam Log Aktivitas Sistem */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-800 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs">
-            <div className="flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto">
               <button
                 type="button"
-                onClick={() => setPdfSubTab('LOGS')}
+                onClick={() => setAuditSubTab('ALL_LOGS')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
-                  pdfSubTab === 'LOGS'
+                  auditSubTab === 'ALL_LOGS'
+                    ? 'bg-white dark:bg-slate-800 text-purple-900 dark:text-purple-300 shadow-xs font-black'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                <i className="fa-solid fa-list-check text-purple-600"></i>
+                <span>Log Aktivitas Sistem</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  auditSubTab === 'ALL_LOGS' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                }`}>
+                  {deduplicatedAuditLogs.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAuditSubTab('PDF_LOGS')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
+                  auditSubTab === 'PDF_LOGS'
                     ? 'bg-white dark:bg-slate-800 text-rose-800 dark:text-rose-400 shadow-xs font-black'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
-                <i className="fa-solid fa-file-lines text-rose-600"></i>
-                <span>Riwayat Log Unduh PDF</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                <i className="fa-solid fa-file-pdf text-rose-600"></i>
+                <span>Log Unduh PDF Ber-QR</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  auditSubTab === 'PDF_LOGS' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
+                }`}>
                   {pdfLogsTotalCount}
                 </span>
               </button>
+
               <button
                 type="button"
-                onClick={() => setPdfSubTab('VERIFY')}
+                onClick={() => setAuditSubTab('VERIFY')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
-                  pdfSubTab === 'VERIFY'
-                    ? 'bg-white dark:bg-slate-800 text-rose-800 dark:text-rose-400 shadow-xs font-black'
+                  auditSubTab === 'VERIFY'
+                    ? 'bg-white dark:bg-slate-800 text-blue-800 dark:text-blue-400 shadow-xs font-black'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
-                <i className="fa-solid fa-shield-halved text-rose-600"></i>
+                <i className="fa-solid fa-shield-halved text-blue-600"></i>
                 <span>Alat Verifikasi PDF &amp; QR Code</span>
               </button>
             </div>
 
             <div className="text-xs text-slate-500 dark:text-slate-400 font-medium px-2">
-              {pdfSubTab === 'LOGS' ? (
+              {auditSubTab === 'ALL_LOGS' ? (
+                <span>Rekam jejak seluruh operasi sistem tanpa duplikasi data</span>
+              ) : auditSubTab === 'PDF_LOGS' ? (
                 <span>Rekam jejak resmi berkas bertanda tangan QR terenkripsi</span>
               ) : (
-                <span>Alat validasi berkas fisik &amp; digital terenkripsi</span>
+                <span>Validasi keaslian berkas cetak dan sertifikat digital</span>
               )}
             </div>
           </div>
 
-          {pdfSubTab === 'VERIFY' ? (
-            <div className="animate-in fade-in duration-200">
-              <VerifyPdfView />
+          {/* TAB CONTENT 1: ALL SYSTEM ACTIVITY LOGS (LOG AKTIVITAS SISTEM) */}
+          {auditSubTab === 'ALL_LOGS' && (
+            <div className="space-y-4 animate-in fade-in duration-150">
+              {/* Quick KPI Stats Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-purple-200 dark:border-purple-900/50 shadow-xs">
+                  <span className="text-[10px] text-purple-700 dark:text-purple-300 uppercase font-bold tracking-wider block">
+                    Total Aktivitas Terdata
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-purple-950 dark:text-white mt-1">
+                    {deduplicatedAuditLogs.length}
+                  </p>
+                  <span className="text-[10px] text-purple-600 dark:text-purple-400">Semua riwayat petugas</span>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-blue-200 dark:border-blue-900/50 shadow-xs">
+                  <span className="text-[10px] text-blue-700 dark:text-blue-300 uppercase font-bold tracking-wider block">
+                    Aktivitas Hari Ini
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-blue-950 dark:text-white mt-1">
+                    {todayLogsCount}
+                  </p>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400">Shift operasional aktif</span>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/50 shadow-xs">
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-300 uppercase font-bold tracking-wider block">
+                    Transaksi Kamar &amp; Tamu
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-emerald-950 dark:text-white mt-1">
+                    {transaksiLogsCount}
+                  </p>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Check-in, out &amp; booking</span>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/50 shadow-xs">
+                  <span className="text-[10px] text-amber-700 dark:text-amber-300 uppercase font-bold tracking-wider block">
+                    QC &amp; Pemeliharaan
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-amber-950 dark:text-white mt-1">
+                    {maintQcLogsCount}
+                  </p>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400">Inspeksi &amp; perbaikan</span>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-rose-200 dark:border-rose-900/50 shadow-xs">
+                  <span className="text-[10px] text-rose-700 dark:text-rose-300 uppercase font-bold tracking-wider block">
+                    Unduh Dokumen Ber-QR
+                  </span>
+                  <p className="text-lg sm:text-xl font-black text-rose-950 dark:text-white mt-1">
+                    {pdfLogsTotalCount}
+                  </p>
+                  <span className="text-[10px] text-rose-600 dark:text-rose-400">Laporan sah tersertifikasi</span>
+                </div>
+              </div>
+
+              {/* Filter Controls: Date presets, action filter, search */}
+              <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  {/* Date Preset Buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-1.5 mr-1">
+                      <i className="fa-regular fa-calendar-days text-purple-600"></i>
+                      <span>Rentang Waktu:</span>
+                    </span>
+                    <div className="flex flex-wrap gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                      {[
+                        { id: 'SEMUA', label: 'Semua Waktu' },
+                        { id: 'HARI_INI', label: 'Hari Ini' },
+                        { id: 'KEMARIN', label: 'Kemarin' },
+                        { id: '3_HARI', label: '3 Hari' },
+                        { id: '7_HARI', label: '7 Hari' },
+                        { id: 'KUSTOM', label: 'Rentang Kustom' }
+                      ].map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setDatePreset(preset.id as any)}
+                          className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
+                            datePreset === preset.id
+                              ? 'bg-purple-700 text-white shadow-xs'
+                              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Action Filter Dropdown */}
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-1.5">
+                      <i className="fa-solid fa-filter text-purple-600"></i>
+                      <span className="whitespace-nowrap">Filter Tindakan:</span>
+                    </span>
+                    <select
+                      value={auditActionFilter}
+                      onChange={e => setAuditActionFilter(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    >
+                      <option value="SEMUA">-- Semua Jenis Tindakan --</option>
+                      <option value="AUTH">Login &amp; Logout Petugas</option>
+                      <option value="CHECKIN">Check-In Kamar</option>
+                      <option value="CHECKOUT">Check-Out Kamar</option>
+                      <option value="SARAPAN">Pesanan Makan &amp; Sarapan</option>
+                      <option value="MAINTENANCE">Pemeliharaan &amp; Teknisi</option>
+                      <option value="QC">Pengawasan Mutu (QC)</option>
+                      <option value="PDF_DOWNLOAD">Pengunduhan Berkas PDF</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Custom Date Inputs if KUSTOM selected */}
+                {datePreset === 'KUSTOM' && (
+                  <div className="flex flex-wrap items-center gap-3 p-3 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/50 rounded-xl text-xs animate-in fade-in">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">Dari:</span>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={e => setCustomStartDate(e.target.value)}
+                        className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">Sampai:</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={e => setCustomEndDate(e.target.value)}
+                        className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+                    {(customStartDate || customEndDate) && (
+                      <button
+                        type="button"
+                        onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
+                        className="text-xs text-purple-600 hover:text-purple-800 font-bold underline cursor-pointer"
+                      >
+                        Reset Tanggal
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Search query input & clear button */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-700">
+                  <div className="relative flex-grow w-full sm:w-auto">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-xs pointer-events-none">
+                      <i className="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input
+                      type="text"
+                      value={auditSearch}
+                      onChange={e => setAuditSearch(e.target.value)}
+                      placeholder="Cari log berdasarkan nama petugas, role, jenis tindakan, kamar, atau rincian..."
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {(datePreset !== 'SEMUA' || auditActionFilter !== 'SEMUA' || auditSearch.trim() || customStartDate || customEndDate) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDatePreset('SEMUA');
+                        setAuditActionFilter('SEMUA');
+                        setAuditSearch('');
+                        setCustomStartDate('');
+                        setCustomEndDate('');
+                      }}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 shrink-0 cursor-pointer"
+                    >
+                      <i className="fa-solid fa-rotate-left text-xs"></i>
+                      <span>Reset Filter</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tabel Log Aktivitas Sistem Bersih Tanpa Duplikat */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+                <div className="p-3.5 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                      Menampilkan {filteredAuditLogs.length} dari {deduplicatedAuditLogs.length} Entri Log
+                    </span>
+                    <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                      ✓ Terverifikasi Bersih dari Duplikat
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Diurutkan kronologis terbalik (paling baru di atas)
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-200">
+                    <thead className="bg-slate-100 dark:bg-slate-900 uppercase text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 text-[11px] tracking-wider">
+                      <tr>
+                        <th className="py-3 px-4">Waktu &amp; Tanggal</th>
+                        <th className="py-3 px-4">Pengguna (Petugas)</th>
+                        <th className="py-3 px-4">Peran / Role</th>
+                        <th className="py-3 px-4">Kategori Tindakan</th>
+                        <th className="py-3 px-4">Rincian Objek &amp; Detail Aktivitas</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {filteredAuditLogs.length > 0 ? (
+                        filteredAuditLogs.map((log, idx) => {
+                          const actLower = (log.action || '').toLowerCase();
+                          let actBadgeClass = 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950/70 dark:text-purple-300 dark:border-purple-800';
+                          let actIcon = 'fa-circle-info';
+
+                          if (actLower.includes('check-in') || actLower.includes('checkin')) {
+                            actBadgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800';
+                            actIcon = 'fa-right-to-bracket';
+                          } else if (actLower.includes('check-out') || actLower.includes('checkout')) {
+                            actBadgeClass = 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800';
+                            actIcon = 'fa-right-from-bracket';
+                          } else if (actLower.includes('booking') || actLower.includes('reservasi') || actLower.includes('extend')) {
+                            actBadgeClass = 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/70 dark:text-blue-300 dark:border-blue-800';
+                            actIcon = 'fa-calendar-check';
+                          } else if (actLower.includes('qc') || actLower.includes('inspeksi') || actLower.includes('kelayakan')) {
+                            actBadgeClass = 'bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-950/70 dark:text-cyan-300 dark:border-cyan-800';
+                            actIcon = 'fa-clipboard-check';
+                          } else if (actLower.includes('maintenance') || actLower.includes('perbaikan') || actLower.includes('rusak')) {
+                            actBadgeClass = 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/70 dark:text-amber-200 dark:border-amber-800';
+                            actIcon = 'fa-screwdriver-wrench';
+                          } else if (actLower.includes('sarapan') || actLower.includes('makan') || actLower.includes('katering')) {
+                            actBadgeClass = 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-950/70 dark:text-orange-300 dark:border-orange-800';
+                            actIcon = 'fa-utensils';
+                          } else if (actLower.includes('pdf') || actLower.includes('unduh') || actLower.includes('cetak')) {
+                            actBadgeClass = 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-800';
+                            actIcon = 'fa-file-pdf';
+                          } else if (actLower.includes('masuk') || actLower.includes('login') || actLower.includes('keluar') || actLower.includes('logout')) {
+                            actBadgeClass = 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-300 dark:border-indigo-800';
+                            actIcon = 'fa-key';
+                          }
+
+                          return (
+                            <tr key={log.id || `${log.timestamp}-${idx}`} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition">
+                              {/* Waktu */}
+                              <td className="py-3 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                <span className="inline-flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                                  <i className="fa-regular fa-clock text-slate-400 text-[10px]"></i>
+                                  <span>{log.timestamp}</span>
+                                </span>
+                              </td>
+
+                              {/* Petugas Pengguna */}
+                              <td className="py-3 px-4">
+                                <div className="flex items-center space-x-2.5">
+                                  <div className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold flex items-center justify-center text-xs shrink-0">
+                                    {(log.user || 'P').charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <span className="font-bold text-slate-900 dark:text-slate-100 block leading-tight">
+                                      {log.user || 'Sistem'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Peran */}
+                              <td className="py-3 px-4">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  {log.role || 'Petugas'}
+                                </span>
+                              </td>
+
+                              {/* Kategori Tindakan */}
+                              <td className="py-3 px-4">
+                                <span className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[10.5px] font-bold border ${actBadgeClass}`}>
+                                  <i className={`fa-solid ${actIcon} text-[10px]`}></i>
+                                  <span>{log.action}</span>
+                                </span>
+                              </td>
+
+                              {/* Rincian Objek & Detail */}
+                              <td className="py-3 px-4 text-slate-700 dark:text-slate-200">
+                                <div className="max-w-xl text-xs leading-relaxed">
+                                  {log.details}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="py-12 px-4 text-center text-slate-400 dark:text-slate-500">
+                            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-2 text-xl text-slate-400">
+                              <i className="fa-solid fa-filter-circle-xmark"></i>
+                            </div>
+                            <p className="font-bold text-sm text-slate-600 dark:text-slate-300">Tidak ada log aktivitas sistem yang sesuai</p>
+                            <p className="text-xs text-slate-400 mt-0.5">Silakan reset filter pencarian atau ubah rentang tanggal.</p>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          ) : (
-            <>
+          )}
+
+          {/* TAB CONTENT 2: LOG UNDUH PDF BER-QR CODE RESMI */}
+          {auditSubTab === 'PDF_LOGS' && (
+            <div className="space-y-4 animate-in fade-in duration-150">
               {/* Header Info Banner */}
               <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-rose-500/30 relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
@@ -5135,7 +5406,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex items-center space-x-2 bg-rose-500/20 text-rose-300 border border-rose-400/30 px-3 py-1 rounded-full text-xs font-bold">
                       <i className="fa-solid fa-qrcode"></i>
-                      <span>Log Rekam Jejak Unduh PDF Ber-QR Code & Tanda Tangan</span>
+                      <span>Log Rekam Jejak Unduh PDF Ber-QR Code &amp; Tanda Tangan</span>
                     </div>
                     <div className="inline-flex items-center space-x-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2.5 py-1 rounded-full text-[11px] font-bold">
                       <i className="fa-solid fa-cloud-arrow-up"></i>
@@ -5144,10 +5415,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   </div>
 
                   <h2 className="text-xl md:text-2xl font-black tracking-tight">
-                    Riwayat Pengunduhan Dokumen Resmi & ID Verifikasi Unik
+                    Riwayat Pengunduhan Dokumen Resmi &amp; ID Verifikasi Unik
                   </h2>
                   <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-                    Setiap dokumen PDF yang diunduh dari sistem ini secara otomatis diberikan <strong>ID Verifikasi Unik</strong> dan rekam jejak digital ke dalam database Supabase. Anda dapat memfilter berdasarkan rentang tanggal maupun nama petugas, serta menyalin ID verifikasi untuk divalidasi langsung melalui tab <em>Alat Verifikasi PDF & QR Code</em>.
+                    Setiap dokumen PDF yang diunduh dari sistem ini secara otomatis diberikan <strong>ID Verifikasi Unik</strong> dan rekam jejak digital ke dalam database Supabase. Anda dapat memfilter berdasarkan rentang tanggal maupun nama petugas, serta menyalin ID verifikasi untuk divalidasi langsung melalui tab <em>Alat Verifikasi PDF &amp; QR Code</em>.
                   </p>
                 </div>
 
@@ -5175,233 +5446,240 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 </div>
               </div>
 
-          {/* Filter Bar: Rentang Tanggal, Nama Petugas, dan Pencarian Cepat */}
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              {/* Rentang Tanggal Preset */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-1.5 mr-1">
-                  <i className="fa-regular fa-calendar-days text-rose-600"></i>
-                  <span>Rentang Tanggal:</span>
-                </span>
-                <div className="flex flex-wrap gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-                  {[
-                    { id: 'SEMUA', label: 'Semua Waktu' },
-                    { id: 'HARI_INI', label: 'Hari Ini' },
-                    { id: 'KEMARIN', label: 'Kemarin' },
-                    { id: '3_HARI', label: '3 Hari' },
-                    { id: '7_HARI', label: '7 Hari' },
-                    { id: 'KUSTOM', label: 'Rentang Kustom' }
-                  ].map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => setPdfDatePreset(preset.id as any)}
-                      className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
-                        pdfDatePreset === preset.id
-                          ? 'bg-rose-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                      }`}
+              {/* Filter Bar: Rentang Tanggal, Nama Petugas, dan Pencarian Cepat */}
+              <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  {/* Rentang Tanggal Preset */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-1.5 mr-1">
+                      <i className="fa-regular fa-calendar-days text-rose-600"></i>
+                      <span>Rentang Tanggal:</span>
+                    </span>
+                    <div className="flex flex-wrap gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                      {[
+                        { id: 'SEMUA', label: 'Semua Waktu' },
+                        { id: 'HARI_INI', label: 'Hari Ini' },
+                        { id: 'KEMARIN', label: 'Kemarin' },
+                        { id: '3_HARI', label: '3 Hari' },
+                        { id: '7_HARI', label: '7 Hari' },
+                        { id: 'KUSTOM', label: 'Rentang Kustom' }
+                      ].map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setPdfDatePreset(preset.id as any)}
+                          className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
+                            pdfDatePreset === preset.id
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Filter Nama Petugas Dropdown */}
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-1.5">
+                      <i className="fa-solid fa-user-tie text-rose-600"></i>
+                      <span className="whitespace-nowrap">Nama Petugas:</span>
+                    </span>
+                    <select
+                      value={pdfOfficerFilter}
+                      onChange={(e) => setPdfOfficerFilter(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-rose-500 focus:outline-none"
                     >
-                      {preset.label}
+                      <option value="SEMUA">-- Semua Petugas Pengunduh --</option>
+                      {uniquePdfOfficers.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Jika Rentang Kustom Dipilih */}
+                {pdfDatePreset === 'KUSTOM' && (
+                  <div className="flex flex-wrap items-center gap-3 p-3 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs animate-in fade-in">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">Dari:</span>
+                      <input
+                        type="date"
+                        value={pdfStartDate}
+                        onChange={(e) => setPdfStartDate(e.target.value)}
+                        className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">Sampai:</span>
+                      <input
+                        type="date"
+                        value={pdfEndDate}
+                        onChange={(e) => setPdfEndDate(e.target.value)}
+                        className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPdfStartDate('');
+                        setPdfEndDate('');
+                      }}
+                      className="text-xs text-rose-600 hover:text-rose-800 font-bold underline cursor-pointer"
+                    >
+                      Reset Tanggal
                     </button>
-                  ))}
+                  </div>
+                )}
+
+                {/* Pencarian Teks & Reset Global */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-700">
+                  <div className="relative flex-grow w-full sm:w-auto">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-xs pointer-events-none">
+                      <i className="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input
+                      type="text"
+                      value={pdfSearch}
+                      onChange={(e) => setPdfSearch(e.target.value)}
+                      placeholder="Cari ID Verifikasi (VLOG-...), nama dokumen, petugas, tamu, atau pejabat..."
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {(pdfDatePreset !== 'SEMUA' || pdfOfficerFilter !== 'SEMUA' || pdfSearch.trim() || pdfStartDate || pdfEndDate) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPdfDatePreset('SEMUA');
+                        setPdfStartDate('');
+                        setPdfEndDate('');
+                        setPdfOfficerFilter('SEMUA');
+                        setPdfSearch('');
+                      }}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 shrink-0 cursor-pointer"
+                    >
+                      <i className="fa-solid fa-rotate-left text-xs"></i>
+                      <span>Reset Semua Filter</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Filter Nama Petugas Dropdown */}
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-1.5">
-                  <i className="fa-solid fa-user-tie text-rose-600"></i>
-                  <span className="whitespace-nowrap">Nama Petugas:</span>
-                </span>
-                <select
-                  value={pdfOfficerFilter}
-                  onChange={(e) => setPdfOfficerFilter(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                >
-                  <option value="SEMUA">-- Semua Petugas Pengunduh --</option>
-                  {uniquePdfOfficers.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Jika Rentang Kustom Dipilih */}
-            {pdfDatePreset === 'KUSTOM' && (
-              <div className="flex flex-wrap items-center gap-3 p-3 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs animate-in fade-in">
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">Dari:</span>
-                  <input
-                    type="date"
-                    value={pdfStartDate}
-                    onChange={(e) => setPdfStartDate(e.target.value)}
-                    className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
-                  />
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">Sampai:</span>
-                  <input
-                    type="date"
-                    value={pdfEndDate}
-                    onChange={(e) => setPdfEndDate(e.target.value)}
-                    className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPdfStartDate('');
-                    setPdfEndDate('');
-                  }}
-                  className="text-xs text-rose-600 hover:text-rose-800 font-bold underline cursor-pointer"
-                >
-                  Reset Tanggal
-                </button>
-              </div>
-            )}
-
-            {/* Pencarian Teks & Reset Global */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-700">
-              <div className="relative flex-grow w-full sm:w-auto">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-xs pointer-events-none">
-                  <i className="fa-solid fa-magnifying-glass"></i>
-                </span>
-                <input
-                  type="text"
-                  value={pdfSearch}
-                  onChange={(e) => setPdfSearch(e.target.value)}
-                  placeholder="Cari ID Verifikasi (VLOG-...), nama dokumen, petugas, tamu, atau pejabat..."
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                />
-              </div>
-
-              {(pdfDatePreset !== 'SEMUA' || pdfOfficerFilter !== 'SEMUA' || pdfSearch.trim() || pdfStartDate || pdfEndDate) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPdfDatePreset('SEMUA');
-                    setPdfStartDate('');
-                    setPdfEndDate('');
-                    setPdfOfficerFilter('SEMUA');
-                    setPdfSearch('');
-                  }}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 shrink-0 cursor-pointer"
-                >
-                  <i className="fa-solid fa-rotate-left text-xs"></i>
-                  <span>Reset Semua Filter</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Tabel Log Aktivitas Unduh PDF */}
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-700 dark:text-slate-200">
-                <thead className="bg-slate-100 dark:bg-slate-900 uppercase text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="p-3">ID Verifikasi Unik</th>
-                    <th className="p-3">Waktu Unduh</th>
-                    <th className="p-3">Petugas Pengunduh</th>
-                    <th className="p-3">Nama Dokumen / Objek</th>
-                    <th className="p-3">Pejabat TTD & QR</th>
-                    <th className="p-3 text-center">Status Keaslian</th>
-                    <th className="p-3 text-center">Aksi Verifikasi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {filteredPdfLogs.length > 0 ? (
-                    filteredPdfLogs.map((log, idx) => {
-                      const logIdStr = log.id ? String(log.id) : `LOG${idx + 1}`;
-                      const verifCode = log.verificationCode || (logIdStr.toLowerCase().startsWith('vlog-') ? logIdStr.toUpperCase() : `VLOG-${logIdStr.slice(-8).toUpperCase()}`);
-                      return (
-                        <tr key={idx} className="hover:bg-rose-50/40 dark:hover:bg-slate-700/50 transition">
-                          <td className="p-3">
-                            <div className="flex items-center space-x-1.5">
-                              <span className="font-mono font-black text-[11px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                                {verifCode}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (navigator.clipboard) {
-                                    navigator.clipboard.writeText(verifCode);
-                                    showToast(`ID Verifikasi "${verifCode}" disalin ke clipboard!`, 'success');
-                                  }
-                                }}
-                                className="p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
-                                title="Salin ID Verifikasi"
-                              >
-                                <i className="fa-regular fa-copy"></i>
-                              </button>
+              {/* Tabel Log Aktivitas Unduh PDF */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-200">
+                    <thead className="bg-slate-100 dark:bg-slate-900 uppercase text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="p-3">ID Verifikasi Unik</th>
+                        <th className="p-3">Waktu Unduh</th>
+                        <th className="p-3">Petugas Pengunduh</th>
+                        <th className="p-3">Nama Dokumen / Objek</th>
+                        <th className="p-3">Pejabat TTD &amp; QR</th>
+                        <th className="p-3 text-center">Status Keaslian</th>
+                        <th className="p-3 text-center">Aksi Verifikasi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {filteredPdfLogs.length > 0 ? (
+                        filteredPdfLogs.map((log, idx) => {
+                          const logIdStr = log.id ? String(log.id) : `LOG${idx + 1}`;
+                          const verifCode = log.verificationCode || (logIdStr.toLowerCase().startsWith('vlog-') ? logIdStr.toUpperCase() : `VLOG-${logIdStr.slice(-8).toUpperCase()}`);
+                          return (
+                            <tr key={idx} className="hover:bg-rose-50/40 dark:hover:bg-slate-700/50 transition">
+                              <td className="p-3">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="font-mono font-black text-[11px] text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                                    {verifCode}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (navigator.clipboard) {
+                                        navigator.clipboard.writeText(verifCode);
+                                        showToast(`ID Verifikasi "${verifCode}" disalin ke clipboard!`, 'success');
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                                    title="Salin ID Verifikasi"
+                                  >
+                                    <i className="fa-regular fa-copy"></i>
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="p-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                <i className="fa-regular fa-clock mr-1 text-slate-400"></i>
+                                {log.timestamp}
+                              </td>
+                              <td className="p-3">
+                                <div className="font-bold text-slate-900 dark:text-white">{log.user}</div>
+                                <div className="text-[10px] text-slate-500">{log.role}</div>
+                              </td>
+                              <td className="p-3">
+                                <div className="font-semibold text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                                  <i className="fa-solid fa-file-pdf text-rose-600 text-xs"></i>
+                                  <span>{log.documentTitle || log.targetId || log.details.replace(/\[VLOG-[^\]]+\]\s*/, '')}</span>
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <div className="font-bold text-slate-800 dark:text-slate-200">
+                                  {log.signatoryName || 'Pejabat Penandatangan'}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  {log.signatoryRole || 'Pimpinan Divisi'} {log.signatoryNip ? `• NIP ${log.signatoryNip}` : ''}
+                                </div>
+                              </td>
+                              <td className="p-3 text-center whitespace-nowrap">
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                  <i className="fa-solid fa-circle-check text-emerald-600"></i>
+                                  <span>QR Valid &amp; Terdata</span>
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    sessionStorage.setItem('verify_code_target', verifCode);
+                                    setAuditSubTab('VERIFY');
+                                    showToast(`Membuka Alat Verifikasi Dokumen: ${verifCode}`, 'info');
+                                  }}
+                                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 mx-auto cursor-pointer"
+                                  title="Buka di Alat Verifikasi PDF &amp; QR"
+                                >
+                                  <i className="fa-solid fa-shield-halved"></i>
+                                  <span>Verifikasi Dokumen</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-slate-400 dark:text-slate-500">
+                            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-2 text-xl text-slate-400">
+                              <i className="fa-solid fa-filter-circle-xmark"></i>
                             </div>
-                          </td>
-                          <td className="p-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                            <i className="fa-regular fa-clock mr-1 text-slate-400"></i>
-                            {log.timestamp}
-                          </td>
-                          <td className="p-3">
-                            <div className="font-bold text-slate-900 dark:text-white">{log.user}</div>
-                            <div className="text-[10px] text-slate-500">{log.role}</div>
-                          </td>
-                          <td className="p-3">
-                            <div className="font-semibold text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
-                              <i className="fa-solid fa-file-pdf text-rose-600 text-xs"></i>
-                              <span>{log.documentTitle || log.targetId || log.details.replace(/\[VLOG-[^\]]+\]\s*/, '')}</span>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <div className="font-bold text-slate-800 dark:text-slate-200">
-                              {log.signatoryName || 'Pejabat Penandatangan'}
-                            </div>
-                            <div className="text-[10px] text-slate-500">
-                              {log.signatoryRole || 'Pimpinan Divisi'} {log.signatoryNip ? `• NIP ${log.signatoryNip}` : ''}
-                            </div>
-                          </td>
-                          <td className="p-3 text-center whitespace-nowrap">
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                              <i className="fa-solid fa-circle-check text-emerald-600"></i>
-                              <span>QR Valid & Terdata</span>
-                            </span>
-                          </td>
-                          <td className="p-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                sessionStorage.setItem('verify_code_target', verifCode);
-                                setPdfSubTab('VERIFY');
-                                showToast(`Membuka Alat Verifikasi Dokumen: ${verifCode}`, 'info');
-                              }}
-                              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 mx-auto cursor-pointer"
-                              title="Buka di Alat Verifikasi PDF & QR"
-                            >
-                              <i className="fa-solid fa-shield-halved"></i>
-                              <span>Verifikasi Dokumen</span>
-                            </button>
+                            <p className="font-bold text-sm text-slate-600 dark:text-slate-400">Tidak ada log aktivitas unduh PDF yang sesuai</p>
+                            <p className="text-xs text-slate-400 mt-0.5">Coba ubah rentang tanggal atau bersihkan filter pencarian nama petugas.</p>
                           </td>
                         </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400 dark:text-slate-500">
-                        <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-2 text-xl text-slate-400">
-                          <i className="fa-solid fa-filter-circle-xmark"></i>
-                        </div>
-                        <p className="font-bold text-sm text-slate-600 dark:text-slate-400">Tidak ada log aktivitas unduh PDF yang sesuai</p>
-                        <p className="text-xs text-slate-400 mt-0.5">Coba ubah rentang tanggal atau bersihkan filter pencarian nama petugas.</p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </div>
-            </>
+          )}
+
+          {/* TAB CONTENT 3: ALAT VERIFIKASI KEASLIAN PDF & QR CODE */}
+          {auditSubTab === 'VERIFY' && (
+            <div className="animate-in fade-in duration-150">
+              <VerifyPdfView />
+            </div>
           )}
         </div>
       ) : activeSubView === 'DATABASE_MGMT' ? (

@@ -291,6 +291,7 @@ export function BuildingOccupancySection({
         rooms={rooms}
         transactions={transactions}
         maintenances={maintenances}
+        meetingRooms={context.meetingRooms || []}
         onOpenRoomDetail={onOpenRoomDetail}
         onGoToFloorPlan={(bName) => {
           setSelectedBuilding(bName);

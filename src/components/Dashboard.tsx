@@ -690,7 +690,18 @@ export function Dashboard() {
       } else if (isAula) {
         bRooms = rooms.filter(isRoomAula);
       } else {
-        bRooms = rooms.filter(r => !isRoomSG(r) && !isRoomAula(r) && r.building.toLowerCase() === b.name.toLowerCase());
+        bRooms = rooms.filter(r => {
+          if (isRoomSG(r) || isRoomAula(r)) return false;
+          const rLower = (r.building || '').toLowerCase().trim();
+          const bLower = (b.name || '').toLowerCase().trim();
+          if (rLower === bLower) return true;
+          if (rLower.includes(bLower) || bLower.includes(rLower)) return true;
+          const aliases = ['arafah', 'muzdalifah', 'mina', 'madinah'];
+          for (const al of aliases) {
+            if (bLower.includes(al) && rLower.includes(al)) return true;
+          }
+          return false;
+        });
       }
 
       const catalogInfo = (buildings || []).find(bld => bld.name.toLowerCase() === b.name.toLowerCase());

@@ -420,16 +420,6 @@ export function UserManagementView() {
 
             <button
               type="button"
-              onClick={() => openModal('modalUserManagement')}
-              className="px-3 sm:px-3.5 py-2 sm:py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/20 transition flex items-center space-x-2 cursor-pointer"
-              title="Buka dialog formulir cepat"
-            >
-              <i className="fa-solid fa-window-restore"></i>
-              <span className="hidden sm:inline">Dialog Cepat</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => openModal('modalExport', { defaultType: 'USERS' })}
               className="px-3 sm:px-3.5 py-2 sm:py-2.5 bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center space-x-2 cursor-pointer"
               title="Unduh Laporan Resmi Daftar Anggota & Petugas (PDF Ber-QR / Excel)"
@@ -503,7 +493,7 @@ export function UserManagementView() {
       </div>
 
       {/* 1.5. ANTREAN PERSETUJUAN (ACC) AKUN & RESET PASSWORD */}
-      <div className={`rounded-2xl border transition-all overflow-hidden ${
+      <div id="approval-queue-section" className={`rounded-2xl border transition-all overflow-hidden scroll-mt-24 ${
         totalPendingApprovals > 0 
           ? 'bg-amber-50/70 border-amber-300 shadow-sm' 
           : 'bg-white border-slate-200'
@@ -1366,34 +1356,19 @@ export function UserManagementView() {
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end space-x-1">
                           {user.status === 'Menunggu Persetujuan' ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => approveUserRegistration(user.id)}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer shadow-xs"
-                                title="Setujui Pendaftaran (ACC)"
-                              >
-                                <i className="fa-solid fa-check text-xs"></i>
-                                <span>ACC</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setConfirmActionModal({
-                                    type: 'REJECT_REG',
-                                    id: user.id,
-                                    title: 'Tolak Pendaftaran Akun',
-                                    description: 'Apakah Anda yakin ingin menolak permohonan pendaftaran akun petugas ini?',
-                                    targetName: user.fullName,
-                                    targetUsername: user.username
-                                  });
-                                }}
-                                className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                title="Tolak Pendaftaran"
-                              >
-                                <i className="fa-solid fa-xmark text-xs"></i>
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowApprovalSection(true);
+                                setApprovalTab('REGISTER');
+                                document.getElementById('approval-queue-section')?.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer shadow-xs"
+                              title="Buka panel persetujuan akun ini di Antrean Verifikasi"
+                            >
+                              <i className="fa-solid fa-clipboard-check text-xs"></i>
+                              <span>Verifikasi di Antrean</span>
+                            </button>
                           ) : (
                             <button
                               type="button"
@@ -1568,33 +1543,19 @@ export function UserManagementView() {
                 {/* Actions */}
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                   {user.status === 'Menunggu Persetujuan' ? (
-                    <div className="flex-1 flex items-center space-x-1.5">
-                      <button
-                        type="button"
-                        onClick={() => approveUserRegistration(user.id)}
-                        className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer shadow-xs"
-                      >
-                        <i className="fa-solid fa-check text-xs"></i>
-                        <span>ACC</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfirmActionModal({
-                            type: 'REJECT_REG',
-                            id: user.id,
-                            title: 'Tolak Pendaftaran Akun',
-                            description: 'Apakah Anda yakin ingin menolak permohonan pendaftaran akun petugas ini?',
-                            targetName: user.fullName,
-                            targetUsername: user.username
-                          });
-                        }}
-                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-lg border border-rose-200 transition cursor-pointer"
-                        title="Tolak Pendaftaran"
-                      >
-                        <i className="fa-solid fa-xmark text-xs"></i>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowApprovalSection(true);
+                        setApprovalTab('REGISTER');
+                        document.getElementById('approval-queue-section')?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs"
+                      title="Buka panel persetujuan akun ini di Antrean Verifikasi"
+                    >
+                      <i className="fa-solid fa-clipboard-check text-xs"></i>
+                      <span>Verifikasi di Antrean</span>
+                    </button>
                   ) : (
                     <button
                       type="button"

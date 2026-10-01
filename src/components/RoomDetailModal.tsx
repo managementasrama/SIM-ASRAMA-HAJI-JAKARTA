@@ -19,6 +19,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   const { 
     rooms, 
     transactions, 
+    meetingRooms = [],
     currentUser, 
     openModal, 
     checkoutRoom, 
@@ -68,7 +69,27 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
   if (!isOpen || !roomId) return null;
 
-  const room = rooms.find(r => r.id === roomId) || rooms.find(r => r.roomNumber === roomId);
+  let room = rooms.find(r => r.id === roomId) || rooms.find(r => r.roomNumber === roomId);
+  if (!room && meetingRooms && meetingRooms.length > 0) {
+    const mr = meetingRooms.find(m => m.id === roomId || m.name.toLowerCase() === roomId.toLowerCase());
+    if (mr) {
+      const isSG = mr.category === 'SERBAGUNA' || (mr.name || '').toLowerCase().includes('serbaguna');
+      const targetBld = mr.building && mr.building !== 'Ruang Pertemuan' && mr.building !== 'Gedung Serbaguna' && mr.building !== 'Gedung Serbaguna (SG)'
+        ? mr.building
+        : (isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan');
+      room = {
+        id: mr.id,
+        building: targetBld,
+        roomNumber: mr.name,
+        type: isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan / Aula',
+        capacity: mr.capacity,
+        status: mr.status === 'MAINTENANCE' ? 'MAINTENANCE' : (mr.status === 'TERPAKAI' ? 'TERISI' : 'KOSONG'),
+        qcStatus: mr.qcStatus || 'LOLOS_QC',
+        activeTxId: mr.activeTxId || null,
+        activeMaintId: null
+      };
+    }
+  }
   if (!room) return null;
 
   const isAula = Boolean(
