@@ -583,7 +583,7 @@ export function Dashboard() {
     const combinedNames = Array.from(new Set([...catalogBuildingNames, ...roomBuildingNames]));
 
     // Separate residential buildings from meeting / multipurpose facilities
-    const regularBuildings = combinedNames.filter(name => !isMeetingFacility(name));
+    const regularBuildings = combinedNames.filter(name => !isMeetingFacility(name) && !name.toLowerCase().includes('serbaguna') && !name.toLowerCase().includes('sg'));
     
     // Sort regular buildings using compareBuildingOrder
     regularBuildings.sort((a, b) => compareBuildingOrder(a, b));
@@ -614,23 +614,11 @@ export function Dashboard() {
       );
     }
 
-    // Include any custom multipurpose / meeting facility buildings dynamically
-    const customMeetingBuildings = combinedNames.filter(name => isMeetingFacility(name) && name !== 'Ruang Pertemuan');
-    customMeetingBuildings.sort((a, b) => compareBuildingOrder(a, b));
-    customMeetingBuildings.forEach(name => {
-      result.push({
-        name,
-        shortName: `${name} (Serbaguna & Rapat)`,
-        icon: 'fa-landmark',
-        color: 'purple'
-      });
-    });
-
-    // Always append Ruang Pertemuan / Aula strictly at the very bottom
+    // Tepat SATU entri representatif untuk seluruh Ruang Pertemuan / Aula (menghilangkan duplikasi)
     result.push({
-      name: 'Ruang Pertemuan',
-      shortName: 'Ruang Pertemuan / Aula (Fasilitas Serbaguna & Rapat)',
-      icon: 'fa-handshake',
+      name: 'Ruang Pertemuan / Aula',
+      shortName: 'Ruang Pertemuan / Aula',
+      icon: 'fa-landmark',
       color: 'purple'
     });
 
@@ -642,25 +630,30 @@ export function Dashboard() {
     const resolveRoomBuilding = (r: Room): string => {
       const matchingMr = (meetingRooms || []).find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
       if (matchingMr) {
-        if (matchingMr.category === 'SERBAGUNA') return 'Gedung Serbaguna (SG)';
-        if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') return 'Ruang Pertemuan';
-        if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
-          return matchingMr.building;
-        }
-        return 'Ruang Pertemuan';
+        return 'Ruang Pertemuan / Aula';
       }
-      if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
-        return 'Gedung Serbaguna (SG)';
-      }
-      if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula') {
-        return 'Ruang Pertemuan';
+      if (
+        r.building === 'Gedung Serbaguna (SG)' || 
+        r.building === 'Gedung Serbaguna' || 
+        r.type === 'Gedung Serbaguna (SG)' ||
+        r.building === 'Ruang Pertemuan' || 
+        r.building === 'Ruang Pertemuan / Aula' || 
+        r.type === 'Ruang Pertemuan / Aula' ||
+        isMeetingFacility(r.building) || 
+        isMeetingFacility(r.type)
+      ) {
+        return 'Ruang Pertemuan / Aula';
       }
       return r.building;
     };
 
     return buildingsList.map(b => {
+      const isThisAula = b.name === 'Ruang Pertemuan / Aula' || isMeetingFacility(b.name);
       const bRooms = rooms.filter(r => {
         const bKey = resolveRoomBuilding(r);
+        if (isThisAula) {
+          return bKey === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type);
+        }
         return bKey.toLowerCase() === b.name.toLowerCase() || r.building.toLowerCase() === b.name.toLowerCase();
       });
 
@@ -791,6 +784,10 @@ export function Dashboard() {
           occupancyPercent={occupancyPercent}
           setSelectedBuilding={setSelectedBuilding}
           setActiveTab={setActiveTab}
+          rooms={rooms}
+          transactions={transactions}
+          maintenances={maintenances}
+          onOpenRoomDetail={(roomId) => openModal('modalRoomDetail', { roomId })}
         />
 
         {/* PANEL KANAN: REGISTRASI & MANAJEMEN DATA ROMBONGAN */}

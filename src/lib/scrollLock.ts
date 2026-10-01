@@ -3,13 +3,25 @@ import { useEffect } from 'react';
 /**
  * Robust, reference-counted Body Scroll Lock
  * Mencegah background page scrolling saat popup / modal terbuka.
- * Mendukung multiple modal bersarang tanpa merusak overflow saat salah satu ditutup.
+ * Mempertahankan posisi scroll persis di tempat terakhir user membuka popup.
  */
 let scrollLockCount = 0;
 let originalBodyOverflow = '';
-let originalHtmlOverflow = '';
 let originalBodyPaddingRight = '';
-let originalTouchAction = '';
+let savedScrollY = 0;
+let lastKnownScrollY = 0;
+
+// Pelacak posisi scroll aktif terus-menerus saat body tidak di-lock
+if (typeof window !== 'undefined') {
+  window.addEventListener('scroll', () => {
+    if (scrollLockCount === 0) {
+      const y = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+      if (y >= 0) {
+        lastKnownScrollY = y;
+      }
+    }
+  }, { passive: true });
+}
 
 export function lockBodyScroll() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -17,10 +29,10 @@ export function lockBodyScroll() {
   scrollLockCount++;
 
   if (scrollLockCount === 1) {
+    const currentY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+    savedScrollY = currentY > 0 ? currentY : lastKnownScrollY;
     originalBodyOverflow = document.body.style.overflow;
-    originalHtmlOverflow = document.documentElement.style.overflow;
     originalBodyPaddingRight = document.body.style.paddingRight;
-    originalTouchAction = document.body.style.touchAction;
 
     // Hitung lebar scrollbar untuk mencegah layout shift
     const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
@@ -29,10 +41,7 @@ export function lockBodyScroll() {
     }
 
     document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.touchAction = 'none';
     document.body.classList.add('modal-open');
-    document.documentElement.classList.add('modal-open');
   }
 }
 
@@ -43,11 +52,31 @@ export function unlockBodyScroll() {
 
   if (scrollLockCount === 0) {
     document.body.style.overflow = originalBodyOverflow || '';
-    document.documentElement.style.overflow = originalHtmlOverflow || '';
     document.body.style.paddingRight = originalBodyPaddingRight || '';
-    document.body.style.touchAction = originalTouchAction || '';
     document.body.classList.remove('modal-open');
-    document.documentElement.classList.remove('modal-open');
+
+    const targetY = savedScrollY;
+
+    // Kembalikan ke posisi scroll yang persis sama setelah browser menyelesaikan reflow DOM
+    if (typeof window.scrollTo === 'function' && targetY > 0) {
+      requestAnimationFrame(() => {
+        window.scrollTo({
+          top: targetY,
+          left: 0,
+          behavior: 'instant' as ScrollBehavior
+        });
+        setTimeout(() => {
+          const currentNow = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+          if (Math.abs(currentNow - targetY) > 5) {
+            window.scrollTo({
+              top: targetY,
+              left: 0,
+              behavior: 'instant' as ScrollBehavior
+            });
+          }
+        }, 20);
+      });
+    }
   }
 }
 

@@ -977,8 +977,8 @@ export function Modals() {
   return (
     <>
       {isCheckinOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-100 dark:border-slate-700 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden">
+          <div className={`bg-white dark:bg-slate-800 rounded-2xl shadow-2xl ${isAula ? 'max-w-2xl' : 'max-w-xl'} w-full overflow-hidden border border-slate-100 dark:border-slate-700 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto min-w-0`}>
             <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="font-bold text-base flex items-center space-x-2 flex-wrap gap-1">
@@ -1222,7 +1222,7 @@ export function Modals() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleCheckin} className="p-6 space-y-4 text-xs overflow-y-auto flex-1 custom-scrollbar">
+              <form onSubmit={handleCheckin} className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto overflow-x-hidden flex-1 custom-scrollbar w-full min-w-0">
                 {checkinData.actionType === 'CHECKIN' && !isAula && transactions.filter(t => t.roomId === room?.id && t.status === 'BOOKED').length > 0 && (
                   <div className="flex items-center justify-between bg-blue-50 p-2.5 rounded-lg border border-blue-200">
                     <div className="flex items-center space-x-1.5 text-xs text-blue-900">
@@ -1351,176 +1351,227 @@ export function Modals() {
                   </div>
                 )}
                 {isAula ? (
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1 text-xs">Tipe Sewa Fasilitas</label>
-                    <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                      isSG 
-                        ? 'bg-amber-50/80 border-amber-300 text-amber-950' 
-                        : 'bg-purple-50/80 border-purple-300 text-purple-950'
-                    }`}>
-                      <div className="flex items-center space-x-2">
-                        <i className={`fa-solid ${isSG ? 'fa-building-columns text-amber-700 text-sm' : 'fa-landmark text-purple-700 text-sm'}`}></i>
-                        <div>
-                          <div className="font-bold text-xs">
-                            {isSG ? 'Sewa Gedung Serbaguna (SG)' : 'Sewa Ruang Pertemuan / Aula'}
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {duration === 8 
-                              ? 'Paket Sesi (8 Jam) • Maks 2 Penyewa' 
-                              : duration === 12 
-                              ? 'Paket Sewa Seharian Penuh (12 Jam) • 1 Penyewa Maksimal' 
-                              : `Paket Sewa Multi-Hari (${Math.max(1, Math.round(duration / 12))} Hari / ${duration} Jam)`}
-                          </div>
+                  /* Form Durasi & Jadwal Khusus Gedung Serbaguna & Ruang Pertemuan / Aula (Responsive & No Horizontal Scroll) */
+                  <div className="space-y-3.5 p-3.5 bg-purple-50/60 dark:bg-slate-900/60 rounded-xl border border-purple-200 dark:border-slate-700">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Tanggal Pemakaian */}
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1 text-xs">
+                          Tanggal Mulai Pemakaian <span className="text-rose-500">*</span>
+                        </label>
+                        <input 
+                          type="date" 
+                          value={startDate} 
+                          onChange={e => setStartDate(e.target.value)} 
+                          required 
+                          className={`w-full p-2.5 border rounded-lg outline-none font-medium transition text-xs ${isAulaDateFull ? 'border-red-400 bg-red-50/50 text-red-900 focus:ring-2 focus:ring-red-500' : 'border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-purple-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100'}`} 
+                        />
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(realToday)} 
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition cursor-pointer ${startDate === realToday ? 'bg-purple-800 text-white' : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'}`}
+                          >
+                            Hari Ini
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(prev => addDaysToDateStr(prev, 1))} 
+                            className="px-2.5 py-1 rounded-md text-[10px] font-bold transition cursor-pointer bg-purple-600 hover:bg-purple-700 text-white border border-purple-400 shadow-2xs"
+                          >
+                            +1 Hari
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(prev => addDaysToDateStr(prev, 2))} 
+                            className="px-2.5 py-1 rounded-md text-[10px] font-bold transition cursor-pointer bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50"
+                          >
+                            +2 Hari
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(prev => addDaysToDateStr(prev, 3))} 
+                            className="px-2.5 py-1 rounded-md text-[10px] font-bold transition cursor-pointer bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50"
+                          >
+                            +3 Hari
+                          </button>
                         </div>
                       </div>
-                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
-                        isSG 
-                          ? 'bg-amber-100 text-amber-900 border-amber-300' 
-                          : 'bg-purple-100 text-purple-900 border-purple-300'
-                      }`}>
-                        {isSG ? 'Fasilitas Serbaguna' : 'Aula & Rapat'}
+
+                      {/* Durasi Sewa Hari */}
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1 text-xs">
+                          Durasi Hari Sewa
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="number" 
+                            min="1" 
+                            max="30"
+                            value={aulaRentalDays} 
+                            onChange={e => setAulaRentalDays(Math.max(1, parseInt(e.target.value) || 1))} 
+                            className="w-16 p-2 border border-purple-300 dark:border-purple-700 rounded-lg outline-none focus:ring-2 focus:ring-purple-600 font-bold text-center text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" 
+                          />
+                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Hari</span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {[1, 2, 3, 5].map(d => (
+                              <button
+                                key={d}
+                                type="button"
+                                onClick={() => setAulaRentalDays(d)}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md border transition cursor-pointer ${
+                                  aulaRentalDays === d 
+                                    ? 'bg-purple-700 text-white border-purple-800 shadow-2xs' 
+                                    : 'bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700 hover:bg-purple-50'
+                                }`}
+                              >
+                                {d} Hari
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5">
+                          Sewa harian atau multi-hari dihitung berdasarkan jumlah hari pemakaian.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Sesi Sewa (8 Jam vs 12 Jam) */}
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1.5 text-xs">
+                        Pilihan Paket Sesi Sewa
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div 
+                          onClick={() => {
+                            if (!is8HourDisabled) setDuration(8);
+                          }}
+                          className={`p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between space-y-1 ${
+                            is8HourDisabled 
+                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 opacity-60 cursor-not-allowed'
+                              : duration === 8 
+                              ? 'bg-purple-100/90 dark:bg-purple-950/80 border-purple-600 text-purple-950 dark:text-purple-100 shadow-2xs ring-1 ring-purple-500'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-xs">Paket Sesi (8 Jam)</span>
+                            <span className="font-mono font-bold text-xs text-purple-900 dark:text-purple-300">{formatRupiah(facilitySessionRate)}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                            Maksimal 2 Penyewa bergantian • {isAulaOnly8Available ? 'Sesi 2 Tersedia' : (aulaCount8OnDate >= 2 ? 'Kuota 2 Sesi Penuh' : 'Tersedia')}
+                          </span>
+                        </div>
+
+                        <div 
+                          onClick={() => {
+                            if (!aulaCount8OnDate && !hasAnyTxAcrossProposedDates) setDuration(12);
+                          }}
+                          className={`p-2.5 rounded-xl border transition cursor-pointer flex flex-col justify-between space-y-1 ${
+                            aulaCount8OnDate > 0 || hasAnyTxAcrossProposedDates 
+                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 opacity-60 cursor-not-allowed'
+                              : duration === 12 
+                              ? 'bg-purple-100/90 dark:bg-purple-950/80 border-purple-600 text-purple-950 dark:text-purple-100 shadow-2xs ring-1 ring-purple-500'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-purple-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-xs">Paket Harian Penuh (12 Jam)</span>
+                            <span className="font-mono font-bold text-xs text-purple-900 dark:text-purple-300">{formatRupiah(facilityDailyRate)}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                            Eksklusif 1 Penyewa Seharian Penuh • {aulaCount8OnDate > 0 ? 'Tidak Tersedia (ada sesi 8 jam)' : (hasAnyTxAcrossProposedDates ? 'Ada Booking Aktif' : 'Tersedia')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Ringkasan Subtotal Sewa */}
+                    <div className="p-2.5 bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800 rounded-lg text-xs flex flex-wrap items-center justify-between gap-1 font-semibold text-purple-950 dark:text-purple-200">
+                      <span>
+                        {duration === 8 ? 'Paket Sesi 8 Jam/Hari' : 'Paket Harian Penuh 12 Jam/Hari'} × {aulaRentalDays} Hari
+                      </span>
+                      <span className="font-mono font-bold text-sm text-purple-900 dark:text-purple-300">
+                        Total Sewa: {formatRupiah(calculateMeetingRate(duration, aulaRentalDays))}
                       </span>
                     </div>
                   </div>
                 ) : (
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Tipe Sewa</label>
-                    <select value={rentType} onChange={e => setRentType(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-hajj-600">
-                      <option value="Per Kamar">Per Kamar</option>
-                      <option value="Per Bed">Per Bed</option>
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-700">
-                      Tanggal Mulai {!isAula ? '/ Check-In' : '/ Pemakaian'}
-                    </label>
-                    {startDate === realTomorrow ? (
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-200">
-                        +1 Hari dari Real Hari Ini (Besok)
-                      </span>
-                    ) : startDate === realToday ? (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
-                        Real Hari Ini
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
-                        {formatIndonesianDate(startDate)}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <input 
-                        type="date" 
-                        value={startDate} 
-                        onChange={e => setStartDate(e.target.value)} 
-                        required 
-                        className={`w-full p-2.5 border rounded-lg outline-none font-medium transition ${isAulaDateFull || kamarOverlap ? 'border-red-400 bg-red-50/50 text-red-900 focus:ring-2 focus:ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-hajj-600'}`} 
-                      />
-                      <div className="flex items-center space-x-1 mt-1.5">
-                        <button 
-                          type="button" 
-                          onClick={() => setStartDate(realToday)} 
-                          className={`px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center ${startDate === realToday ? 'bg-hajj-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
-                          title="Pilih Real Hari Ini"
-                        >
-                          Hari Ini
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => setStartDate(prev => addDaysToDateStr(prev, 1))} 
-                          className="px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center bg-purple-600 hover:bg-purple-700 text-white border border-purple-300 shadow-sm"
-                          title="Tambah +1 hari ke depan"
-                        >
-                          +1 Hari
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => setStartDate(prev => addDaysToDateStr(prev, 2))} 
-                          className="px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200"
-                          title="Tambah +2 hari ke depan"
-                        >
-                          +2 Hari
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => setStartDate(prev => addDaysToDateStr(prev, 3))} 
-                          className="px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200"
-                          title="Tambah +3 hari ke depan"
-                        >
-                          +3 Hari
-                        </button>
-                      </div>
+                      <label className="block font-bold text-slate-700 mb-1">Tipe Sewa</label>
+                      <select value={rentType} onChange={e => setRentType(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-hajj-600">
+                        <option value="Per Kamar">Per Kamar</option>
+                        <option value="Per Bed">Per Bed</option>
+                      </select>
                     </div>
 
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">
-                        {isAula ? 'Pilihan Durasi / Alternatif Sewa Aula' : 'Durasi Sewa Kamar'}
+                    <div className="flex items-center justify-between mb-1 mt-3">
+                      <label className="block font-bold text-slate-700">
+                        Tanggal Mulai / Check-In
                       </label>
-                      {isAula ? (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-600 mb-1">Sesi Sewa (8 Jam / 12 Jam):</label>
-                              <select 
-                                value={duration} 
-                                onChange={e => setDuration(Number(e.target.value))} 
-                                className="w-full p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-600 font-semibold text-xs bg-white"
-                              >
-                                <option value={8} disabled={is8HourDisabled}>
-                                  8 Jam (Per Sesi / Maks 2 Penyewa) — {formatRupiah(facilitySessionRate)} {isAulaOnly8Available ? '(Sesi 2 Tersedia)' : (aulaCount8OnDate >= 2 ? '(Penuh 2 Sesi)' : '')}
-                                </option>
-                                <option value={12} disabled={aulaCount8OnDate > 0 || hasAnyTxAcrossProposedDates}>
-                                  12 Jam (Sewa Harian / Maks 1 Penyewa) — {formatRupiah(facilityDailyRate)} {aulaCount8OnDate > 0 ? '(Tidak Tersedia - Ada Sesi 8 Jam)' : (hasAnyTxAcrossProposedDates ? '(Ada Booking Aktif)' : '')}
-                                </option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-600 mb-1">Durasi Sewa (Hari):</label>
-                              <div className="flex items-center space-x-1.5">
-                                <input 
-                                  type="number" 
-                                  min="1" 
-                                  max="30"
-                                  value={aulaRentalDays} 
-                                  onChange={e => setAulaRentalDays(Math.max(1, parseInt(e.target.value) || 1))} 
-                                  className="w-20 p-2 border border-purple-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-600 font-bold text-center text-xs bg-white" 
-                                />
-                                <span className="text-xs font-bold text-slate-600">Hari</span>
-                                <div className="flex items-center space-x-1">
-                                  {[1, 2, 3].map(d => (
-                                    <button
-                                      key={d}
-                                      type="button"
-                                      onClick={() => setAulaRentalDays(d)}
-                                      className={`px-2 py-1 text-[10px] font-bold rounded border transition cursor-pointer ${
-                                        aulaRentalDays === d 
-                                          ? 'bg-purple-700 text-white border-purple-800' 
-                                          : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
-                                      }`}
-                                    >
-                                      {d}H
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="p-2 bg-purple-50 border border-purple-200 rounded-lg text-[10.5px] text-purple-900 flex items-center justify-between font-semibold">
-                            <span>
-                              {duration === 8 ? 'Paket Sesi (8 Jam/Hari • Maks 2 Penyewa)' : 'Paket Harian (12 Jam/Hari • Maks 1 Penyewa)'} • {aulaRentalDays} Hari
-                            </span>
-                            <span className="font-mono font-bold text-purple-950 text-xs">
-                              Tarif: {formatRupiah(calculateMeetingRate(duration, aulaRentalDays))}
-                            </span>
-                          </div>
-                        </div>
+                      {startDate === realTomorrow ? (
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-200">
+                          +1 Hari dari Real Hari Ini (Besok)
+                        </span>
+                      ) : startDate === realToday ? (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                          Real Hari Ini
+                        </span>
                       ) : (
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                          {formatIndonesianDate(startDate)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <input 
+                          type="date" 
+                          value={startDate} 
+                          onChange={e => setStartDate(e.target.value)} 
+                          required 
+                          className={`w-full p-2.5 border rounded-lg outline-none font-medium transition ${kamarOverlap ? 'border-red-400 bg-red-50/50 text-red-900 focus:ring-2 focus:ring-red-500' : 'border-slate-300 focus:ring-2 focus:ring-hajj-600'}`} 
+                        />
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(realToday)} 
+                            className={`px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center ${startDate === realToday ? 'bg-hajj-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                            title="Pilih Real Hari Ini"
+                          >
+                            Hari Ini
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(prev => addDaysToDateStr(prev, 1))} 
+                            className="px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center bg-purple-600 hover:bg-purple-700 text-white border border-purple-300 shadow-sm"
+                            title="Tambah +1 hari ke depan"
+                          >
+                            +1 Hari
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(prev => addDaysToDateStr(prev, 2))} 
+                            className="px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200"
+                            title="Tambah +2 hari ke depan"
+                          >
+                            +2 Hari
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setStartDate(prev => addDaysToDateStr(prev, 3))} 
+                            className="px-2 py-1 rounded text-[10px] font-bold transition flex-1 text-center bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200"
+                            title="Tambah +3 hari ke depan"
+                          >
+                            +3 Hari
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Durasi Sewa Kamar</label>
                         <div className="flex items-center space-x-2">
                           <input 
                             type="number" 
@@ -1532,9 +1583,10 @@ export function Modals() {
                           />
                           <span className="text-slate-500 font-semibold">Malam</span>
                         </div>
-                      )}
+                      </div>
                     </div>
                   </div>
+                )}
 
                   {/* Visual timeline indicator */}
                   <div className="mt-2.5 p-2 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between text-[11px] text-slate-700 dark:text-slate-300">
@@ -2322,7 +2374,7 @@ export function Modals() {
                                   className="w-full p-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg font-mono font-bold text-amber-950 dark:text-amber-100 outline-none focus:ring-2 focus:ring-amber-500"
                                 />
                               </div>
-                              <div className="flex gap-1.5 mt-1.5">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-1.5">
                                 {[
                                   { label: '20%', pct: 0.2 },
                                   { label: '30%', pct: 0.3 },
@@ -2333,7 +2385,7 @@ export function Modals() {
                                     key={preset.label}
                                     type="button"
                                     onClick={() => setPayDpAmount(Math.round(estGrandTotal * preset.pct))}
-                                    className="flex-1 py-1 bg-amber-200 dark:bg-amber-900/60 hover:bg-amber-300 text-amber-900 dark:text-amber-200 font-bold rounded text-[10px] cursor-pointer transition"
+                                    className="py-1 px-1.5 bg-amber-200 dark:bg-amber-900/60 hover:bg-amber-300 text-amber-900 dark:text-amber-200 font-bold rounded text-[10px] cursor-pointer transition text-center truncate"
                                   >
                                     {preset.label} ({formatRupiah(Math.round(estGrandTotal * preset.pct))})
                                   </button>

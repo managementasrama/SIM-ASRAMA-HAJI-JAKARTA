@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { BuildingDetailModal } from './BuildingDetailModal';
+import { Room, Transaction, Maintenance } from '../../types';
 
 export interface BuildingStat {
   name: string;
@@ -28,6 +30,10 @@ interface BuildingOccupancySectionProps {
   occupancyPercent: number;
   setSelectedBuilding: (building: string) => void;
   setActiveTab: (tab: string) => void;
+  rooms?: Room[];
+  transactions?: Transaction[];
+  maintenances?: Maintenance[];
+  onOpenRoomDetail?: (roomId: string) => void;
 }
 
 export function BuildingOccupancySection({
@@ -40,11 +46,16 @@ export function BuildingOccupancySection({
   occupancyPercent,
   setSelectedBuilding,
   setActiveTab,
+  rooms = [],
+  transactions = [],
+  maintenances = [],
+  onOpenRoomDetail,
 }: BuildingOccupancySectionProps) {
   const [bCategoryFilter, setBCategoryFilter] = useState<'ALL' | 'RESIDENTIAL' | 'AULA'>('ALL');
+  const [selectedBuildingDetail, setSelectedBuildingDetail] = useState<BuildingStat | null>(null);
 
   const filteredBuildings = buildingStats.filter(b => {
-    const isAula = b.name.includes('Pertemuan') || b.name.includes('Aula');
+    const isAula = b.name.includes('Pertemuan') || b.name.includes('Aula') || b.name.includes('Serbaguna');
     if (bCategoryFilter === 'RESIDENTIAL') return !isAula;
     if (bCategoryFilter === 'AULA') return isAula;
     return true;
@@ -165,14 +176,11 @@ export function BuildingOccupancySection({
         {/* Building Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto pr-0.5">
           {filteredBuildings.map(b => {
-            const isAula = b.name.includes('Pertemuan') || b.name.includes('Aula');
+            const isAula = b.name.includes('Pertemuan') || b.name.includes('Aula') || b.name.includes('Serbaguna');
             return (
               <div 
                 key={b.name} 
-                onClick={() => {
-                  setSelectedBuilding(b.name);
-                  setActiveTab('gedung');
-                }}
+                onClick={() => setSelectedBuildingDetail(b)}
                 className="p-3 bg-slate-50/80 dark:bg-slate-800/80 hover:bg-white dark:hover:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 space-y-2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xs cursor-pointer group"
               >
                 <div className="flex items-center justify-between text-xs">
@@ -201,42 +209,29 @@ export function BuildingOccupancySection({
                   />
                 </div>
 
-                {/* Mini Room Status Pill Indicator & Pricing Info */}
+                {/* Status Badges: Terisi, Booking, Kosong, Maint (Simpel tanpa harga & pax) */}
                 <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-medium">
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-semibold text-[10px]">
                       {b.occupied} Terisi
                     </span>
-                    <span className="px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300 font-medium">
+                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-semibold text-[10px]">
+                      {b.reserved} Booking
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 font-medium text-[10px]">
                       {b.vacant} Kosong
                     </span>
                     {b.maintenance > 0 && (
-                      <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-medium">
+                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-semibold text-[10px]">
                         {b.maintenance} Maint
                       </span>
                     )}
                   </div>
-                  <span className="text-hajj-700 dark:text-gold-400 font-bold group-hover:underline flex items-center space-x-0.5 transition shrink-0">
-                    <span>Denah</span>
+                  <span className="text-blue-700 dark:text-blue-400 font-bold group-hover:underline flex items-center space-x-0.5 transition shrink-0 text-[10.5px]">
+                    <span>Detail</span>
                     <span>→</span>
                   </span>
                 </div>
-
-                {/* Synced Price & Capacity Details */}
-                {(b.priceLabel || b.capacityDesc) && (
-                  <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[9.5px]">
-                    <span className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 truncate max-w-[65%]" title={b.priceLabel}>
-                      <i className="fa-solid fa-tag text-[9px] shrink-0 text-emerald-600"></i>
-                      <span className="truncate">{b.priceLabel}</span>
-                    </span>
-                    {b.capacityDesc && (
-                      <span className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1 shrink-0" title={b.capacityDesc}>
-                        <i className="fa-solid fa-users text-[9px] shrink-0 text-blue-500"></i>
-                        <span>{b.capacityDesc}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -258,6 +253,21 @@ export function BuildingOccupancySection({
           <span>Buka Modul Denah Kamar →</span>
         </button>
       </div>
+
+      {/* Modal Popup Detail & Monitoring Gedung */}
+      <BuildingDetailModal
+        isOpen={Boolean(selectedBuildingDetail)}
+        onClose={() => setSelectedBuildingDetail(null)}
+        building={selectedBuildingDetail}
+        rooms={rooms}
+        transactions={transactions}
+        maintenances={maintenances}
+        onOpenRoomDetail={onOpenRoomDetail}
+        onGoToFloorPlan={(bName) => {
+          setSelectedBuilding(bName);
+          setActiveTab('gedung');
+        }}
+      />
     </div>
   );
 }
