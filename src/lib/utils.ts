@@ -121,6 +121,12 @@ export function isMeetingFacility(name: string): boolean {
   return lower.includes('ruang pertemuan') || 
          lower.includes('aula') || 
          lower.includes('serbaguna') ||
+         lower.includes('auditorium') ||
+         lower.includes('gedung sg') ||
+         lower.includes('multipurpose') ||
+         lower.includes('sg-') ||
+         lower.includes('sg 1') ||
+         lower.includes('sg 2') ||
          lower.includes('meeting') ||
          lower.includes('rapat');
 }

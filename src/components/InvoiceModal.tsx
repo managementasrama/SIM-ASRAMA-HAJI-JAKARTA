@@ -6,6 +6,7 @@ import { findRoomRate, INDONESIAN_BANKS, OFFICIAL_VA_CONFIG } from '../data';
 import { downloadDirectInvoicePdf, downloadDirectKwitansiPdf, downloadCombinedInvoiceAndKwitansiPdf, printInvoiceDocument } from '../lib/pdfDownloader';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { consolidateGroupTransactions } from '../lib/reportExporter';
+import { calculateMeetingRoomPricing } from '../lib/pricingCalculator';
 import { KwitansiPrintSheet } from './KwitansiModal';
 
 function angkaKeTerbilang(nilai: number): string {
@@ -173,18 +174,24 @@ function InvoiceModalInner({
     );
   }, [rombonganList, tx, groupKey, groupRecord]);
 
-  const currentRoom = room || rooms.find(r => r.id === tx.roomId) || null;
+  const currentRoom = room || rooms.find(r => r.id === tx.roomId) || (meetingRooms.find(m => m.id === tx.roomId) as any) || null;
   const resolvedTargetRoomId = returnToRoomId || (currentRoom ? currentRoom.id : tx?.roomId) || null;
   const canGoBack = Boolean(onReturn || resolvedTargetRoomId);
 
   const isMeetingTx = (t?: Transaction | null) => {
     if (!t) return false;
-    return t.building === 'Ruang Pertemuan' || 
+    return t.category === 'AULA' ||
+           t.building === 'Ruang Pertemuan' || 
+           t.building === 'Ruang Pertemuan / Aula' || 
            t.building === 'Gedung Serbaguna (SG)' || 
            t.building === 'Gedung Serbaguna' || 
-           isMeetingFacility(t.building) || 
-           isMeetingFacility(t.roomNumber) || 
-           Boolean(t.rentType?.toLowerCase().includes('ruangan') || t.rentType?.toLowerCase().includes('serbaguna'));
+           isMeetingFacility(t.building || '') || 
+           isMeetingFacility(t.roomNumber || '') || 
+           Boolean(t.rentType?.toLowerCase().includes('ruangan')) ||
+           Boolean(t.rentType?.toLowerCase().includes('serbaguna')) ||
+           Boolean(t.includeAula) ||
+           Boolean(t.rentAulaName) ||
+           Boolean(t.rentAulaId);
   };
 
   const isAulaMain = isMeetingTx(tx);
@@ -382,7 +389,7 @@ function InvoiceModalInner({
       });
     }
 
-    // 2. Biaya Ruang Pertemuan (Aula)
+    // 2. Biaya Ruang Pertemuan (Aula / Auditorium / Gedung SG)
     let meetingRoomItem: {
       name: string;
       session: string;
@@ -392,41 +399,15 @@ function InvoiceModalInner({
     } | null = null;
     let subtotalMeetingRoom = 0;
 
-    if (isAulaMain) {
-      const mrObj = meetingRooms.find(m => 
-        m.name.toLowerCase() === tx.roomNumber.toLowerCase() || 
-        m.code?.toLowerCase() === tx.roomNumber.toLowerCase() || 
-        m.id === tx.roomId
-      );
-      const isDayDuration = tx.durationUnit === 'Hari' || tx.duration >= 24;
-      const rate = isDayDuration ? (mrObj?.dailyRate || 15000000) : (mrObj?.sessionRate || 8500000);
-      const qty = isDayDuration ? Math.ceil(tx.duration / (tx.duration >= 24 ? 24 : 1)) : 1;
-      const totalAula = rate * qty;
-      subtotalMeetingRoom = totalAula;
+    const mrPricing = calculateMeetingRoomPricing(tx, meetingRooms);
+    if (mrPricing.isAula) {
+      subtotalMeetingRoom = mrPricing.subtotal;
       meetingRoomItem = {
-        name: tx.roomNumber,
-        session: tx.rentAulaSession || (isDayDuration ? 'Sewa Harian Penuh' : 'Sesi Reguler 8 Jam'),
-        rate,
-        durationText: `${qty} ${isDayDuration ? 'Hari' : 'Sesi'}`,
-        subtotal: totalAula
-      };
-    } else if (hasAula) {
-      const aulaMr = meetingRooms.find(m => 
-        m.name.toLowerCase() === resolvedAulaName.toLowerCase() || 
-        m.code?.toLowerCase() === resolvedAulaName.toLowerCase()
-      );
-      const isSG = resolvedAulaName.toLowerCase().includes('serbaguna') || aulaMr?.category === 'SERBAGUNA';
-      const is12Hours = tx.rentAulaDuration === 12 || Boolean(resolvedAulaSession?.includes('12 Jam'));
-      const days = resolvedAulaDurationDays || 1;
-      const rate = is12Hours ? (aulaMr?.dailyRate || (isSG ? 15000000 : 12000000)) : (aulaMr?.sessionRate || (isSG ? 8500000 : 7000000));
-      const totalAula = rate * days;
-      subtotalMeetingRoom = totalAula;
-      meetingRoomItem = {
-        name: resolvedAulaName,
-        session: resolvedAulaSession || (is12Hours ? 'Sewa Harian Penuh (12 Jam)' : 'Sesi Reguler (8 Jam)'),
-        rate,
-        durationText: `${days} Hari Pelaksanaan`,
-        subtotal: totalAula
+        name: mrPricing.name,
+        session: mrPricing.session,
+        rate: mrPricing.rate,
+        durationText: mrPricing.durationText,
+        subtotal: mrPricing.subtotal
       };
     }
 

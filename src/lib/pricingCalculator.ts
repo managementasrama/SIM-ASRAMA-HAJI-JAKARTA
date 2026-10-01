@@ -15,6 +15,149 @@ export interface EntityPricingResult {
   breakdownSummary: string;
 }
 
+export interface MeetingRoomPricingItem {
+  isAula: boolean;
+  meetingRoom: MeetingRoom | null;
+  name: string;
+  session: string;
+  isDaily: boolean;
+  rate: number;
+  qty: number;
+  durationText: string;
+  subtotal: number;
+  rateUnitLabel: string;
+}
+
+/**
+ * Fungsi kalkulasi resmi & tunggal untuk penyewaan fasilitas Ruang Pertemuan (Aula / Auditorium / Gedung SG)
+ * Menjamin 100% konsistensi antara Laporan, Invoice, Kwitansi, dan Berkas PDF.
+ */
+export function calculateMeetingRoomPricing(
+  tx: Partial<Transaction> | undefined | null,
+  meetingRooms?: MeetingRoom[]
+): MeetingRoomPricingItem {
+  if (!tx) {
+    return {
+      isAula: false,
+      meetingRoom: null,
+      name: '',
+      session: '',
+      isDaily: false,
+      rate: 0,
+      qty: 0,
+      durationText: '',
+      subtotal: 0,
+      rateUnitLabel: ''
+    };
+  }
+
+  const allMeetingRooms = meetingRooms && meetingRooms.length > 0 
+    ? meetingRooms 
+    : dataStorage.getMeetingRooms();
+
+  const isAula = tx.category === 'AULA' ||
+                 tx.building === 'Ruang Pertemuan' || 
+                 tx.building === 'Ruang Pertemuan / Aula' || 
+                 tx.building === 'Gedung Serbaguna (SG)' || 
+                 tx.building === 'Gedung Serbaguna' || 
+                 isMeetingFacility(tx.building || '') || 
+                 isMeetingFacility(tx.roomNumber || '') || 
+                 Boolean(tx.rentType?.toLowerCase().includes('ruangan')) ||
+                 Boolean(tx.rentType?.toLowerCase().includes('serbaguna')) ||
+                 Boolean(tx.includeAula) ||
+                 Boolean(tx.rentAulaName) ||
+                 Boolean(tx.rentAulaId);
+
+  if (!isAula) {
+    return {
+      isAula: false,
+      meetingRoom: null,
+      name: '',
+      session: '',
+      isDaily: false,
+      rate: 0,
+      qty: 0,
+      durationText: '',
+      subtotal: 0,
+      rateUnitLabel: ''
+    };
+  }
+
+  const targetName = (tx.rentAulaName || tx.roomNumber || '').trim().toLowerCase();
+  const mrObj = allMeetingRooms.find(m => 
+    (m.id && (m.id === tx.roomId || m.id === tx.rentAulaId)) ||
+    (m.name && m.name.toLowerCase() === targetName) ||
+    (m.code && m.code.toLowerCase() === targetName) ||
+    (m.name && targetName && (targetName.includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(targetName))) ||
+    (m.code && targetName && (targetName.includes(m.code.toLowerCase()) || m.code.toLowerCase().includes(targetName))) ||
+    (tx.building && m.name && m.name.toLowerCase() === tx.building.toLowerCase()) ||
+    (tx.building && m.building && m.building.toLowerCase() === tx.building.toLowerCase())
+  ) || null;
+
+  const isSG = targetName.includes('serbaguna') || 
+               targetName.includes('gedung sg') || 
+               targetName.includes('sg-') || 
+               (tx.building && (tx.building.toLowerCase().includes('serbaguna') || tx.building.toLowerCase().includes('gedung sg'))) || 
+               mrObj?.category === 'SERBAGUNA';
+
+  // Deteksi pemakaian Harian / 12-24 jam vs Sesi 8 jam
+  const durUnit = (tx.durationUnit || '').toLowerCase();
+  const rentType = (tx.rentType || '').toLowerCase();
+  const sessionStr = (tx.rentAulaSession || '').toLowerCase();
+
+  const isDayDuration = durUnit === 'hari' || 
+                        rentType.includes('harian') ||
+                        tx.rentAulaDuration === 12 || 
+                        tx.rentAulaDuration === 24 || 
+                        (tx.duration !== undefined && tx.duration >= 24) || 
+                        sessionStr.includes('12 jam') || 
+                        sessionStr.includes('harian') || 
+                        sessionStr.includes('full day') ||
+                        sessionStr.includes('seharian');
+
+  // Tarif resmi (Gunakan tx.pricePerNight jika ada dan valid)
+  const defaultDaily = mrObj?.dailyRate || (isSG ? 15000000 : 12000000);
+  const defaultSession = mrObj?.sessionRate || (isSG ? 8500000 : 7000000);
+
+  let rate = 0;
+  if (tx.pricePerNight && tx.pricePerNight > 0) {
+    rate = tx.pricePerNight;
+  } else {
+    rate = isDayDuration ? defaultDaily : defaultSession;
+  }
+
+  // Hitung jumlah hari / sesi pemakaian
+  let qty = 1;
+  if (tx.rentAulaDurationDays && tx.rentAulaDurationDays >= 1) {
+    qty = tx.rentAulaDurationDays;
+  } else if (durUnit === 'hari' || rentType.includes('harian')) {
+    qty = Math.max(1, tx.duration || 1);
+  } else if (tx.duration && tx.duration >= 24) {
+    qty = Math.ceil(tx.duration / 24);
+  } else {
+    qty = 1;
+  }
+
+  const subtotal = rate * qty;
+  const resolvedName = tx.rentAulaName || tx.roomNumber || mrObj?.name || 'Ruang Pertemuan / Aula';
+  const sessionDesc = tx.rentAulaSession || (isDayDuration ? 'Sewa Harian Penuh (12 Jam)' : 'Sesi Reguler (8 Jam)');
+  const durationText = `${qty} ${isDayDuration ? 'Hari' : 'Sesi'}`;
+  const rateUnitLabel = `${formatRupiah(rate)} / ${isDayDuration ? 'Hari' : 'Sesi'}`;
+
+  return {
+    isAula: true,
+    meetingRoom: mrObj,
+    name: resolvedName,
+    session: sessionDesc,
+    isDaily: isDayDuration,
+    rate,
+    qty,
+    durationText,
+    subtotal,
+    rateUnitLabel
+  };
+}
+
 interface PricingOptions {
   rooms?: Room[];
   roomCapacityRates?: RoomCapacityRate[];
@@ -46,13 +189,19 @@ export function calculateTransactionPricing(
 ): EntityPricingResult {
   const { rooms, roomCapacityRates, meetingRooms, breakfastMenuItems } = resolveOptions(options);
 
-  const isAula = tx.building === 'Ruang Pertemuan' || 
-                 tx.building === 'Gedung Serbaguna (SG)' || 
-                 tx.building === 'Gedung Serbaguna' || 
-                 isMeetingFacility(tx.building) || 
-                 isMeetingFacility(tx.roomNumber) || 
-                 (tx.rentType && tx.rentType.toLowerCase().includes('ruangan')) ||
-                 (tx.rentType && tx.rentType.toLowerCase().includes('serbaguna'));
+  const mrPricing = calculateMeetingRoomPricing(tx, meetingRooms);
+  const isPureAula = mrPricing.isAula && (
+    tx.category === 'AULA' ||
+    tx.building === 'Ruang Pertemuan' || 
+    tx.building === 'Ruang Pertemuan / Aula' || 
+    tx.building === 'Gedung Serbaguna (SG)' || 
+    tx.building === 'Gedung Serbaguna' || 
+    isMeetingFacility(tx.building || '') || 
+    isMeetingFacility(tx.roomNumber || '') || 
+    Boolean(tx.rentType?.toLowerCase().includes('ruangan')) ||
+    Boolean(tx.rentType?.toLowerCase().includes('serbaguna'))
+  );
+
   const nights = Math.max(1, tx.duration || 1);
 
   let subtotalRooms = 0;
@@ -62,31 +211,15 @@ export function calculateTransactionPricing(
   let ratePerUnit = 0;
   let ratePerUnitLabel = '';
 
-  if (isAula) {
-    const mrObj = meetingRooms.find(m => 
-      m.name.toLowerCase() === tx.roomNumber.toLowerCase() || 
-      m.code?.toLowerCase() === tx.roomNumber.toLowerCase() ||
-      m.id === tx.roomId ||
-      (tx.building && m.name.toLowerCase() === tx.building.toLowerCase()) ||
-      (tx.building && m.building?.toLowerCase() === tx.building.toLowerCase())
-    );
-    const isSG = tx.building?.toLowerCase().includes('serbaguna') || 
-                 tx.roomNumber?.toLowerCase().includes('serbaguna') || 
-                 mrObj?.category === 'SERBAGUNA';
-    const sessionRate = mrObj?.sessionRate || (isSG ? 8500000 : 7000000);
-    const dailyRate = mrObj?.dailyRate || (isSG ? 15000000 : 12000000);
+  if (mrPricing.isAula) {
+    subtotalAula = mrPricing.subtotal;
+    if (isPureAula) {
+      ratePerUnit = mrPricing.rate;
+      ratePerUnitLabel = mrPricing.rateUnitLabel;
+    }
+  }
 
-    const is12Hours = tx.rentAulaDuration === 12 || 
-                      Boolean(tx.rentAulaSession?.includes('12 Jam')) || 
-                      tx.duration === 12 || 
-                      (tx.duration >= 12 && tx.durationUnit !== 'Hari');
-    const days = tx.rentAulaDurationDays || (tx.durationUnit === 'Hari' ? tx.duration : (tx.duration > 12 ? Math.round(tx.duration / 12) : 1));
-    const rate = is12Hours ? dailyRate : sessionRate;
-    const finalDays = Math.max(1, days);
-    subtotalAula = rate * finalDays;
-    ratePerUnit = rate;
-    ratePerUnitLabel = `${formatRupiah(rate)} / ${is12Hours ? '12 Jam' : '8 Jam (Sesi)'}`;
-  } else {
+  if (!isPureAula) {
     const rObj = rooms.find(r => r.id === tx.roomId || r.roomNumber === tx.roomNumber);
     const matchedRate = findRoomRate(rObj?.type || tx.category || 'Standar', rObj?.bedType, roomCapacityRates);
     const rate = rObj?.pricePerNight || matchedRate?.pricePerNight || (
@@ -96,32 +229,32 @@ export function calculateTransactionPricing(
     subtotalRooms = rate * nights;
     ratePerUnit = rate;
     ratePerUnitLabel = `${formatRupiah(rate)} / Malam`;
+  }
 
-    // Extra Bed
-    if (tx.extraBed) {
-      const ebRate = (tx.extraBedPrice !== undefined && tx.extraBedPrice !== null) ? tx.extraBedPrice : 100000;
-      subtotalExtraBed = (tx.extraBedCount || 1) * ebRate * nights;
-    }
+  // Extra Bed (bisa pada kamar maupun sewa aula jika ada request kasur panitia)
+  if (tx.extraBed) {
+    const ebRate = (tx.extraBedPrice !== undefined && tx.extraBedPrice !== null) ? tx.extraBedPrice : 100000;
+    subtotalExtraBed = (tx.extraBedCount || 1) * ebRate * nights;
+  }
 
-    // Catering / Breakfast
-    if (tx.cateringPackage && tx.cateringPackage !== 'TIDAK') {
-      const pax = tx.cateringPaxCount || tx.breakfastPortions || tx.totalPax || 1;
-      const days = tx.breakfastDays || nights;
-      const mItem = breakfastMenuItems.find(m => m.name === tx.breakfastMenu);
-      let rateCat = mItem?.price;
-      if (!rateCat) {
-        if (tx.cateringPackage === 'FULLBOARD') rateCat = 120000;
-        else if (tx.cateringPackage === 'SNACK_AULA') rateCat = 25000;
-        else rateCat = 25000;
-      }
-      subtotalCatering = pax * rateCat * days;
-    } else if (tx.breakfast) {
-      const mItem = breakfastMenuItems.find(m => m.name === tx.breakfastMenu);
-      const rateBf = mItem?.price || 25000;
-      const portions = tx.breakfastPortions || 1;
-      const days = tx.breakfastDays || nights;
-      subtotalCatering = portions * rateBf * days;
+  // Catering / Breakfast / Konsumsi Acara
+  if (tx.cateringPackage && tx.cateringPackage !== 'TIDAK') {
+    const pax = tx.cateringPaxCount || tx.breakfastPortions || tx.totalPax || 1;
+    const days = tx.breakfastDays || (isPureAula ? (mrPricing.qty || 1) : nights);
+    const mItem = breakfastMenuItems.find(m => m.name === tx.breakfastMenu);
+    let rateCat = mItem?.price;
+    if (!rateCat) {
+      if (tx.cateringPackage === 'FULLBOARD') rateCat = 120000;
+      else if (tx.cateringPackage === 'SNACK_AULA') rateCat = 25000;
+      else rateCat = 25000;
     }
+    subtotalCatering = pax * rateCat * days;
+  } else if (tx.breakfast) {
+    const mItem = breakfastMenuItems.find(m => m.name === tx.breakfastMenu);
+    const rateBf = mItem?.price || 25000;
+    const portions = tx.breakfastPortions || 1;
+    const days = tx.breakfastDays || (isPureAula ? (mrPricing.qty || 1) : nights);
+    subtotalCatering = portions * rateBf * days;
   }
 
   const grandTotal = subtotalRooms + subtotalAula + subtotalExtraBed + subtotalCatering;

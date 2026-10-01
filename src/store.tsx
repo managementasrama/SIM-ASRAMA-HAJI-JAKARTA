@@ -507,10 +507,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, []);
 
-  // Hydrate awal dari Supabase Cloud saat aplikasi dibuka
+  // Hydrate awal dari Supabase Cloud saat aplikasi dibuka dengan proteksi pemulihan data lokal
   useEffect(() => {
     async function loadCloudDatabase() {
       try {
+        // Cek terlebih dahulu apakah ada data tersimpan di cadangan lokal perangkat yang bisa dipulihkan
+        const recovery = dataStorage.tryRecoverLostData();
+        if (recovery.recovered && recovery.recoveredDb) {
+          const rDb = recovery.recoveredDb;
+          setUsers(rDb.users);
+          setBuildings(rDb.buildings || []);
+          setMeetingRooms(rDb.meetingRooms || []);
+          setRooms(rDb.rooms);
+          setTransactions(rDb.transactions);
+          setMaintenances(rDb.maintenances);
+          setAuditLogs(rDb.auditLogs);
+          setWorkSessions(rDb.workSessions);
+          setQcInspections(rDb.qcInspections);
+          setBreakfastMenuItems(rDb.breakfastMenuItems || []);
+          setBreakfastOrders(rDb.breakfastOrders || []);
+          showToast(recovery.message, 'success');
+        }
+
         const cloudDb = await dataStorage.hydrateFromSupabase();
         if (cloudDb) {
           setUsers(cloudDb.users);

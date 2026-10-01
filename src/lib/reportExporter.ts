@@ -50,7 +50,9 @@ export function consolidateGroupTransactions(
   const aulaList: Transaction[] = [];
 
   transactions.forEach(t => {
-    const isAula = t.building === 'Ruang Pertemuan' || 
+    const isAula = t.category === 'AULA' ||
+                   t.building === 'Ruang Pertemuan' || 
+                   t.building === 'Ruang Pertemuan / Aula' || 
                    t.building === 'Gedung Serbaguna (SG)' || 
                    t.building === 'Gedung Serbaguna' || 
                    isMeetingFacility(t.building) || 

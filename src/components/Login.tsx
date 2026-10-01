@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../store';
 import { UserRole } from '../types';
+import { useBodyScrollLock } from '../lib/scrollLock';
 
 export function Login() {
   const { login, users, buildings = [], showToast, appSettings, registerAccountRequest, requestPasswordReset } = useAppContext();
@@ -57,6 +58,7 @@ export function Login() {
   // Modals for Daftar Akun & Lupa Password
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  useBodyScrollLock(Boolean(showRegisterModal || showForgotPasswordModal));
 
   // Form State: Daftar Akun
   const [regFullName, setRegFullName] = useState('');
@@ -383,8 +385,14 @@ export function Login() {
 
       {/* Modal 1: Daftar Akun Baru */}
       {showRegisterModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gold-500/40 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowRegisterModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-gold-500/40 w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="bg-gradient-to-r from-hajj-900 to-hajj-800 text-white px-5 py-3.5 flex items-center justify-between border-b-2 border-gold-500 shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-lg bg-gold-500/20 border border-gold-400/40 flex items-center justify-center text-gold-300">
@@ -574,8 +582,14 @@ export function Login() {
 
       {/* Modal 2: Lupa Password & Permohonan Kata Sandi Baru */}
       {showForgotPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl border border-amber-400 w-full max-w-md overflow-hidden flex flex-col max-h-[92vh]">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowForgotPasswordModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-amber-400 w-full max-w-md overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="bg-gradient-to-r from-amber-900 to-amber-800 text-white px-5 py-3.5 flex items-center justify-between border-b-2 border-gold-400 shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-lg bg-gold-500/20 border border-gold-400/40 flex items-center justify-center text-gold-300">

@@ -42,6 +42,7 @@ import {
 export type StorageNamespace = 'LOCAL' | 'PROD' | 'DEMO';
 
 export const LOCAL_STORAGE_KEY = 'UPT_ASRAMA_HAJI_DATABASE_V4_CLEAN';
+export const LOCAL_STORAGE_BACKUP_KEY = 'UPT_ASRAMA_HAJI_AUTO_BACKUP_LATEST';
 export const LEGACY_STORAGE_KEYS = [
   'UPT_ASRAMA_HAJI_DATABASE_V3_CLEAN',
   'UPT_ASRAMA_HAJI_LOCAL_DATABASE_V1',
@@ -133,6 +134,7 @@ export class DataStorageService {
   private syncStatus: 'idle' | 'syncing' | 'connected' | 'error' = 'idle';
   private syncError: string | null = null;
   private syncDebounceTimer: any = null;
+  private hasHydratedFromCloud: boolean = false;
 
   constructor() {
     this.getDatabase();
@@ -178,31 +180,195 @@ export class DataStorageService {
   }
 
   /**
-   * Hidrasi data terbaru dari Supabase Cloud saat aplikasi dibuka
+   * Hidrasi data terbaru dari Supabase Cloud saat aplikasi dibuka secara aman (non-destructive)
    */
   public async hydrateFromSupabase(): Promise<CompleteStorageDatabase | null> {
     try {
       this.syncStatus = 'syncing';
       const cloudDb = await fetchFullDatabaseFromSupabase();
       if (cloudDb && Array.isArray(cloudDb.rooms) && cloudDb.rooms.length > 0) {
-        this.cache = cloudDb;
+        const localDb = this.getDatabase();
+        
+        // Simpan cadangan snapshot lokal sebelum merger
+        if (typeof window !== 'undefined' && window.localStorage) {
+          try {
+            window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(localDb));
+          } catch (_) {}
+        }
+
+        const localTxCount = Array.isArray(localDb.transactions) ? localDb.transactions.length : 0;
+        const cloudTxCount = Array.isArray(cloudDb.transactions) ? cloudDb.transactions.length : 0;
+
+        // Jika data lokal memiliki transaksi aktif sedangkan Supabase kosong (misal baru di-seed)
+        if (localTxCount > 0 && cloudTxCount === 0) {
+          console.warn('Proteksi Data: Data lokal memiliki transaksi aktif sedangkan Supabase kosong. Mempertahankan data lokal dan mengirim balik ke Supabase.');
+          this.syncStatus = 'connected';
+          this.triggerSupabaseSync(localDb);
+          return localDb;
+        }
+
+        // Lakukan penggabungan cerdas (smart merge) agar perubahan lokal tidak hilang
+        const mergedDb = this.mergeDatabases(localDb, cloudDb);
+        this.cache = mergedDb;
         this.lastSyncTime = new Date().toISOString();
         this.syncStatus = 'connected';
         this.syncError = null;
+        this.hasHydratedFromCloud = true;
         
         // Simpan ke localStorage sebagai cache offline
         if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cloudDb));
+          try {
+            window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mergedDb));
+            window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(mergedDb));
+          } catch (_) {}
         }
-        return cloudDb;
+
+        // Jika data lokal memiliki transaksi atau perubahan yang tidak ada di cloud, dorong data gabungan ke cloud
+        if (localTxCount > 0 || (localDb.users && localDb.users.length > (cloudDb.users?.length || 0))) {
+          this.triggerSupabaseSync(mergedDb);
+        }
+
+        return mergedDb;
       }
       this.syncStatus = 'connected';
+      this.hasHydratedFromCloud = true;
       return null;
     } catch (err: any) {
       this.syncStatus = 'error';
       this.syncError = err?.message || 'Gagal mengambil data dari Supabase';
       return null;
     }
+  }
+
+  /**
+   * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
+   */
+  public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase): CompleteStorageDatabase {
+    // 1. Transactions: gabungkan transaksi unik berdasarkan id, utamakan data lokal
+    const txMap = new Map<string, Transaction>();
+    (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    const mergedTransactions = Array.from(txMap.values());
+
+    // 2. Users: gabungkan user unik berdasarkan id & username
+    const userMap = new Map<string, User>();
+    (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    const mergedUsers = Array.from(userMap.values());
+
+    // 3. Maintenances
+    const maintMap = new Map<string, Maintenance>();
+    (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    const mergedMaintenances = Array.from(maintMap.values());
+
+    // 4. QC Inspections
+    const qcMap = new Map<string, QcInspection>();
+    (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    const mergedQc = Array.from(qcMap.values());
+
+    // 5. Breakfast Orders
+    const bOrdersMap = new Map<string, BreakfastOrder>();
+    (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    const mergedBreakfastOrders = Array.from(bOrdersMap.values());
+
+    // 6. Rooms: pertahankan status terkini dan tarif kamar
+    const roomMap = new Map<string, Room>();
+    (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    (local.rooms || []).forEach(r => {
+      if (r && r.id) {
+        const existing = roomMap.get(r.id);
+        roomMap.set(r.id, {
+          ...(existing || {}),
+          ...r,
+          status: r.status || existing?.status || 'KOSONG',
+          activeTxId: r.activeTxId || existing?.activeTxId || null
+        });
+      }
+    });
+    const mergedRooms = Array.from(roomMap.values());
+
+    // 7. Buildings: gabungkan semua gedung unik (berdasarkan id & nama) dari lokal dan cloud
+    const bldMap = new Map<string, Building>();
+    (local.buildings || []).forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    (cloud.buildings || []).forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    const mergedBuildings = Array.from(bldMap.values());
+
+    // 8. Meeting Rooms: gabungkan semua ruang pertemuan unik dari lokal dan cloud
+    const mrMap = new Map<string, MeetingRoom>();
+    (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    const mergedMeetingRooms = Array.from(mrMap.values());
+
+    return {
+      schemaVersion: 4,
+      appName: local.appName || cloud.appName || 'SIM Asrama Haji Jakarta',
+      exportedAt: new Date().toISOString(),
+      appSettings: local.appSettings || cloud.appSettings || { ...defaultAppSettings },
+      users: mergedUsers,
+      buildings: mergedBuildings,
+      meetingRooms: mergedMeetingRooms,
+      rooms: mergedRooms,
+      transactions: mergedTransactions,
+      maintenances: mergedMaintenances,
+      qcInspections: mergedQc,
+      workSessions: local.workSessions && local.workSessions.length > 0 ? local.workSessions : (cloud.workSessions || []),
+      auditLogs: [...(local.auditLogs || []), ...(cloud.auditLogs || [])].slice(0, 250),
+      chatChannels: local.chatChannels && local.chatChannels.length > 0 ? local.chatChannels : (cloud.chatChannels || []),
+      chatMessages: local.chatMessages && local.chatMessages.length > 0 ? local.chatMessages : (cloud.chatMessages || []),
+      breakfastMenuItems: local.breakfastMenuItems && local.breakfastMenuItems.length > 0 ? local.breakfastMenuItems : (cloud.breakfastMenuItems || []),
+      breakfastOrders: mergedBreakfastOrders,
+      roomCapacityRates: local.roomCapacityRates && local.roomCapacityRates.length > 0 ? local.roomCapacityRates : (cloud.roomCapacityRates || []),
+      passwordResetRequests: local.passwordResetRequests || cloud.passwordResetRequests || []
+    };
+  }
+
+  /**
+   * Pindai semua kemungkinan key penyimpanan lokal lama atau cadangan darurat
+   * untuk memulihkan data transaksi atau kamar yang ter-reset
+   */
+  public tryRecoverLostData(): { recovered: boolean; message: string; recoveredDb?: CompleteStorageDatabase } {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return { recovered: false, message: 'LocalStorage tidak tersedia.' };
+    }
+
+    let bestParsed: CompleteStorageDatabase | null = null;
+    let maxTx = 0;
+
+    // Scan all keys in localStorage
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      try {
+        const val = window.localStorage.getItem(key);
+        if (val && (val.includes('"transactions"') || val.includes('UPT_ASRAMA_HAJI') || val.includes('"guestName"'))) {
+          const parsed = JSON.parse(val);
+          if (parsed && Array.isArray(parsed.transactions) && parsed.transactions.length > maxTx) {
+            maxTx = parsed.transactions.length;
+            bestParsed = parsed;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (bestParsed && maxTx > 0) {
+      const current = this.getDatabase();
+      const currentCount = Array.isArray(current.transactions) ? current.transactions.length : 0;
+      if (currentCount < maxTx) {
+        const merged = this.mergeDatabases(bestParsed, current);
+        this.cache = merged;
+        this.saveDatabase(merged);
+        return {
+          recovered: true,
+          message: `Berhasil memulihkan ${maxTx} data transaksi dari riwayat penyimpanan perangkat!`,
+          recoveredDb: merged
+        };
+      }
+    }
+
+    return { recovered: false, message: 'Tidak ditemukan transaksi di penyimpanan lama.' };
   }
 
   public async hydrateFromServer(_ns?: any): Promise<CompleteStorageDatabase | null> {
@@ -231,6 +397,12 @@ export class DataStorageService {
    * Mengirim data ke Supabase dengan debouncing agar hemat bandwidth dan tidak membebani UI
    */
   private triggerSupabaseSync(db: CompleteStorageDatabase) {
+    // CRITICAL PROTECTION: Mencegah template database kosong awal menimpa data Supabase yang sudah ada isinya
+    if (!this.hasHydratedFromCloud && (!db.transactions || db.transactions.length === 0) && (!db.buildings || db.buildings.length <= 4)) {
+      console.warn('Proteksi Data: Mencegah push database awal kosong sebelum hidrasi cloud selesai.');
+      return;
+    }
+
     if (this.syncDebounceTimer) {
       clearTimeout(this.syncDebounceTimer);
     }
@@ -288,29 +460,18 @@ export class DataStorageService {
               parsed.users = [...initialUsers];
             }
 
-            // BERSIHKAN SEMUA DATA DUMMY (Transaksi dummy, Maintenance dummy, QC dummy, Log aktivitas, Shift, dsb)
+            // Pastikan schemaVersion ter-upgrade tanpa menghapus transaksi dan data pengguna
             if (!parsed.schemaVersion || parsed.schemaVersion < 4) {
-              parsed.transactions = [];
-              parsed.maintenances = [];
-              parsed.qcInspections = [];
-              parsed.workSessions = [];
-              parsed.auditLogs = [];
-              parsed.breakfastOrders = [];
-              parsed.chatMessages = [];
               parsed.schemaVersion = 4;
-
-              // Reset status semua kamar agar KOSONG (bersih dari transaksi dummy dan catatan QC lama)
-              parsed.rooms = parsed.rooms.map(r => ({
-                ...r,
-                status: r.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'KOSONG',
-                qcStatus: 'LOLOS_QC',
-                lastQcDate: undefined,
-                lastQcBy: undefined,
-                lastQcNotes: undefined,
-                activeTxId: null,
-                activeMaintId: null
-              }));
             }
+
+            if (!Array.isArray(parsed.transactions)) parsed.transactions = [];
+            if (!Array.isArray(parsed.maintenances)) parsed.maintenances = [];
+            if (!Array.isArray(parsed.qcInspections)) parsed.qcInspections = [];
+            if (!Array.isArray(parsed.workSessions)) parsed.workSessions = [];
+            if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
+            if (!Array.isArray(parsed.breakfastOrders)) parsed.breakfastOrders = [];
+            if (!Array.isArray(parsed.chatMessages)) parsed.chatMessages = [];
 
             // Pastikan data aktivitas, shift, dan QC bertipe array
             if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
@@ -539,9 +700,13 @@ export class DataStorageService {
       console.warn('Gagal membaca database dari localStorage, menggunakan seed awal:', e);
     }
 
-    const initDb = generateInitialDatabase(true);
+    const initDb = generateInitialDatabase(false);
     this.cache = initDb;
-    this.saveDatabase(initDb);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initDb));
+      }
+    } catch (_) {}
     return initDb;
   }
 
@@ -592,7 +757,7 @@ export class DataStorageService {
       auditLogs: trimmedAuditLogs,
       chatMessages: trimmedChatMessages,
       schemaVersion: 4,
-      users: db.users.filter(u => u.username.toLowerCase() !== 'zain'),
+      users: db.users || [],
       exportedAt: new Date().toISOString()
     };
 
@@ -600,11 +765,11 @@ export class DataStorageService {
 
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        // Hapus key legacy untuk membebaskan ruang penyimpanan localStorage
-        for (const oldKey of LEGACY_STORAGE_KEYS) {
-          try { window.localStorage.removeItem(oldKey); } catch (_) {}
-        }
         window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+        // Simpan cadangan snapshot lokal jika data memiliki transaksi atau perubahan
+        if (Array.isArray(updated.transactions) && updated.transactions.length > 0) {
+          window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(updated));
+        }
       }
     } catch (e: any) {
       console.warn('Gagal menyimpan database ke localStorage (Quota terlampaui), mencoba pemangkasan darurat:', e);

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, Room, Maintenance, GroupType } from '../../types';
 import { isMeetingFacility, formatIndonesianDate as defaultFormatIndonesianDate, addDaysToDateStr, getRealTodayDate } from '../../lib/utils';
+import { useBodyScrollLock } from '../../lib/scrollLock';
 
 export interface MonthlyReservationCalendarProps {
   transactions: Transaction[];
@@ -86,6 +87,7 @@ export function MonthlyReservationCalendar({
   const [isDateModalOpen, setIsDateModalOpen] = useState<string | null>(null);
   const [modalUrgencyFilter, setModalUrgencyFilter] = useState<'ALL' | UrgencyLevel>('ALL');
   const [modalCategoryFilter, setModalCategoryFilter] = useState<string>('ALL');
+  useBodyScrollLock(Boolean(isDateModalOpen));
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay();
@@ -833,8 +835,14 @@ export function MonthlyReservationCalendar({
 
       {/* DATE CLICK AGENDA & PRIORITY POPUP MODAL */}
       {isDateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+          onClick={() => setIsDateModalOpen(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-6 sm:p-7 space-y-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <div className="flex items-center space-x-3">

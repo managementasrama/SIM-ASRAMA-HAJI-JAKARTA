@@ -395,40 +395,9 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       console.warn('Gagal membaca tabel users Supabase:', uErr);
     }
 
-    // 2. Coba ambil dari tabel snapshot terpadu app_database_sync
-    const { data: syncData, error: syncError } = await supabase
-      .from('app_database_sync')
-      .select('database_payload, updated_at')
-      .eq('id', 'main_production_db')
-      .maybeSingle();
-
-    if (!syncError && syncData && syncData.database_payload) {
-      const payload = syncData.database_payload as CompleteStorageDatabase;
-      // Jika tabel users di Supabase memiliki data, prioritaskan agar identik dengan tabel Supabase
-      if (directUsers && directUsers.length > 0) {
-        payload.users = directUsers;
-      }
-      return payload;
-    }
-
-    // 3. Jika tidak ada di app_database_sync, query dari masing-masing tabel relasional
-    const [
-      usersRes,
-      buildingsRes,
-      roomsRes,
-      meetingRoomsRes,
-      transactionsRes,
-      maintenancesRes,
-      qcRes,
-      sessionsRes,
-      auditRes,
-      breakfastMenuRes,
-      breakfastOrdersRes,
-      ratesRes,
-      pwdRes,
-      settingsRes
-    ] = await Promise.all([
-      supabase.from('users').select('*'),
+    // 2. Ambil dari tabel snapshot terpadu app_database_sync dan tabel-tabel relasional
+    const [syncRes, buildingsRes, roomsRes, meetingRoomsRes, transactionsRes, maintenancesRes, qcRes, sessionsRes, auditRes, breakfastMenuRes, breakfastOrdersRes, ratesRes, pwdRes, settingsRes] = await Promise.all([
+      supabase.from('app_database_sync').select('database_payload, updated_at').eq('id', 'main_production_db').maybeSingle(),
       supabase.from('buildings').select('*'),
       supabase.from('rooms').select('*'),
       supabase.from('meeting_rooms').select('*'),
@@ -444,36 +413,125 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       supabase.from('app_settings').select('*').maybeSingle()
     ]);
 
-    // Jika setidaknya tabel users atau rooms ada isinya, kita konstruksi database lengkap
-    if ((usersRes.data && usersRes.data.length > 0) || (roomsRes.data && roomsRes.data.length > 0)) {
-      const mappedUsers = (usersRes.data || []).map(mapSupabaseUserToAppUser);
-      const db: CompleteStorageDatabase = {
-        schemaVersion: 4,
-        appName: 'SIM-Akomodasi UPT Asrama Haji Jakarta',
-        exportedAt: new Date().toISOString(),
-        appSettings: (settingsRes.data as any) || undefined,
-        users: mappedUsers.length > 0 ? mappedUsers : (directUsers || []),
-        buildings: (buildingsRes.data || []).map(mapSupabaseBuildingToAppBuilding),
-        rooms: (roomsRes.data || []).map(mapSupabaseRoomToAppRoom),
-        meetingRooms: (meetingRoomsRes.data || []).map(mapSupabaseMeetingRoomToAppMeetingRoom),
-        transactions: (transactionsRes.data || []).map(mapSupabaseTransactionToAppTransaction),
-        maintenances: (maintenancesRes.data || []).map(mapSupabaseMaintenanceToAppMaintenance),
-        qcInspections: (qcRes.data || []).map(mapSupabaseQcToAppQc),
-        workSessions: (sessionsRes.data || []).map(mapSupabaseWorkSessionToAppWorkSession),
-        auditLogs: (auditRes.data || []).map(mapSupabaseAuditLogToAppAuditLog),
-        chatChannels: [],
-        chatMessages: [],
-        breakfastMenuItems: (breakfastMenuRes.data || []).map(mapSupabaseBreakfastMenuItemToAppMenuItem),
-        breakfastOrders: (breakfastOrdersRes.data || []).map(mapSupabaseBreakfastOrderToAppBreakfastOrder),
-        roomCapacityRates: ratesRes.data && ratesRes.data.length > 0
-          ? deduplicateRoomCapacityRates(ratesRes.data.map(mapSupabaseRoomCapacityRateToAppRate))
-          : initialRoomCapacityRates,
-        passwordResetRequests: pwdRes.data || []
-      };
-      return db;
+    const syncPayload = (!syncRes.error && syncRes.data && syncRes.data.database_payload)
+      ? (syncRes.data.database_payload as CompleteStorageDatabase)
+      : null;
+
+    const relBuildings = (buildingsRes.data || []).map(mapSupabaseBuildingToAppBuilding);
+    const relRooms = (roomsRes.data || []).map(mapSupabaseRoomToAppRoom);
+    const relMeetingRooms = (meetingRoomsRes.data || []).map(mapSupabaseMeetingRoomToAppMeetingRoom);
+    const relTransactions = (transactionsRes.data || []).map(mapSupabaseTransactionToAppTransaction);
+    const relMaintenances = (maintenancesRes.data || []).map(mapSupabaseMaintenanceToAppMaintenance);
+    const relQc = (qcRes.data || []).map(mapSupabaseQcToAppQc);
+    const relSessions = (sessionsRes.data || []).map(mapSupabaseWorkSessionToAppWorkSession);
+    const relAudit = (auditRes.data || []).map(mapSupabaseAuditLogToAppAuditLog);
+    const relMenu = (breakfastMenuRes.data || []).map(mapSupabaseBreakfastMenuItemToAppMenuItem);
+    const relOrders = (breakfastOrdersRes.data || []).map(mapSupabaseBreakfastOrderToAppBreakfastOrder);
+    const relRates = ratesRes.data && ratesRes.data.length > 0
+      ? deduplicateRoomCapacityRates(ratesRes.data.map(mapSupabaseRoomCapacityRateToAppRate))
+      : (syncPayload?.roomCapacityRates || initialRoomCapacityRates);
+
+    // Cek apakah setidaknya ada sumber data dari relational tables atau snapshot
+    const hasAnyData = Boolean(
+      syncPayload || 
+      relBuildings.length > 0 || 
+      relRooms.length > 0 || 
+      relTransactions.length > 0 || 
+      (directUsers && directUsers.length > 0)
+    );
+
+    if (!hasAnyData) {
+      return null;
     }
 
-    return null;
+    // GABUNGKAN SECARA CERDAS & AMAN:
+    // 1. Buildings: Utamakan tabel relasional jika lebih lengkap, atau gabungkan secara unik
+    const bldMap = new Map<string, Building>();
+    (syncPayload?.buildings || []).forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    relBuildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    const mergedBuildings = Array.from(bldMap.values());
+
+    // 2. Meeting Rooms: gabungkan unik
+    const mrMap = new Map<string, MeetingRoom>();
+    (syncPayload?.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    relMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    const mergedMeetingRooms = Array.from(mrMap.values());
+
+    // 3. Transactions: gabungkan unik berdasarkan ID agar tidak ada transaksi yang terhapus
+    const txMap = new Map<string, Transaction>();
+    (syncPayload?.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    relTransactions.forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    const mergedTransactions = Array.from(txMap.values());
+
+    // 4. Maintenances: gabungkan unik
+    const maintMap = new Map<string, Maintenance>();
+    (syncPayload?.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    relMaintenances.forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    const mergedMaintenances = Array.from(maintMap.values());
+
+    // 5. Rooms: gabungkan unik, pertahankan room dari tabel relasional dan status terbarunya
+    const roomMap = new Map<string, Room>();
+    (syncPayload?.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    relRooms.forEach(r => {
+      if (r && r.id) {
+        const existing = roomMap.get(r.id);
+        roomMap.set(r.id, {
+          ...(existing || {}),
+          ...r,
+          status: r.status || existing?.status || 'KOSONG',
+          activeTxId: r.activeTxId || existing?.activeTxId || null
+        });
+      }
+    });
+    const mergedRooms = Array.from(roomMap.values());
+
+    // 6. QC Inspections
+    const qcMap = new Map<string, QcInspection>();
+    (syncPayload?.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    relQc.forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    const mergedQc = Array.from(qcMap.values());
+
+    // 7. Audit Logs
+    const auditMap = new Map<string, AuditLog>();
+    (syncPayload?.auditLogs || []).forEach(a => { if (a && a.id) auditMap.set(a.id, a); });
+    relAudit.forEach(a => { if (a && a.id) auditMap.set(a.id, a); });
+    const mergedAudit = Array.from(auditMap.values()).slice(0, 300);
+
+    // 8. Users
+    const userMap = new Map<string, User>();
+    (syncPayload?.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    (directUsers || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    const mergedUsers = Array.from(userMap.values());
+
+    // 9. Breakfast Orders
+    const bOrderMap = new Map<string, BreakfastOrder>();
+    (syncPayload?.breakfastOrders || []).forEach(o => { if (o && o.id) bOrderMap.set(o.id, o); });
+    relOrders.forEach(o => { if (o && o.id) bOrderMap.set(o.id, o); });
+    const mergedOrders = Array.from(bOrderMap.values());
+
+    const resultDb: CompleteStorageDatabase = {
+      schemaVersion: 4,
+      appName: syncPayload?.appName || 'SIM Asrama Haji Jakarta',
+      exportedAt: new Date().toISOString(),
+      appSettings: (settingsRes.data as any) || syncPayload?.appSettings || undefined,
+      users: mergedUsers,
+      buildings: mergedBuildings,
+      rooms: mergedRooms,
+      meetingRooms: mergedMeetingRooms,
+      transactions: mergedTransactions,
+      maintenances: mergedMaintenances,
+      qcInspections: mergedQc,
+      workSessions: relSessions.length > 0 ? relSessions : (syncPayload?.workSessions || []),
+      auditLogs: mergedAudit,
+      chatChannels: syncPayload?.chatChannels || [],
+      chatMessages: syncPayload?.chatMessages || [],
+      breakfastMenuItems: relMenu.length > 0 ? relMenu : (syncPayload?.breakfastMenuItems || []),
+      breakfastOrders: mergedOrders,
+      roomCapacityRates: relRates,
+      passwordResetRequests: pwdRes.data || syncPayload?.passwordResetRequests || []
+    };
+
+    return resultDb;
   } catch (e) {
     console.warn('Gagal membaca data dari Supabase:', e);
     return null;
@@ -582,20 +640,6 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
         is_owner: Boolean(u.isOwner)
       }));
       await supabase.from('users').upsert(fallbackUserPayloads, { onConflict: 'id' });
-    }
-
-    // Hapus user di Supabase yang sudah dihapus di aplikasi agar data selalu identik
-    try {
-      const activeIds = db.users.map(u => u.id);
-      const { data: existingRemoteUsers } = await supabase.from('users').select('id');
-      if (existingRemoteUsers && existingRemoteUsers.length > 0) {
-        const toDeleteIds = existingRemoteUsers.map(r => r.id).filter(id => !activeIds.includes(id));
-        if (toDeleteIds.length > 0) {
-          await supabase.from('users').delete().in('id', toDeleteIds);
-        }
-      }
-    } catch (cleanErr) {
-      console.warn('Gagal membersihkan user terhapus di Supabase:', cleanErr);
     }
   }
 

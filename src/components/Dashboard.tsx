@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { useAppContext } from '../store';
+import { useAppContext, isKeuanganRole, isSuperAdmin, isRecepRole, isTeknisiRole, isQcRole, isKoperasiRole } from '../store';
 import { motion } from 'motion/react';
 import { GroupType, Transaction, Room, MeetingRoom } from '../types';
 import { addDaysToDateStr, formatIndonesianDate, getRealTodayDate, compareBuildingOrder, isMeetingFacility, formatRupiah } from '../lib/utils';
 import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
+import { calculateTransactionPricing } from '../lib/pricingCalculator';
+import { dataStorage } from '../services/dataStorage';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { OperationalStatsSection } from './dashboard/OperationalStatsSection';
 import { OperationalAgendaSection } from './dashboard/OperationalAgendaSection';
@@ -142,7 +144,9 @@ export function Dashboard() {
     batchCancelGroup,
     activateCheckin,
     checkoutRoom,
-    cancelBooking
+    cancelBooking,
+    breakfastOrders = [],
+    breakfastMenuItems = []
   } = useAppContext();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [facilityFilter, setFacilityFilter] = useState<'ALL' | 'KAMAR' | 'AULA'>('ALL');
@@ -158,11 +162,79 @@ export function Dashboard() {
 
   // Role detection for tailored operational dashboard
   const userRole = currentUser?.role || 'Resepsionis';
-  const isResepsionis = userRole.includes('Resepsionis') || userRole.includes('Manager Resepsionis');
-  const isQc = userRole.includes('QC') || userRole.includes('Quality');
-  const isTeknisi = userRole.includes('Teknisi');
-  const isKoperasi = userRole.includes('Koperasi');
-  const isSuperAdmin = userRole === 'Super Admin' || userRole === 'Admin';
+  const isSuperAdminUser = isSuperAdmin(userRole);
+  const isKeuanganUser = isKeuanganRole(userRole, currentUser?.department);
+  const isTeknisiUser = isTeknisiRole(userRole);
+  const isQcUser = isQcRole(userRole);
+  const isKoperasiUser = isKoperasiRole(userRole);
+  const isResepsionisUser = isRecepRole(userRole);
+
+  const defaultPerspective: 'ALL' | 'RESEPSIONIS' | 'KEUANGAN' | 'TEKNISI' | 'QC' | 'KOPERASI' = 
+    isKeuanganUser ? 'KEUANGAN' :
+    isTeknisiUser ? 'TEKNISI' :
+    isQcUser ? 'QC' :
+    isKoperasiUser ? 'KOPERASI' :
+    isResepsionisUser ? 'RESEPSIONIS' : 'ALL';
+
+  const [activePerspective, setActivePerspective] = useState<'ALL' | 'RESEPSIONIS' | 'KEUANGAN' | 'TEKNISI' | 'QC' | 'KOPERASI'>(defaultPerspective);
+
+  // Perhitungan Keuangan & PNBP untuk Tampilan Akun Keuangan & Pimpinan
+  const financialStats = useMemo(() => {
+    let totalPenerimaanPnbp = 0;
+    let totalLunasCount = 0;
+    let totalBelumLunasCount = 0;
+    let totalSisaPiutang = 0;
+    let totalDpMasuk = 0;
+    const unpaidTxs: { tx: Transaction; pricing: any; sisaBayar: number; paid: number }[] = [];
+
+    transactions.forEach(tx => {
+      if (tx.status === 'DIBATALKAN') return;
+      const pricing = calculateTransactionPricing(tx, { rooms, roomCapacityRates, meetingRooms, breakfastMenuItems });
+      const grandTotal = pricing.grandTotal;
+      const paid = tx.alreadyPaid !== undefined ? tx.alreadyPaid : (tx.isPaid ? grandTotal : 0);
+      
+      totalPenerimaanPnbp += paid;
+      if (tx.isPaid || paid >= grandTotal) {
+        totalLunasCount++;
+      } else {
+        totalBelumLunasCount++;
+        const sisa = Math.max(0, grandTotal - paid);
+        totalSisaPiutang += sisa;
+        if (paid > 0) {
+          totalDpMasuk += paid;
+        }
+        unpaidTxs.push({ tx, pricing, sisaBayar: sisa, paid });
+      }
+    });
+
+    return {
+      totalPenerimaanPnbp,
+      totalLunasCount,
+      totalBelumLunasCount,
+      totalSisaPiutang,
+      totalDpMasuk,
+      unpaidTxs: unpaidTxs.sort((a, b) => b.sisaBayar - a.sisaBayar)
+    };
+  }, [transactions, rooms, roomCapacityRates, meetingRooms, breakfastMenuItems]);
+
+  // Perhitungan Katering & Konsumsi untuk Tampilan Akun Koperasi
+  const cateringStats = useMemo(() => {
+    const todayOrders = breakfastOrders.filter(o => o.startDate === realToday || !o.startDate);
+    const waitingOrders = todayOrders.filter(o => o.status === 'MENUNGGU');
+    const cookingOrders = todayOrders.filter(o => o.status === 'SEDANG_DIBUAT');
+    const deliveringOrders = todayOrders.filter(o => o.status === 'PENGANTARAN');
+    const completedOrders = todayOrders.filter(o => o.status === 'SELESAI');
+    const totalPortions = todayOrders.reduce((acc, o) => acc + (o.portions || 1), 0);
+
+    return {
+      todayOrders,
+      waitingOrders,
+      cookingOrders,
+      deliveringOrders,
+      completedOrders,
+      totalPortions
+    };
+  }, [breakfastOrders, realToday]);
 
   // Metrics for Rooms & Aula
   const kamarRooms = rooms.filter(r => r.building !== 'Ruang Pertemuan' && !isMeetingFacility(r.building) && !r.type?.toLowerCase().includes('pertemuan') && !r.type?.toLowerCase().includes('aula'));
