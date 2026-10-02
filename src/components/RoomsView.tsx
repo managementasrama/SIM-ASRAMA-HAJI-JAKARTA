@@ -233,7 +233,7 @@ export function RoomsView() {
       return roomBuilding === 'Gedung A (Arafah)' || roomBuilding === 'Gedung B (Muzdalifah)';
     }
     if (zone.includes('C, D') || zone.includes('C & D')) {
-      return roomBuilding === 'Gedung C (Mina)' || roomBuilding === 'Gedung D (Madinah)' || roomBuilding === 'Ruang Pertemuan' || roomBuilding === 'Gedung Serbaguna (SG)';
+      return roomBuilding === 'Gedung C (Mina)' || roomBuilding === 'Gedung D (Madinah)' || roomBuilding === 'Ruang Pertemuan / Aula' || roomBuilding === 'Ruang Pertemuan' || roomBuilding === 'Gedung Serbaguna (SG)';
     }
     return true;
   };
@@ -247,29 +247,29 @@ export function RoomsView() {
         return 'Gedung Serbaguna (SG)';
       }
       if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') {
-        return 'Ruang Pertemuan';
+        return 'Ruang Pertemuan / Aula';
       }
-      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
+      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
         return matchingMr.building;
       }
       const nLower = matchingMr.name.toLowerCase().trim();
       const cLower = (matchingMr.code || '').toLowerCase().trim();
       const bLower = (matchingMr.building || '').toLowerCase().trim();
       if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-        return 'Ruang Pertemuan';
+        return 'Ruang Pertemuan / Aula';
       }
       if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
         return 'Gedung Serbaguna (SG)';
       }
-      return 'Ruang Pertemuan';
+      return 'Ruang Pertemuan / Aula';
     }
 
     // 2. Evaluasi dari properti Room
     if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
       return 'Gedung Serbaguna (SG)';
     }
-    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula') {
-      return 'Ruang Pertemuan';
+    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type)) {
+      return 'Ruang Pertemuan / Aula';
     }
     return r.building;
   };
@@ -283,7 +283,7 @@ export function RoomsView() {
       if (bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') {
         if (effectiveBuilding !== 'Gedung Serbaguna (SG)') return false;
       } else if (bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
-        if (effectiveBuilding !== 'Ruang Pertemuan') return false;
+        if (effectiveBuilding !== 'Ruang Pertemuan / Aula') return false;
       } else {
         if (effectiveBuilding !== bFilter) return false;
       }
@@ -292,7 +292,7 @@ export function RoomsView() {
     if (sFilter !== 'ALL' && r.status !== sFilter) return false;
     if (roomTypeFilter !== 'ALL') {
       if (roomTypeFilter === 'Ruang Pertemuan / Aula') {
-        const isMtg = effectiveBuilding === 'Ruang Pertemuan' || effectiveBuilding === 'Gedung Serbaguna (SG)' || r.type === 'Ruang Pertemuan / Aula' || r.type === 'Gedung Serbaguna (SG)' || isMeetingFacility(effectiveBuilding);
+        const isMtg = effectiveBuilding === 'Ruang Pertemuan / Aula' || effectiveBuilding === 'Gedung Serbaguna (SG)' || r.type === 'Ruang Pertemuan / Aula' || r.type === 'Gedung Serbaguna (SG)' || isMeetingFacility(effectiveBuilding);
         if (!isMtg) return false;
       } else {
         if (r.type !== roomTypeFilter) return false;
@@ -304,25 +304,30 @@ export function RoomsView() {
   });
 
   const grouped: Record<string, Room[]> = {};
-  // Daftarkan semua master gedung
+  // Daftarkan semua master gedung penginapan (lewati Serbaguna dan Pertemuan agar tidak menimbulkan seksi duplikat)
   buildings.forEach(b => {
-    if (bFilter === 'ALL' || bFilter === b.name) {
-      if (!myZoneOnly || isRoomInUserZone(b.name)) {
-        grouped[b.name] = [];
+    const isSpecial = b.name === 'Ruang Pertemuan' || b.name === 'Ruang Pertemuan / Aula' || b.name === 'Gedung Serbaguna' || b.name === 'Gedung Serbaguna (SG)' || b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN';
+    if (!isSpecial) {
+      if (bFilter === 'ALL' || bFilter === b.name) {
+        if (!myZoneOnly || isRoomInUserZone(b.name)) {
+          grouped[b.name] = [];
+        }
       }
     }
   });
 
-  // Daftarkan Gedung Serbaguna (SG) dan Ruang Pertemuan secara terpisah agar pemisahan terlihat jelas di Denah
+  // Daftarkan Gedung Serbaguna (SG) dan Ruang Pertemuan / Aula TEPAT SATU KALI agar selalu tunggal & sinkron
   if ((bFilter === 'ALL' || bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') && (!myZoneOnly || isRoomInUserZone('Gedung Serbaguna (SG)'))) {
     grouped['Gedung Serbaguna (SG)'] = [];
   }
-  if ((bFilter === 'ALL' || bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') && (!myZoneOnly || isRoomInUserZone('Ruang Pertemuan'))) {
-    grouped['Ruang Pertemuan'] = [];
+  if ((bFilter === 'ALL' || bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') && (!myZoneOnly || isRoomInUserZone('Ruang Pertemuan / Aula'))) {
+    grouped['Ruang Pertemuan / Aula'] = [];
   }
 
   filteredRooms.forEach(r => {
-    const bKey = getRoomBuildingKey(r);
+    let bKey = getRoomBuildingKey(r);
+    if (bKey === 'Ruang Pertemuan') bKey = 'Ruang Pertemuan / Aula';
+    if (bKey === 'Gedung Serbaguna') bKey = 'Gedung Serbaguna (SG)';
     if (!grouped[bKey]) grouped[bKey] = [];
     if (!grouped[bKey].some(existing => existing.id === r.id)) {
       grouped[bKey].push(r);
@@ -1678,11 +1683,18 @@ export function RoomsView() {
                     className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
                   >
                     <option key="all" value="ALL">Semua Fasilitas Gedung</option>
-                    {buildings.filter(b => b.name !== 'Ruang Pertemuan' && b.name !== 'Gedung Serbaguna (SG)' && b.name !== 'Gedung Serbaguna').slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
+                    {buildings.filter(b => 
+                      b.name !== 'Ruang Pertemuan' && 
+                      b.name !== 'Ruang Pertemuan / Aula' && 
+                      b.name !== 'Gedung Serbaguna (SG)' && 
+                      b.name !== 'Gedung Serbaguna' &&
+                      b.category !== 'SERBAGUNA' &&
+                      b.category !== 'RUANG_PERTEMUAN'
+                    ).slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                       <option key={b.id} value={b.name}>{b.name}</option>
                     ))}
                     <option key="gedung-serbaguna" value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
-                    <option key="ruang-pertemuan" value="Ruang Pertemuan">🏛️ Ruang Pertemuan / Aula</option>
+                    <option key="ruang-pertemuan" value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
                   </select>
                 </div>
 
@@ -1791,9 +1803,11 @@ export function RoomsView() {
                 const isSGBuilding = bName === 'Gedung Serbaguna (SG)' || bName === 'Gedung Serbaguna' || bObj?.category === 'SERBAGUNA';
                 const isAulaBuilding = bName === 'Ruang Pertemuan' || bName === 'Ruang Pertemuan / Aula' || bObj?.category === 'RUANG_PERTEMUAN';
                 const isBldSerbaguna = isSGBuilding || isAulaBuilding;
-                const bCapacity = bObj?.totalRooms !== undefined && bObj.totalRooms !== null 
-                  ? bObj.totalRooms 
-                  : bRooms.length;
+                const bCapacity = (isSGBuilding || isAulaBuilding)
+                  ? bRooms.length
+                  : (bObj?.totalRooms !== undefined && bObj.totalRooms !== null 
+                    ? bObj.totalRooms 
+                    : bRooms.length);
                 const bDescription = (bObj?.description && bObj.description.trim())
                   || (bObj?.capacityDesc && bObj.capacityDesc.trim())
                   || (isSGBuilding ? 'Fasilitas Konvensi Akbar & Acara Serbaguna UPT Asrama Haji Jakarta' : isAulaBuilding ? 'Fasilitas Ruang Rapat, Auditorium & Aula Pertemuan Resmi UPT Asrama Haji Jakarta' : OFFICIAL_TARIFFS[bName]?.desc)
@@ -1945,7 +1959,12 @@ export function RoomsView() {
             facilities: mr.facilities,
             buildingLocation: mr.building
           })),
-          ...buildings.filter(b => b.category === 'SERBAGUNA' && !serbagunaMRs.some(mr => mr.name.toLowerCase() === b.name.toLowerCase() || mr.id === b.id || mr.id === `mr-${b.id}`)).map(b => ({
+          ...buildings.filter(b => 
+            b.category === 'SERBAGUNA' && 
+            b.name !== 'Gedung Serbaguna' && 
+            b.name !== 'Gedung Serbaguna (SG)' && 
+            !serbagunaMRs.some(mr => mr.name.toLowerCase() === b.name.toLowerCase() || mr.id === b.id || mr.id === `mr-${b.id}`)
+          ).map(b => ({
             id: b.id,
             sourceType: 'BUILDING' as const,
             originalItem: b,
@@ -1979,7 +1998,12 @@ export function RoomsView() {
             facilities: mr.facilities,
             buildingLocation: mr.building
           })),
-          ...buildings.filter(b => b.category === 'RUANG_PERTEMUAN' && !aulaMRs.some(mr => mr.name.toLowerCase() === b.name.toLowerCase() || mr.id === b.id || mr.id === `mr-${b.id}`)).map(b => ({
+          ...buildings.filter(b => 
+            b.category === 'RUANG_PERTEMUAN' && 
+            b.name !== 'Ruang Pertemuan' && 
+            b.name !== 'Ruang Pertemuan / Aula' && 
+            !aulaMRs.some(mr => mr.name.toLowerCase() === b.name.toLowerCase() || mr.id === b.id || mr.id === `mr-${b.id}`)
+          ).map(b => ({
             id: b.id,
             sourceType: 'BUILDING' as const,
             originalItem: b,

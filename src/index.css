@@ -39,6 +39,7 @@ body {
 }
 
 html {
+  font-size: 13.5px; /* Compact enterprise scaling: perkecil ukuran semua halaman secara proporsional dan rapi */
   overflow-x: clip;
   max-width: 100vw;
   width: 100%;

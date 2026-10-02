@@ -75,29 +75,29 @@ export function BuildingDetailModal({
         return 'Gedung Serbaguna (SG)';
       }
       if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') {
-        return 'Ruang Pertemuan';
+        return 'Ruang Pertemuan / Aula';
       }
-      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
+      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
         return matchingMr.building;
       }
       const nLower = matchingMr.name.toLowerCase().trim();
       const cLower = (matchingMr.code || '').toLowerCase().trim();
       const bLower = (matchingMr.building || '').toLowerCase().trim();
       if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-        return 'Ruang Pertemuan';
+        return 'Ruang Pertemuan / Aula';
       }
       if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
         return 'Gedung Serbaguna (SG)';
       }
-      return 'Ruang Pertemuan';
+      return 'Ruang Pertemuan / Aula';
     }
 
     // 2. Evaluasi dari properti Room
     if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
       return 'Gedung Serbaguna (SG)';
     }
-    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula') {
-      return 'Ruang Pertemuan';
+    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type)) {
+      return 'Ruang Pertemuan / Aula';
     }
     return r.building;
   };
