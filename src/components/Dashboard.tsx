@@ -13,6 +13,7 @@ import { OperationalAgendaSection } from './dashboard/OperationalAgendaSection';
 import { BuildingOccupancySection } from './dashboard/BuildingOccupancySection';
 import { GroupManagementSection } from './dashboard/GroupManagementSection';
 import { MonthlyReservationCalendar } from './dashboard/MonthlyReservationCalendar';
+import { RoleWorkspaceBanner } from './dashboard/RoleWorkspaceBanner';
 
 interface ConsolidatedAgendaItem {
   id: string;
@@ -863,6 +864,27 @@ export function Dashboard() {
       animate={{ opacity: 1, y: 0 }}
       className="w-full space-y-4 sm:space-y-5"
     >
+      {/* 0. RUANG KERJA TERPADU SESUAI PERAN AKUN & ZONA TUGAS */}
+      <RoleWorkspaceBanner
+        currentUser={currentUser}
+        activePerspective={activePerspective}
+        setActivePerspective={setActivePerspective}
+        financialStats={financialStats}
+        cateringStats={cateringStats}
+        checkinTodayList={checkinTodayList}
+        checkoutTodayList={checkoutTodayList}
+        qcNeedAttentionRooms={qcNeedAttentionRooms}
+        urgentMaintenances={urgentMaintenances}
+        activeMaintenances={activeMaintenances}
+        readyCleanRooms={readyCleanRooms}
+        terisiKamar={terisiKamar}
+        totalKamar={totalKamar}
+        openModal={openModal}
+        setActiveTab={setActiveTab}
+        updateBreakfastStatus={updateBreakfastStatus}
+        setSelectedBuilding={setSelectedBuilding}
+      />
+
       {/* 1. ANALISIS & INFORMASI STATISTIK SISTEM OPERASIONAL (CHART PIE, BATANG & GRAFIK) */}
       <OperationalStatsSection
         totalKamar={totalKamar}
