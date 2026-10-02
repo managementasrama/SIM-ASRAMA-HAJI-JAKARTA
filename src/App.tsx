@@ -145,7 +145,7 @@ function MainApp() {
   return (
     <div className="flex-grow flex flex-col w-full min-h-screen">
       <Header />
-      <main className="flex-grow max-w-[1400px] w-full mx-auto px-2.5 sm:px-4 md:px-5 py-2.5 sm:py-3.5 space-y-3 sm:space-y-4">
+      <main className="flex-grow max-w-7xl w-full mx-auto px-2 sm:px-6 lg:px-8 py-3.5 sm:py-5 space-y-4">
         {urgentMaint.length > 0 && currentUser.role.includes('Teknisi') && (
           <div className="bg-red-600 text-white p-3.5 sm:p-4 rounded-xl shadow-md flex items-center justify-between animate-pulse">
             <div className="flex items-center space-x-2.5 sm:space-x-3">

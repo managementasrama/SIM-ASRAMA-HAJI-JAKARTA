@@ -650,3 +650,19 @@ export function deduplicateRoomCapacityRates(rates: RoomCapacityRate[]): RoomCap
   });
 }
 
+/**
+ * Normalisasi nama gedung untuk mencegah inkonsistensi (misal: "Gedung A" vs "Gedung A (Arafah)")
+ */
+export function normalizeBuildingName(name: string): string {
+  if (!name) return '';
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === 'gedung a' || lower === 'arafah' || lower.includes('arafah')) return 'Gedung A (Arafah)';
+  if (lower === 'gedung b' || lower === 'muzdalifah' || lower.includes('muzdalifah')) return 'Gedung B (Muzdalifah)';
+  if (lower === 'gedung c' || lower === 'mina' || lower.includes('mina')) return 'Gedung C (Mina)';
+  if (lower === 'gedung d' || lower === 'madinah' || lower.includes('madinah')) return 'Gedung D (Madinah)';
+  if (lower === 'gedung serbaguna' || lower === 'gedung serbaguna (sg)' || lower === 'sg' || lower.includes('serbaguna')) return 'Gedung Serbaguna (SG)';
+  if (lower === 'ruang pertemuan' || lower === 'ruang pertemuan / aula' || lower === 'aula' || lower.includes('ruang pertemuan')) return 'Ruang Pertemuan / Aula';
+  return trimmed;
+}
+

@@ -861,7 +861,7 @@ export function Dashboard() {
     <motion.div 
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-7xl mx-auto space-y-5"
+      className="w-full space-y-4 sm:space-y-5"
     >
       {/* 1. ANALISIS & INFORMASI STATISTIK SISTEM OPERASIONAL (CHART PIE, BATANG & GRAFIK) */}
       <OperationalStatsSection

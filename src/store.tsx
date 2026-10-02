@@ -1109,6 +1109,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     setUsers(prev => [...prev, user]);
+    dataStorage.saveUser(user);
     logAudit("Tambah User", `Membuat akun baru: ${user.username} (${user.role}) - ${user.department || 'Operasional'}`);
     showToast(`Akun petugas ${user.fullName} (${user.role}) berhasil ditambahkan ke direktori pengguna!`, "success");
   };
@@ -1143,7 +1144,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     const newStatus = target.status === 'Aktif' ? 'Non-Aktif' : 'Aktif';
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
+    const updatedUser = { ...target, status: newStatus };
+    setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
+    dataStorage.saveUser(updatedUser);
     logAudit("Status User", `Mengubah status akun ${target.username} (${target.fullName}) menjadi ${newStatus}`);
     showToast(`Status akun ${target.fullName} diubah menjadi ${newStatus}`, newStatus === 'Aktif' ? 'success' : 'info');
   };

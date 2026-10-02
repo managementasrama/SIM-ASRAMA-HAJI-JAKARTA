@@ -31,6 +31,7 @@ import {
   findRoomRate
 } from '../data';
 import { initialChatChannels, initialChatMessages } from '../chatData';
+import { normalizeBuildingName } from '../lib/utils';
 import { 
   supabase, 
   syncFullDatabaseToSupabase, 
@@ -397,12 +398,6 @@ export class DataStorageService {
    * Mengirim data ke Supabase dengan debouncing agar hemat bandwidth dan tidak membebani UI
    */
   private triggerSupabaseSync(db: CompleteStorageDatabase) {
-    // CRITICAL PROTECTION: Mencegah template database kosong awal menimpa data Supabase yang sudah ada isinya
-    if (!this.hasHydratedFromCloud && (!db.transactions || db.transactions.length === 0) && (!db.buildings || db.buildings.length <= 4)) {
-      console.warn('Proteksi Data: Mencegah push database awal kosong sebelum hidrasi cloud selesai.');
-      return;
-    }
-
     if (this.syncDebounceTimer) {
       clearTimeout(this.syncDebounceTimer);
     }
@@ -477,6 +472,63 @@ export class DataStorageService {
             if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
             if (!Array.isArray(parsed.workSessions)) parsed.workSessions = [];
             if (!Array.isArray(parsed.qcInspections)) parsed.qcInspections = [];
+
+            // Normalisasi nama gedung untuk mencegah variasi duplikat (misal: "Gedung A" vs "Gedung A (Arafah)")
+            if (Array.isArray(parsed.buildings)) {
+              const bMap = new Map<string, Building>();
+              parsed.buildings.forEach((b: any) => {
+                if (!b || !b.name) return;
+                const normName = normalizeBuildingName(b.name);
+                const existing = bMap.get(normName);
+                if (existing) {
+                  bMap.set(normName, {
+                    ...existing,
+                    totalRooms: Math.max(existing.totalRooms || 0, b.totalRooms || 0),
+                    floors: Math.max(existing.floors || 1, b.floors || 1)
+                  });
+                } else {
+                  bMap.set(normName, { ...b, name: normName });
+                }
+              });
+              parsed.buildings = Array.from(bMap.values());
+            } else {
+              parsed.buildings = [...initialBuildings];
+            }
+
+            if (Array.isArray(parsed.rooms)) {
+              parsed.rooms = parsed.rooms.map((r: any) => ({
+                ...r,
+                building: normalizeBuildingName(r.building)
+              }));
+            }
+
+            if (Array.isArray(parsed.transactions)) {
+              parsed.transactions = parsed.transactions.map((t: any) => ({
+                ...t,
+                building: normalizeBuildingName(t.building)
+              }));
+            }
+
+            if (Array.isArray(parsed.maintenances)) {
+              parsed.maintenances = parsed.maintenances.map((m: any) => ({
+                ...m,
+                building: normalizeBuildingName(m.building)
+              }));
+            }
+
+            if (Array.isArray(parsed.qcInspections)) {
+              parsed.qcInspections = parsed.qcInspections.map((q: any) => ({
+                ...q,
+                building: normalizeBuildingName(q.building)
+              }));
+            }
+
+            if (Array.isArray(parsed.users)) {
+              parsed.users = parsed.users.map((u: any) => ({
+                ...u,
+                assignedBuilding: u.assignedBuilding && !u.assignedBuilding.includes('Semua') ? normalizeBuildingName(u.assignedBuilding) : u.assignedBuilding
+              }));
+            }
 
             // Inisialisasi buildings jika belum ada, dan bersihkan duplikat legacy 'Ruang Pertemuan' dari daftar gedung penginapan
             if (!Array.isArray(parsed.buildings) || parsed.buildings.length === 0) {
