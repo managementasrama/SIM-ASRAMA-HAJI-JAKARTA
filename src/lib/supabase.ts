@@ -509,11 +509,29 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
     relOrders.forEach(o => { if (o && o.id) bOrderMap.set(o.id, o); });
     const mergedOrders = Array.from(bOrderMap.values());
 
+    // Pemetaan akurat pengaturan aplikasi (snake_case dari Supabase ke camelCase aplikasi)
+    let finalAppSettings = syncPayload?.appSettings;
+    if (settingsRes.data) {
+      const s = settingsRes.data as any;
+      finalAppSettings = {
+        organizationName: s.organization_name || s.organizationName || finalAppSettings?.organizationName || 'UPT ASRAMA HAJI JAKARTA',
+        subTitle: s.sub_title || s.subTitle || finalAppSettings?.subTitle || 'Sistem Informasi Manajemen Operasional',
+        ministryName: s.ministry_name || s.ministryName || finalAppSettings?.ministryName || 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA',
+        address: s.address || finalAppSettings?.address || '',
+        phone: s.phone || finalAppSettings?.phone || '',
+        email: s.email || finalAppSettings?.email || '',
+        portalUrl: s.portal_url || s.portalUrl || finalAppSettings?.portalUrl || '',
+        appLogo: s.app_logo || s.appLogo || finalAppSettings?.appLogo || undefined,
+        appFavicon: s.app_favicon || s.appFavicon || finalAppSettings?.appFavicon || undefined,
+        tagTitle: s.tag_title || s.tagTitle || finalAppSettings?.tagTitle || undefined
+      };
+    }
+
     const resultDb: CompleteStorageDatabase = {
       schemaVersion: 4,
       appName: syncPayload?.appName || 'SIM Asrama Haji Jakarta',
       exportedAt: new Date().toISOString(),
-      appSettings: (settingsRes.data as any) || syncPayload?.appSettings || undefined,
+      appSettings: finalAppSettings,
       users: mergedUsers,
       buildings: mergedBuildings,
       rooms: mergedRooms,

@@ -14,6 +14,7 @@ import { BuildingOccupancySection } from './dashboard/BuildingOccupancySection';
 import { GroupManagementSection } from './dashboard/GroupManagementSection';
 import { MonthlyReservationCalendar } from './dashboard/MonthlyReservationCalendar';
 import { RoleWorkspaceBanner } from './dashboard/RoleWorkspaceBanner';
+import { QcWorklistPanel, TechnicianWorklistPanel, FinancialBillingPanel, CateringWorklistPanel } from './dashboard/RoleDedicatedPanels';
 
 interface ConsolidatedAgendaItem {
   id: string;
@@ -935,49 +936,87 @@ export function Dashboard() {
           onOpenRoomDetail={(roomId) => openModal('modalRoomDetail', { roomId })}
         />
 
-        {/* PANEL KANAN: REGISTRASI & MANAJEMEN DATA ROMBONGAN */}
-        <GroupManagementSection
-          allGroups={allGroups}
-          filteredGroups={filteredGroups}
-          groupTabFilter={groupTabFilter}
-          setGroupTabFilter={setGroupTabFilter}
-          groupSortBy={groupSortBy}
-          setGroupSortBy={setGroupSortBy}
-          groupSearchQuery={groupSearchQuery}
-          setGroupSearchQuery={setGroupSearchQuery}
-          hajiGroupsCount={hajiGroupsCount}
-          umumGroupsCount={umumGroupsCount}
-          instansiGroupsCount={instansiGroupsCount}
-          totalGroupRooms={totalGroupRooms}
-          rooms={rooms}
-          openModal={openModal}
-          batchCheckinGroup={batchCheckinGroup}
-          batchCheckoutGroup={batchCheckoutGroup}
-          batchCancelGroup={batchCancelGroup}
-        />
+        {/* PANEL KANAN DINAMIS SESUAI KEBUTUHAN AKUN:
+            - QC: Antrean Kendali Mutu & Kelaikan Kamar (QC Inspection Worklist)
+            - Teknisi: Tiket Perbaikan Fasilitas & Kendala Sarpras
+            - Keuangan: Monitoring Piutang & Penagihan Invoice PNBP
+            - Koperasi: Worklist Dapur & Distribusi Katering Hari Ini
+            - Resepsionis / Super Admin: Registrasi & Manajemen Data Rombongan
+        */}
+        {(activePerspective === 'QC' || (activePerspective === 'ALL' && isQcUser && !isSuperAdminUser)) ? (
+          <QcWorklistPanel
+            qcNeedAttentionRooms={qcNeedAttentionRooms}
+            readyCleanRooms={readyCleanRooms}
+            rooms={rooms}
+            openModal={openModal}
+            setActiveTab={setActiveTab}
+          />
+        ) : (activePerspective === 'TEKNISI' || (activePerspective === 'ALL' && isTeknisiUser && !isSuperAdminUser)) ? (
+          <TechnicianWorklistPanel
+            urgentMaintenances={urgentMaintenances}
+            activeMaintenances={activeMaintenances}
+            openModal={openModal}
+            setActiveTab={setActiveTab}
+          />
+        ) : (activePerspective === 'KEUANGAN' || (activePerspective === 'ALL' && isKeuanganUser && !isSuperAdminUser)) ? (
+          <FinancialBillingPanel
+            financialStats={financialStats}
+            openModal={openModal}
+            setActiveTab={setActiveTab}
+          />
+        ) : (activePerspective === 'KOPERASI' || (activePerspective === 'ALL' && isKoperasiUser && !isSuperAdminUser)) ? (
+          <CateringWorklistPanel
+            cateringStats={cateringStats}
+            updateBreakfastStatus={updateBreakfastStatus}
+            setActiveTab={setActiveTab}
+          />
+        ) : (
+          <GroupManagementSection
+            allGroups={allGroups}
+            filteredGroups={filteredGroups}
+            groupTabFilter={groupTabFilter}
+            setGroupTabFilter={setGroupTabFilter}
+            groupSortBy={groupSortBy}
+            setGroupSortBy={setGroupSortBy}
+            groupSearchQuery={groupSearchQuery}
+            setGroupSearchQuery={setGroupSearchQuery}
+            hajiGroupsCount={hajiGroupsCount}
+            umumGroupsCount={umumGroupsCount}
+            instansiGroupsCount={instansiGroupsCount}
+            totalGroupRooms={totalGroupRooms}
+            rooms={rooms}
+            openModal={openModal}
+            batchCheckinGroup={batchCheckinGroup}
+            batchCheckoutGroup={batchCheckoutGroup}
+            batchCancelGroup={batchCancelGroup}
+          />
+        )}
       </motion.section>
 
-      {/* 4. KALENDER RESERVASI & AGENDA OPERASIONAL TERPADU */}
-      <MonthlyReservationCalendar
-        transactions={transactions}
-        rooms={rooms}
-        maintenances={maintenances}
-        openModal={openModal}
-        facilityFilter={facilityFilter}
-        setFacilityFilter={setFacilityFilter}
-        currentDate={currentDate}
-        setCurrentDate={setCurrentDate}
-        currentUser={currentUser}
-        realToday={realToday}
-        formatIndonesianDate={formatIndonesianDate}
-        updateBreakfastStatus={updateBreakfastStatus}
-        activateCheckin={activateCheckin}
-        checkoutRoom={checkoutRoom}
-        batchCheckinGroup={batchCheckinGroup}
-        batchCheckoutGroup={batchCheckoutGroup}
-        cancelBooking={cancelBooking}
-        setActiveTab={setActiveTab}
-      />
+      {/* 4. KALENDER RESERVASI & AGENDA OPERASIONAL TERPADU 
+          (Khusus untuk Resepsionis, Keuangan, Admin & Super Admin; disembunyikan dari QC, Teknisi, dan Koperasi agar fokus pada tugas divisi) */}
+      {(isSuperAdminUser || (!isQcUser && !isTeknisiUser && !isKoperasiUser) || activePerspective === 'RESEPSIONIS' || activePerspective === 'ALL') && (
+        <MonthlyReservationCalendar
+          transactions={transactions}
+          rooms={rooms}
+          maintenances={maintenances}
+          openModal={openModal}
+          facilityFilter={facilityFilter}
+          setFacilityFilter={setFacilityFilter}
+          currentDate={currentDate}
+          setCurrentDate={setCurrentDate}
+          currentUser={currentUser}
+          realToday={realToday}
+          formatIndonesianDate={formatIndonesianDate}
+          updateBreakfastStatus={updateBreakfastStatus}
+          activateCheckin={activateCheckin}
+          checkoutRoom={checkoutRoom}
+          batchCheckinGroup={batchCheckinGroup}
+          batchCheckoutGroup={batchCheckoutGroup}
+          cancelBooking={cancelBooking}
+          setActiveTab={setActiveTab}
+        />
+      )}
 
       {/* 5. LOG AKTIVITAS SISTEM TERKINI */}
       {recentLogs.length > 0 && (
