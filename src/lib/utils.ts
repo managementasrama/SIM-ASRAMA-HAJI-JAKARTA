@@ -660,7 +660,7 @@ export function normalizeBuildingName(name: string): string {
   if (lower === 'gedung a' || lower === 'arafah' || lower.includes('arafah')) return 'Gedung A (Arafah)';
   if (lower === 'gedung b' || lower === 'muzdalifah' || lower.includes('muzdalifah')) return 'Gedung B (Muzdalifah)';
   if (lower === 'gedung c' || lower === 'mina' || lower.includes('mina')) return 'Gedung C (Mina)';
-  if (lower === 'gedung d' || lower === 'madinah' || lower.includes('madinah')) return 'Gedung D (Madinah)';
+  if (lower === 'gedung d' || lower === 'gedung d1' || lower === 'gedung d2' || lower === 'madinah' || lower.includes('madinah') || lower.startsWith('gedung d')) return 'Gedung D (Madinah)';
   if (lower === 'gedung serbaguna' || lower === 'gedung serbaguna (sg)' || lower === 'sg' || lower.includes('serbaguna')) return 'Gedung Serbaguna (SG)';
   if (lower === 'ruang pertemuan' || lower === 'ruang pertemuan / aula' || lower === 'aula' || lower.includes('ruang pertemuan')) return 'Ruang Pertemuan / Aula';
   return trimmed;
