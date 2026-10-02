@@ -24,7 +24,7 @@ import { initialChatChannels, initialChatMessages } from './chatData';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
-import { supabase } from './lib/supabase';
+import { supabase, syncFullDatabaseToSupabase } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -558,6 +558,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadCloudDatabase();
   }, []);
 
+  // Background Real-Time Sync Polling (setiap 6 detik) untuk menyamakan data antar akun & perangkat
+  useEffect(() => {
+    const backgroundSyncTimer = setInterval(async () => {
+      try {
+        const cloudDb = await dataStorage.hydrateFromSupabase();
+        if (cloudDb) {
+          if (cloudDb.users) setUsers(cloudDb.users);
+          if (cloudDb.buildings) setBuildings(cloudDb.buildings);
+          if (cloudDb.meetingRooms) setMeetingRooms(cloudDb.meetingRooms);
+          if (cloudDb.rooms) setRooms(cloudDb.rooms);
+          if (cloudDb.transactions) setTransactions(cloudDb.transactions);
+          if (cloudDb.maintenances) setMaintenances(cloudDb.maintenances);
+          if (cloudDb.auditLogs) setAuditLogs(cloudDb.auditLogs);
+          if (cloudDb.workSessions) setWorkSessions(cloudDb.workSessions);
+          if (cloudDb.qcInspections) setQcInspections(cloudDb.qcInspections);
+          if (cloudDb.breakfastMenuItems) setBreakfastMenuItems(cloudDb.breakfastMenuItems);
+          if (cloudDb.breakfastOrders) setBreakfastOrders(cloudDb.breakfastOrders);
+          if (cloudDb.chatMessages) setChatMessages(cloudDb.chatMessages);
+          if (cloudDb.chatChannels) setChatChannels(cloudDb.chatChannels);
+          if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+            setRoomCapacityRates(cloudDb.roomCapacityRates);
+          }
+          if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
+        }
+      } catch (_) {}
+    }, 6000);
+
+    return () => clearInterval(backgroundSyncTimer);
+  }, []);
+
   const manualSyncSupabase = async () => {
     showToast('Menghubungi Supabase Cloud...', 'info');
     try {
@@ -766,19 +796,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       readBy: [currentUser.id]
     };
 
-    setChatMessages(prev => [...prev, newMsg]);
-
-    setChatChannels(prev => prev.map(c => {
-      if (c.id === channelId) {
-        return {
-          ...c,
-          lastMessage: text.trim(),
-          lastMessageTime: timeFormatted,
-          lastSenderName: currentUser.fullName
-        };
-      }
-      return c;
-    }));
+    dataStorage.saveChatMessage(newMsg);
+    setChatMessages(dataStorage.getChatMessages());
+    setChatChannels(dataStorage.getDatabase().chatChannels || []);
+    syncFullDatabaseToSupabase(dataStorage.getDatabase()).catch(err => console.warn('Gagal sync chat ke Supabase:', err));
 
     if (isInstruction || priority === 'URGENT') {
       logAudit(
