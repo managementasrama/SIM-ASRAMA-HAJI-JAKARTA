@@ -1779,7 +1779,9 @@ export class DataStorageService {
       ...this.getAppSettings(),
       ...updates
     };
-    this.saveDatabase({ ...db, appSettings: newSettings });
+    const updatedDb = { ...db, appSettings: newSettings };
+    this.saveDatabase(updatedDb);
+    syncFullDatabaseToSupabase(updatedDb).catch(err => console.warn('Gagal sinkronisasi appSettings ke Supabase:', err));
     return newSettings;
   }
 
