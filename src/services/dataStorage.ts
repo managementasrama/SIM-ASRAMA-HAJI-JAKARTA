@@ -94,7 +94,7 @@ function getMinistryPngLogo(): string {
 
 export const defaultAppSettings: AppSettings = {
   organizationName: 'ASRAMA HAJI JAKARTA',
-  subTitle: 'Sistem Informasi Manajemen Operasional',
+  subTitle: 'SIM - Sistem Informasi Manajemen',
   ministryName: 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA',
   address: 'Jl. Raya Pd. Gede, RT.1/RW.1, Pinang Ranti, Kec. Makasar, Kota Jakarta Timur, Daerah Khusus Ibukota Jakarta 13560, Indonesia.',
   phone: '0816243154',
@@ -102,7 +102,7 @@ export const defaultAppSettings: AppSettings = {
   portalUrl: 'https://asramahajijakarta.id',
   appLogo: OFFICIAL_APP_LOGO,
   appFavicon: '/logo.png',
-  tagTitle: 'Asrama Haji Jakarta'
+  tagTitle: 'SIM - Asrama Haji Jakarta'
 };
 
 export function generateInitialDatabase(onlyAdmin: boolean = false): CompleteStorageDatabase {
@@ -249,47 +249,47 @@ export class DataStorageService {
    * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
    */
   public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase): CompleteStorageDatabase {
-    // 1. Transactions: gabungkan transaksi unik berdasarkan id, utamakan data lokal
+    // 1. Transactions: gabungkan transaksi unik berdasarkan id, utamakan data cloud yang sudah tersimpan di database
     const txMap = new Map<string, Transaction>();
-    (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
     (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
     const mergedTransactions = Array.from(txMap.values());
 
-    // 2. Users: gabungkan user unik berdasarkan id & username
+    // 2. Users: gabungkan user unik berdasarkan id & username, utamakan data cloud
     const userMap = new Map<string, User>();
-    (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
     (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
     const mergedUsers = Array.from(userMap.values());
 
     // 3. Maintenances
     const maintMap = new Map<string, Maintenance>();
-    (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     const mergedMaintenances = Array.from(maintMap.values());
 
     // 4. QC Inspections
     const qcMap = new Map<string, QcInspection>();
-    (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
     (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
     const mergedQc = Array.from(qcMap.values());
 
     // 5. Breakfast Orders
     const bOrdersMap = new Map<string, BreakfastOrder>();
-    (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
     (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
     const mergedBreakfastOrders = Array.from(bOrdersMap.values());
 
-    // 6. Rooms: pertahankan status terkini dan tarif kamar
+    // 6. Rooms: pertahankan status terkini dari cloud, jangan biarkan status kosong lokal menimpa kamar terisi di cloud
     const roomMap = new Map<string, Room>();
-    (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    (local.rooms || []).forEach(r => {
+    (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    (cloud.rooms || []).forEach(r => {
       if (r && r.id) {
         const existing = roomMap.get(r.id);
         roomMap.set(r.id, {
           ...(existing || {}),
           ...r,
           status: r.status || existing?.status || 'KOSONG',
-          activeTxId: r.activeTxId || existing?.activeTxId || null
+          activeTxId: r.activeTxId !== undefined ? r.activeTxId : (existing?.activeTxId || null)
         });
       }
     });

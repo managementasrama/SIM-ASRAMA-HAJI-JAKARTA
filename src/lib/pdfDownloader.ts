@@ -2096,7 +2096,7 @@ export async function downloadReportPdfDirect(
       doc.setFontSize(6);
       doc.setTextColor(...lightSlate);
       if (hasValidSignature && verificationCode) {
-        doc.text(`ID Verifikasi: ${verificationCode} • Dokumen Resmi Terverifikasi ${appSettings.subTitle || 'Sistem Informasi Manajemen Operasional'} ${appSettings.organizationName || 'UPT Asrama Haji Jakarta'}`, 14, 204);
+        doc.text(`ID Verifikasi: ${verificationCode} • Dokumen Resmi Terverifikasi ${appSettings.subTitle || 'SIM - Sistem Informasi Manajemen'} ${appSettings.organizationName || 'ASRAMA HAJI JAKARTA'}`, 14, 204);
       } else {
         doc.text(`Dokumen Cetak Manual (Tanpa QR & TTD Digital) • Memerlukan Pengesahan TTD Fisik & Cap Basah Resmi`, 14, 204);
       }
@@ -2679,7 +2679,7 @@ export async function renderKwitansiPdfContent(
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(4.8);
   doc.setTextColor(148, 163, 184);
-  doc.text(`* Dokumen kwitansi ini adalah bukti pembayaran yang sah dan diterbitkan secara digital oleh ${appSettings.subTitle || 'Sistem Informasi Manajemen Operasional'} ${appSettings.organizationName || 'UPT Asrama Haji Jakarta'}.`, 74, 196, { align: 'center' });
+  doc.text(`* Dokumen kwitansi ini adalah bukti pembayaran yang sah dan diterbitkan secara digital oleh ${appSettings.subTitle || 'SIM - Sistem Informasi Manajemen'} ${appSettings.organizationName || 'ASRAMA HAJI JAKARTA'}.`, 74, 196, { align: 'center' });
 
   const safePayer = (payerName || 'Tamu').replace(/[^a-zA-Z0-9_-]/g, '_');
   const cleanFilename = `${isLunas ? 'Kwitansi-Lunas' : 'Kwitansi-DP'}-${tx.id}-${safePayer}.pdf`;

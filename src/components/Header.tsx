@@ -129,7 +129,7 @@ export function Header() {
             </div>
             <div className="min-w-0">
               <h1 className="font-bold text-xs sm:text-base md:text-lg tracking-wide text-white truncate leading-tight">{appSettings?.organizationName || 'ASRAMA HAJI JAKARTA'}</h1>
-              <p className="text-[9px] sm:text-xs text-gold-400 font-medium hidden sm:block truncate">{appSettings?.subTitle || 'Sistem Informasi Manajemen Operasional'}</p>
+              <p className="text-[9px] sm:text-xs text-gold-400 font-medium hidden sm:block truncate">{appSettings?.subTitle || 'SIM - Sistem Informasi Manajemen'}</p>
             </div>
           </div>
 

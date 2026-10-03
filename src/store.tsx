@@ -516,24 +516,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function loadCloudDatabase() {
       try {
-        // Cek terlebih dahulu apakah ada data tersimpan di cadangan lokal perangkat yang bisa dipulihkan
-        const recovery = dataStorage.tryRecoverLostData();
-        if (recovery.recovered && recovery.recoveredDb) {
-          const rDb = recovery.recoveredDb;
-          setUsers(rDb.users);
-          setBuildings(rDb.buildings || []);
-          setMeetingRooms(rDb.meetingRooms || []);
-          setRooms(rDb.rooms);
-          setTransactions(rDb.transactions);
-          setMaintenances(rDb.maintenances);
-          setAuditLogs(rDb.auditLogs);
-          setWorkSessions(rDb.workSessions);
-          setQcInspections(rDb.qcInspections);
-          setBreakfastMenuItems(rDb.breakfastMenuItems || []);
-          setBreakfastOrders(rDb.breakfastOrders || []);
-          showToast(recovery.message, 'success');
-        }
-
         const cloudDb = await dataStorage.hydrateFromSupabase();
         if (cloudDb) {
           setUsers(cloudDb.users);
@@ -555,6 +537,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
           setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+        } else {
+          // Hanya jika Supabase tidak tersedia (offline), coba pulihkan dari cadangan lokal
+          const recovery = dataStorage.tryRecoverLostData();
+          if (recovery.recovered && recovery.recoveredDb) {
+            const rDb = recovery.recoveredDb;
+            setUsers(rDb.users);
+            setBuildings(rDb.buildings || []);
+            setMeetingRooms(rDb.meetingRooms || []);
+            setRooms(rDb.rooms);
+            setTransactions(rDb.transactions);
+            setMaintenances(rDb.maintenances);
+            setAuditLogs(rDb.auditLogs);
+            setWorkSessions(rDb.workSessions);
+            setQcInspections(rDb.qcInspections);
+            setBreakfastMenuItems(rDb.breakfastMenuItems || []);
+            setBreakfastOrders(rDb.breakfastOrders || []);
+            showToast(recovery.message, 'success');
+          }
         }
       } catch (err) {
         console.warn('Gagal memuat database dari Supabase:', err);

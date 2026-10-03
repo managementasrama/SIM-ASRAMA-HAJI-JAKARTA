@@ -246,7 +246,7 @@ export function Login() {
             {appSettings?.organizationName || 'ASRAMA HAJI JAKARTA'}
           </h1>
           <p className="text-[9.5px] sm:text-[10px] text-gold-100/90 mt-0.5 font-medium max-w-xs mx-auto mb-1">
-            {appSettings?.subTitle || 'Sistem Informasi Manajemen Operasional'}
+            {appSettings?.subTitle || 'SIM - Sistem Informasi Manajemen'}
           </p>
           <span className="text-[8px] sm:text-[8.5px] uppercase tracking-wider text-gold-300 font-extrabold bg-gold-400/15 border border-gold-400/40 px-2 py-0.5 rounded-full inline-block">
             {appSettings?.ministryName || 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA'}
