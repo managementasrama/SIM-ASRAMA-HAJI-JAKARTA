@@ -23,7 +23,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [floors, setFloors] = useState<number>(3);
-  const [totalRooms, setTotalRooms] = useState<number>(50);
+  const [totalRooms, setTotalRooms] = useState<number>(3);
   const [capacityDesc, setCapacityDesc] = useState('');
   const [category, setCategory] = useState<'PENGINAPAN' | 'SERBAGUNA' | 'RUANG_PERTEMUAN' | 'KANTOR'>('PENGINAPAN');
   const [description, setDescription] = useState('');
@@ -34,7 +34,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
       setName(buildingToEdit.name || '');
       setCode(buildingToEdit.code || '');
       setFloors(buildingToEdit.floors || 3);
-      setTotalRooms(buildingToEdit.totalRooms || 50);
+      setTotalRooms(buildingToEdit.totalRooms !== undefined ? buildingToEdit.totalRooms : 3);
       setCapacityDesc(buildingToEdit.capacityDesc || '');
       setCategory((buildingToEdit.category as any) || 'PENGINAPAN');
       setDescription(buildingToEdit.description || '');
@@ -43,8 +43,8 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
       setName('');
       setCode('');
       setFloors(3);
-      setTotalRooms(50);
-      setCapacityDesc('50 Kamar Hunian Ber-AC');
+      setTotalRooms(3);
+      setCapacityDesc('3 Kamar Hunian Ber-AC');
       setCategory('PENGINAPAN');
       setDescription('');
       setStatus('AKTIF');
@@ -60,14 +60,17 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
       return;
     }
 
+    const isLodging = category === 'PENGINAPAN';
+    const finalTotalRooms = isLodging ? (Number(totalRooms) || 3) : 0;
+
     if (isEdit && buildingToEdit) {
       updateBuilding({
         ...buildingToEdit,
         name: name.trim(),
         code: code.trim().toUpperCase(),
         floors: Number(floors) || 1,
-        totalRooms: Number(totalRooms) || 0,
-        capacityDesc: capacityDesc.trim(),
+        totalRooms: finalTotalRooms,
+        capacityDesc: capacityDesc.trim() || (isLodging ? `${finalTotalRooms} Kamar Hunian` : 'Kapasitas Gedung Utuh'),
         category,
         description: description.trim(),
         status
@@ -77,8 +80,8 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
         name: name.trim(),
         code: code.trim().toUpperCase(),
         floors: Number(floors) || 1,
-        totalRooms: Number(totalRooms) || 0,
-        capacityDesc: capacityDesc.trim() || `${totalRooms} Kamar Hunian`,
+        totalRooms: finalTotalRooms,
+        capacityDesc: capacityDesc.trim() || (isLodging ? `${finalTotalRooms} Kamar Hunian` : 'Kapasitas Gedung Utuh'),
         category,
         description: description.trim(),
         status
@@ -189,37 +192,6 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Jumlah Lantai</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={floors}
-                  onChange={e => setFloors(parseInt(e.target.value) || 1)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700">Kapasitas / Estimasi Kamar</label>
-                  <span className="text-[10px] text-emerald-600 font-bold">Sinkron ke Denah</span>
-                </div>
-                <input
-                  type="number"
-                  min={1}
-                  value={totalRooms}
-                  onChange={e => setTotalRooms(parseInt(e.target.value) || 0)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                />
-                <p className="text-[10px] text-slate-500">
-                  {isEdit ? 'Jumlah unit kamar gedung ini terhubung dengan sub-menu Denah Penyewaan.' : 'Untuk gedung baru, unit kamar awal akan otomatis disiapkan di Denah Penyewaan.'}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">Kategori Fasilitas *</label>
                 <select
                   value={category}
@@ -231,13 +203,13 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
                     } else if (newCat === 'RUANG_PERTEMUAN' && (!capacityDesc || capacityDesc.includes('Kamar Hunian'))) {
                       setCapacityDesc('Kapasitas 300 - 800 Orang (Ruang Pertemuan / Aula)');
                     } else if (newCat === 'PENGINAPAN' && (capacityDesc.includes('Serbaguna') || capacityDesc.includes('Ruang Pertemuan'))) {
-                      setCapacityDesc(`${totalRooms} Kamar Hunian Ber-AC`);
+                      setCapacityDesc(`${totalRooms || 3} Kamar Hunian Ber-AC`);
                     }
                   }}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
                 >
-                  <option key="PENGINAPAN" value="PENGINAPAN">Penginapan</option>
-                  <option key="SERBAGUNA" value="SERBAGUNA">Serbaguna</option>
+                  <option key="PENGINAPAN" value="PENGINAPAN">Penginapan (Asrama/Kamar)</option>
+                  <option key="SERBAGUNA" value="SERBAGUNA">Serbaguna (Sewa Gedung Utuh)</option>
                   <option key="RUANG_PERTEMUAN" value="RUANG_PERTEMUAN">Ruang Pertemuan / Aula</option>
                 </select>
               </div>
@@ -255,13 +227,56 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
               </div>
             </div>
 
+            {category === 'PENGINAPAN' ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Jumlah Lantai</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={floors}
+                    onChange={e => setFloors(parseInt(e.target.value) || 1)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700">Jumlah Kamar (Unit)</label>
+                    <span className="text-[10px] text-emerald-600 font-bold">Default: 3 Unit</span>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    value={totalRooms}
+                    onChange={e => setTotalRooms(parseInt(e.target.value) || 0)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    {isEdit ? 'Jumlah unit kamar gedung ini terhubung dengan sub-menu Denah Penyewaan.' : 'Default 3 unit kamar awal akan otomatis disiapkan di Denah Penyewaan.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl space-y-1.5 text-xs text-purple-900">
+                <div className="flex items-center space-x-2 font-bold text-purple-950">
+                  <i className={`fa-solid ${category === 'SERBAGUNA' ? 'fa-landmark' : 'fa-users'} text-purple-600`}></i>
+                  <span>Sewa Paket Gedung / Ruangan Utuh (Bukan Unit Kamar)</span>
+                </div>
+                <p className="text-[11px] text-purple-800 leading-relaxed">
+                  Fasilitas <strong>{category === 'SERBAGUNA' ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan / Aula'}</strong> disewa sebagai 1 kesatuan gedung/ruangan untuk event akbar, pernikahan, atau rapat dinas. Sistem <strong>tidak membuat unit-unit kamar tidur</strong> di Denah Penyewaan.
+                </p>
+              </div>
+            )}
+
             {category === 'PENGINAPAN' && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start space-x-2.5 text-xs text-emerald-900">
                 <i className="fa-solid fa-hotel text-emerald-600 text-sm mt-0.5 shrink-0"></i>
                 <div className="space-y-0.5">
-                  <span className="font-bold block text-emerald-950">Gedung Penginapan Baru di Denah Penyewaan</span>
+                  <span className="font-bold block text-emerald-950">Sinkronisasi ke Denah Penyewaan</span>
                   <p className="text-[11px] text-emerald-800 leading-relaxed">
-                    Ketika memilih <strong>Penginapan</strong>, gedung ini akan otomatis muncul sebagai bagian gedung baru di <strong>Denah Penyewaan</strong> dengan nomor-nomor kamar siap huni.
+                    Setiap unit kamar di gedung penginapan ini terhubung dengan <strong>Katalog Tipe Kamar</strong> (tarif &amp; fasilitas) dan langsung dapat disewa tamu di <strong>Denah Penyewaan</strong>.
                   </p>
                 </div>
               </div>
@@ -1180,32 +1195,31 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
             )}
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-200">Lokasi / Kawasan / Gedung *</label>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-200">Gedung Penginapan *</label>
               <select
-                value={building === 'Ruang Pertemuan' ? 'Ruang Pertemuan / Aula' : building}
+                value={building}
                 onChange={e => handleBuildingChange(e.target.value)}
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
               >
-                <option value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
-                <option value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
-                {Array.from(new Set(buildings.map(b => b.name)))
-                  .filter(name => 
-                    name !== 'Gedung Sekretariat' && 
-                    name !== 'Kawasan Utama' && 
-                    name !== 'Ruang Pertemuan' && 
-                    name !== 'Ruang Pertemuan / Aula' && 
-                    name !== 'Gedung Serbaguna (SG)' && 
-                    name !== 'Gedung Serbaguna'
+                {buildings
+                  .filter(b => 
+                    b.category !== 'SERBAGUNA' && 
+                    b.category !== 'RUANG_PERTEMUAN' && 
+                    !b.name.toLowerCase().includes('serbaguna') && 
+                    !b.name.toLowerCase().includes('pertemuan') &&
+                    !b.name.toLowerCase().includes('aula') &&
+                    b.name !== 'Gedung Sekretariat' && 
+                    b.name !== 'Kawasan Utama'
                   )
-                  .map(bName => {
-                    const bObj = buildings.find(b => b.name === bName);
-                    return (
-                      <option key={bName} value={bName}>
-                        {bName} {bObj?.category === 'SERBAGUNA' ? '(Serbaguna)' : bObj?.category === 'RUANG_PERTEMUAN' ? '(Aula)' : ''}
-                      </option>
-                    );
-                  })}
+                  .map(b => (
+                    <option key={b.id || b.name} value={b.name}>
+                      🏨 {b.name} ({b.totalRooms || 3} Unit Kamar)
+                    </option>
+                  ))}
               </select>
+              <p className="text-[10px] text-slate-500">
+                Pilih gedung penginapan yang menjadi lokasi unit kamar ini. Fasilitas aula &amp; serbaguna disewa per gedung/ruangan utuh.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1293,14 +1307,13 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
                     <option value="Suite">💎 Suite</option>
                     <option value="Transit">⏱️ Transit</option>
                   </optgroup>
-                  {knownRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior', 'Deluxe', 'VIP', 'VVIP', 'Suite', 'Transit'].includes(t)).length > 0 && (
+                  {knownRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior', 'Deluxe', 'VIP', 'VVIP', 'Suite', 'Transit'].includes(t) && t !== 'Ruang Pertemuan / Aula' && !t.includes('Serbaguna')).length > 0 && (
                     <optgroup label="Tipe Kustom Tersimpan di Database">
-                      {knownRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior', 'Deluxe', 'VIP', 'VVIP', 'Suite', 'Transit'].includes(t)).map(t => (
+                      {knownRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior', 'Deluxe', 'VIP', 'VVIP', 'Suite', 'Transit'].includes(t) && t !== 'Ruang Pertemuan / Aula' && !t.includes('Serbaguna')).map(t => (
                         <option key={t} value={t}>🏷️ {t}</option>
                       ))}
                     </optgroup>
                   )}
-                  <option value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
                   <option value="CUSTOM">➕ Tulis Tipe Kamar Baru (Kustom)...</option>
                 </select>
 

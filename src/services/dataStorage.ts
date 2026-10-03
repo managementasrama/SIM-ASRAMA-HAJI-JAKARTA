@@ -249,69 +249,47 @@ export class DataStorageService {
    * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
    */
   public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase): CompleteStorageDatabase {
-    // 1. Transactions: gabungkan transaksi unik berdasarkan id, utamakan data cloud yang sudah tersimpan di database
+    // 1. Transactions: gabungkan transaksi unik berdasarkan id, utamakan data lokal yang sedang aktif
     const txMap = new Map<string, Transaction>();
-    (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
     (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
     const mergedTransactions = Array.from(txMap.values());
 
-    // 2. Users: gabungkan user unik berdasarkan id & username, utamakan data cloud
+    // 2. Users: utamakan data lokal
     const userMap = new Map<string, User>();
-    (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
     (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
     const mergedUsers = Array.from(userMap.values());
 
     // 3. Maintenances
     const maintMap = new Map<string, Maintenance>();
-    (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     const mergedMaintenances = Array.from(maintMap.values());
 
     // 4. QC Inspections
     const qcMap = new Map<string, QcInspection>();
-    (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
     (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
     const mergedQc = Array.from(qcMap.values());
 
     // 5. Breakfast Orders
     const bOrdersMap = new Map<string, BreakfastOrder>();
-    (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
     (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
     const mergedBreakfastOrders = Array.from(bOrdersMap.values());
 
-    // 6. Rooms: Jika kamar ada di lokal, prioritaskan data lokal (perubahan CRUD pengguna lokal tidak boleh ditimpa)
-    const roomMap = new Map<string, Room>();
-    (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    (local.rooms || []).forEach(r => {
-      if (r && r.id) {
-        const cloudRoom = roomMap.get(r.id);
-        roomMap.set(r.id, {
-          ...(cloudRoom || {}),
-          ...r,
-          status: r.status || cloudRoom?.status || 'KOSONG',
-          activeTxId: r.activeTxId !== undefined ? r.activeTxId : (cloudRoom?.activeTxId || null)
-        });
-      }
-    });
-    const mergedRooms = Array.from(roomMap.values());
+    // 6. Rooms: Jika lokal memiliki data kamar, prioritaskan data lokal 100% agar aksi CRUD pengguna tidak hilang/tertimpa
+    const mergedRooms = (local.rooms && local.rooms.length > 0) ? local.rooms : (cloud.rooms || []);
 
-    // 7. Buildings: prioritaskan data lokal hasil edit pengguna
-    const bldMap = new Map<string, Building>();
-    (cloud.buildings || []).forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
-    (local.buildings || []).forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
-    const mergedBuildings = Array.from(bldMap.values());
+    // 7. Buildings: prioritaskan data lokal hasil edit/tambah/hapus pengguna
+    const mergedBuildings = (local.buildings && local.buildings.length > 0) ? local.buildings : (cloud.buildings || []);
 
     // 8. Meeting Rooms: prioritaskan data lokal
-    const mrMap = new Map<string, MeetingRoom>();
-    (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    const mergedMeetingRooms = Array.from(mrMap.values());
+    const mergedMeetingRooms = (local.meetingRooms && local.meetingRooms.length > 0) ? local.meetingRooms : (cloud.meetingRooms || []);
 
     // 9. Room Capacity Rates: prioritaskan konfigurasi katalog tipe kamar lokal
-    const rateMap = new Map<string, RoomCapacityRate>();
-    (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-    (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-    const mergedRates = Array.from(rateMap.values());
+    const mergedRates = (local.roomCapacityRates && local.roomCapacityRates.length > 0) ? local.roomCapacityRates : (cloud.roomCapacityRates || []);
 
     // appSettings: prioritaskan data yang memiliki timestamp paling mutakhir, atau gabungkan secara aman
     const localSettings = local.appSettings || defaultAppSettings;
@@ -992,33 +970,55 @@ export class DataStorageService {
 
       // Sinkronisasi totalRooms gedung dengan jumlah kamar aktual di denah kamar
       const targetBuildingName = buildingWithId.name;
-      const bldRooms = rooms.filter(r => 
-        r.building.toLowerCase() === targetBuildingName.toLowerCase() || 
-        (oldBuilding && r.building.toLowerCase() === oldBuilding.name.toLowerCase())
-      );
+      const isFacilityHall = buildingWithId.category === 'SERBAGUNA' || buildingWithId.category === 'RUANG_PERTEMUAN';
 
-      // Pertahankan unit kamar yang sudah dikonfigurasi di denah penyewaan tanpa menghapus atau membuat dummy secara mendadak
-      updatedBuildings[idx] = {
-        ...updatedBuildings[idx],
-        totalRooms: bldRooms.length > 0 ? bldRooms.length : (Number(buildingWithId.totalRooms) || 0)
-      };
+      if (isFacilityHall) {
+        // Fasilitas serbaguna & aula disewa per gedung/ruangan utuh, bersihkan kamar unit jika sebelumnya ada
+        rooms = rooms.filter(r => 
+          r.building.toLowerCase() !== targetBuildingName.toLowerCase() && 
+          (!oldBuilding || r.building.toLowerCase() !== oldBuilding.name.toLowerCase())
+        );
+        updatedBuildings[idx] = {
+          ...updatedBuildings[idx],
+          totalRooms: 0
+        };
+      } else {
+        const bldRooms = rooms.filter(r => 
+          r.building.toLowerCase() === targetBuildingName.toLowerCase() || 
+          (oldBuilding && r.building.toLowerCase() === oldBuilding.name.toLowerCase())
+        );
+
+        // Pertahankan unit kamar yang sudah dikonfigurasi di denah penyewaan
+        updatedBuildings[idx] = {
+          ...updatedBuildings[idx],
+          totalRooms: bldRooms.length > 0 ? bldRooms.length : (Number(buildingWithId.totalRooms) || 3)
+        };
+      }
     } else {
-      updatedBuildings = [...buildings, buildingWithId];
+      const isFacilityHall = buildingWithId.category === 'SERBAGUNA' || buildingWithId.category === 'RUANG_PERTEMUAN';
+      
+      if (isFacilityHall) {
+        // Fasilitas serbaguna/aula tidak memiliki unit-unit kamar tidur
+        updatedBuildings = [...buildings, { ...buildingWithId, totalRooms: 0 }];
+      } else {
+        // Untuk gedung penginapan baru, default kamar (unit) adalah 3
+        const requestedRooms = buildingWithId.totalRooms !== undefined && Number(buildingWithId.totalRooms) > 0 
+          ? Number(buildingWithId.totalRooms) 
+          : 3;
+        
+        updatedBuildings = [...buildings, { ...buildingWithId, totalRooms: requestedRooms }];
 
-      // Saat membuat gedung baru, buatkan unit kamar awal otomatis sesuai jumlah totalRooms jika diminta
-      const requestedRooms = Number(buildingWithId.totalRooms) || 0;
-      if (requestedRooms > 0) {
         const floors = Math.max(1, Number(buildingWithId.floors) || 1);
         const roomsPerFloor = Math.ceil(requestedRooms / floors);
         const newRooms: Room[] = [];
         const bCode = buildingWithId.code ? buildingWithId.code.trim().toUpperCase() : '';
         const prefix = bCode ? `${bCode}-` : '';
         let count = 0;
-        const defType = buildingWithId.category === 'SERBAGUNA' ? 'Ruang Pertemuan / Aula' : 'Standar';
-        const defBed = buildingWithId.category === 'SERBAGUNA' ? undefined : '4 Single Bed';
-        const matchedRate = findRoomRate(defType, defBed || '4 Single Bed', db.roomCapacityRates || initialRoomCapacityRates);
-        const defPrice = buildingWithId.category === 'SERBAGUNA' ? 8500000 : (matchedRate?.pricePerNight || 480000);
-        const defCap = buildingWithId.category === 'SERBAGUNA' ? '500 Orang' : `${matchedRate?.capacityPax || 4} Orang`;
+        const defType = 'Standar';
+        const defBed = '4 Single Bed';
+        const matchedRate = findRoomRate(defType, defBed, db.roomCapacityRates || initialRoomCapacityRates);
+        const defPrice = matchedRate?.pricePerNight || 480000;
+        const defCap = `${matchedRate?.capacityPax || 4} Orang`;
         const defFacilities = matchedRate?.facilities || [
           'AC Split Dingin',
           '4 Single Bed',
