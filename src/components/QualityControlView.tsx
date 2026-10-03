@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppContext, isQcRole } from '../store';
 import { Room } from '../types';
-import { compareBuildingOrder, formatRupiah } from '../lib/utils';
+import { compareBuildingOrder, formatRupiah, isMeetingFacility } from '../lib/utils';
 import { OFFICIAL_TARIFFS } from '../data';
 
 // Helper for distinctive building-related icons for penginapan and other facilities (synchronized with RoomsView)
@@ -67,7 +67,7 @@ function getBuildingColorClass(bName: string, category?: string): { bg: string; 
 }
 
 export function QualityControlView() {
-  const { rooms, qcInspections = [], currentUser, openModal, setActiveTab, setSelectedBuilding, buildings = [], meetingRooms = [] } = useAppContext();
+  const { rooms, qcInspections = [], currentUser, openModal, setActiveTab, selectedBuilding, setSelectedBuilding, buildings = [], meetingRooms = [] } = useAppContext();
   const [bFilter, setBFilter] = useState('ALL');
   const [qcFilter, setQcFilter] = useState('ALL');
   const [search, setSearch] = useState('');
@@ -77,32 +77,56 @@ export function QualityControlView() {
 
   const canInspect = isQcRole(currentUser?.role);
 
-  // Helper untuk penentuan gedung yang konsisten dengan Manajemen Gedung
+  // Tangani filter langsung jika datang dari Dashboard atau Denah Gedung
+  useEffect(() => {
+    if (selectedBuilding) {
+      let targetBldg = selectedBuilding;
+      if (targetBldg === 'Ruang Pertemuan') targetBldg = 'Ruang Pertemuan / Aula';
+      if (targetBldg === 'Gedung Serbaguna') targetBldg = 'Gedung Serbaguna (SG)';
+
+      setBFilter(targetBldg);
+      setBuildingOverrides(prev => ({
+        ...prev,
+        [targetBldg]: false
+      }));
+
+      const timer = setTimeout(() => {
+        const cleanId = `qc-building-section-${targetBldg.replace(/[^a-zA-Z0-9]/g, '-')}`;
+        const el = document.getElementById(cleanId);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedBuilding]);
+
+  // Helper untuk penentuan gedung yang konsisten 100% dengan Manajemen Gedung (Denah Penyewaan)
   const getRoomBuildingKey = (r: Room): string => {
     const matchingMr = meetingRooms.find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
     if (matchingMr) {
       if (matchingMr.category === 'SERBAGUNA') return 'Gedung Serbaguna (SG)';
-      if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') return 'Ruang Pertemuan';
-      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
+      if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') return 'Ruang Pertemuan / Aula';
+      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
         return matchingMr.building;
       }
       const nLower = matchingMr.name.toLowerCase().trim();
       const cLower = (matchingMr.code || '').toLowerCase().trim();
       const bLower = (matchingMr.building || '').toLowerCase().trim();
       if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-        return 'Ruang Pertemuan';
+        return 'Ruang Pertemuan / Aula';
       }
       if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
         return 'Gedung Serbaguna (SG)';
       }
-      return 'Ruang Pertemuan';
+      return 'Ruang Pertemuan / Aula';
     }
 
     if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
       return 'Gedung Serbaguna (SG)';
     }
-    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula') {
-      return 'Ruang Pertemuan';
+    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type)) {
+      return 'Ruang Pertemuan / Aula';
     }
     return r.building;
   };
@@ -114,7 +138,7 @@ export function QualityControlView() {
       if (bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') {
         if (effectiveBuilding !== 'Gedung Serbaguna (SG)') return false;
       } else if (bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
-        if (effectiveBuilding !== 'Ruang Pertemuan') return false;
+        if (effectiveBuilding !== 'Ruang Pertemuan / Aula') return false;
       } else {
         if (effectiveBuilding !== bFilter) return false;
       }
@@ -134,24 +158,31 @@ export function QualityControlView() {
     return true;
   });
 
-  // Group rooms by building
+  // Group rooms by building (identik 100% dengan Manajemen Gedung)
   const grouped: Record<string, Room[]> = {};
 
-  // Pre-register catalog buildings matching filter so newly created buildings appear immediately
+  // Daftarkan semua master gedung penginapan (lewati Serbaguna dan Pertemuan agar tidak menimbulkan seksi duplikat)
   (buildings || []).forEach(b => {
-    if (bFilter === 'ALL' || bFilter === b.name) {
-      if (!grouped[b.name]) grouped[b.name] = [];
+    const isSpecial = b.name === 'Ruang Pertemuan' || b.name === 'Ruang Pertemuan / Aula' || b.name === 'Gedung Serbaguna' || b.name === 'Gedung Serbaguna (SG)' || b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN';
+    if (!isSpecial) {
+      if (bFilter === 'ALL' || bFilter === b.name) {
+        if (!grouped[b.name]) grouped[b.name] = [];
+      }
     }
   });
+
+  // Daftarkan Gedung Serbaguna (SG) dan Ruang Pertemuan / Aula TEPAT SATU KALI agar selalu tunggal & sinkron
   if (bFilter === 'ALL' || bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') {
     if (!grouped['Gedung Serbaguna (SG)']) grouped['Gedung Serbaguna (SG)'] = [];
   }
   if (bFilter === 'ALL' || bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
-    if (!grouped['Ruang Pertemuan']) grouped['Ruang Pertemuan'] = [];
+    if (!grouped['Ruang Pertemuan / Aula']) grouped['Ruang Pertemuan / Aula'] = [];
   }
 
   filteredRooms.forEach(r => {
-    const bKey = getRoomBuildingKey(r);
+    let bKey = getRoomBuildingKey(r);
+    if (bKey === 'Ruang Pertemuan') bKey = 'Ruang Pertemuan / Aula';
+    if (bKey === 'Gedung Serbaguna') bKey = 'Gedung Serbaguna (SG)';
     if (!grouped[bKey]) grouped[bKey] = [];
     if (!grouped[bKey].some(existing => existing.id === r.id)) {
       grouped[bKey].push(r);
@@ -546,11 +577,18 @@ export function QualityControlView() {
                     className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-teal-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
                   >
                     <option key="all" value="ALL">Semua Fasilitas Gedung &amp; Aula</option>
-                    {buildings.filter(b => b.name !== 'Ruang Pertemuan' && b.name !== 'Gedung Serbaguna (SG)' && b.name !== 'Gedung Serbaguna').slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
+                    {buildings.filter(b => 
+                      b.name !== 'Ruang Pertemuan' && 
+                      b.name !== 'Ruang Pertemuan / Aula' && 
+                      b.name !== 'Gedung Serbaguna (SG)' && 
+                      b.name !== 'Gedung Serbaguna' &&
+                      b.category !== 'SERBAGUNA' &&
+                      b.category !== 'RUANG_PERTEMUAN'
+                    ).slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                       <option key={b.id} value={b.name}>{b.name}</option>
                     ))}
                     <option key="gedung-serbaguna" value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
-                    <option key="ruang-pertemuan" value="Ruang Pertemuan">🏛️ Ruang Pertemuan / Aula</option>
+                    <option key="ruang-pertemuan" value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
                   </select>
                 </div>
 
@@ -681,6 +719,19 @@ export function QualityControlView() {
 
                       <div className="flex items-center space-x-3">
                         <div className="flex items-center space-x-2 text-xs flex-wrap gap-y-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedBuilding(bName);
+                              setActiveTab('gedung');
+                            }}
+                            className="px-2.5 py-1 bg-white hover:bg-emerald-50 border border-slate-300 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
+                            title="Buka denah gedung ini di Manajemen Gedung (Denah Penyewaan)"
+                          >
+                            <i className="fa-solid fa-map-location-dot text-emerald-600"></i>
+                            <span className="hidden md:inline">Buka di Denah</span>
+                          </button>
                           <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold">
                             {bLolos} Lolos QC
                           </span>

@@ -18,21 +18,21 @@ export function Login() {
     };
   }, []);
 
-  // State Ingat Sesi Perangkat
+  // State Ingat Sesi Perangkat (Default false agar menutup browser/tab otomatis keluar)
   const [rememberDevice, setRememberDevice] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem('sim_haji_remember_session');
-      return stored !== 'false';
+      return stored === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
 
-  // State Username & Password terhubung aktif dengan Ingat Sesi Perangkat
+  // State Username & Password terhubung aktif HANYA jika pengguna memilih Ingat Sesi
   const [username, setUsername] = useState<string>(() => {
     try {
       const isRemember = localStorage.getItem('sim_haji_remember_session');
-      if (isRemember !== 'false') {
+      if (isRemember === 'true') {
         return localStorage.getItem('sim_haji_remembered_username') || '';
       }
       return '';
@@ -44,7 +44,7 @@ export function Login() {
   const [password, setPassword] = useState<string>(() => {
     try {
       const isRemember = localStorage.getItem('sim_haji_remember_session');
-      if (isRemember !== 'false') {
+      if (isRemember === 'true') {
         return localStorage.getItem('sim_haji_remembered_password') || '';
       }
       return '';
@@ -325,7 +325,7 @@ export function Login() {
                   }}
                   className="rounded text-hajj-700 focus:ring-hajj-600 w-3.5 h-3.5 cursor-pointer accent-hajj-800" 
                 />
-                <span className="text-[10px] font-medium text-slate-700">Ingat sesi perangkat</span>
+                <span className="text-[10px] font-medium text-slate-700">Ingat sesi saya di perangkat ini (otomatis keluar jika browser ditutup)</span>
               </label>
             </div>
 

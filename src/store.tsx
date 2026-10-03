@@ -306,20 +306,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [emailNotifications, setEmailNotifications] = useState<EmailNotificationItem[]>(() => getEmailNotifications());
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
-      // Periksa sessionStorage terlebih dahulu (sesi tab browser aktif)
+      // Sesi tab aktif menggunakan sessionStorage (otomatis keluar saat browser/tab ditutup sesuai standar website)
       const sessionSaved = sessionStorage.getItem('sim_haji_current_user');
       if (sessionSaved) {
         const u = JSON.parse(sessionSaved);
         if (u && u.id) return u;
       }
-      // Periksa localStorage HANYA jika fitur Ingat Sesi aktif (default: true)
+      // Periksa localStorage HANYA jika fitur Ingat Sesi aktif secara eksplisit (default: false)
       const isRemember = localStorage.getItem('sim_haji_remember_session');
-      if (isRemember !== 'false') {
+      if (isRemember === 'true') {
         const localSaved = localStorage.getItem('sim_haji_current_user');
         if (localSaved) {
           const u = JSON.parse(localSaved);
           if (u && u.id) return u;
         }
+      } else {
+        // Bersihkan data sesi lokal agar tidak tersisa saat browser baru dibuka
+        localStorage.removeItem('sim_haji_current_user');
       }
     } catch (_) {}
     return null;
@@ -330,7 +333,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (currentUser) {
         sessionStorage.setItem('sim_haji_current_user', JSON.stringify(currentUser));
         const isRemember = localStorage.getItem('sim_haji_remember_session');
-        if (isRemember !== 'false') {
+        if (isRemember === 'true') {
           localStorage.setItem('sim_haji_current_user', JSON.stringify(currentUser));
         } else {
           localStorage.removeItem('sim_haji_current_user');
@@ -512,7 +515,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, []);
 
-  // Hydrate awal dari Supabase Cloud saat aplikasi dibuka dengan proteksi pemulihan data lokal
+  // Sinkronisasi data awal saat aplikasi dibuka
   useEffect(() => {
     async function loadCloudDatabase() {
       try {
@@ -561,53 +564,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     loadCloudDatabase();
-  }, []);
-
-  // Background Real-Time Sync Polling (setiap 6 detik) untuk menyamakan data antar akun & perangkat
-  useEffect(() => {
-    const backgroundSyncTimer = setInterval(async () => {
-      try {
-        const cloudDb = await dataStorage.hydrateFromSupabase();
-        if (cloudDb) {
-          if (cloudDb.users) setUsers(cloudDb.users);
-          if (cloudDb.buildings) setBuildings(cloudDb.buildings);
-          if (cloudDb.meetingRooms) setMeetingRooms(cloudDb.meetingRooms);
-          if (cloudDb.rooms) setRooms(cloudDb.rooms);
-          if (cloudDb.transactions) setTransactions(cloudDb.transactions);
-          if (cloudDb.maintenances) setMaintenances(cloudDb.maintenances);
-          if (cloudDb.auditLogs) setAuditLogs(cloudDb.auditLogs);
-          if (cloudDb.workSessions) setWorkSessions(cloudDb.workSessions);
-          if (cloudDb.qcInspections) setQcInspections(cloudDb.qcInspections);
-          if (cloudDb.breakfastMenuItems) setBreakfastMenuItems(cloudDb.breakfastMenuItems);
-          if (cloudDb.breakfastOrders) setBreakfastOrders(cloudDb.breakfastOrders);
-          if (cloudDb.chatMessages) setChatMessages(cloudDb.chatMessages);
-          if (cloudDb.chatChannels) setChatChannels(cloudDb.chatChannels);
-          if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
-            setRoomCapacityRates(cloudDb.roomCapacityRates);
-          }
-          if (cloudDb.appSettings) {
-            setAppSettings(prev => {
-              if (
-                prev &&
-                prev.organizationName === cloudDb.appSettings.organizationName &&
-                prev.subTitle === cloudDb.appSettings.subTitle &&
-                prev.ministryName === cloudDb.appSettings.ministryName &&
-                prev.appLogo === cloudDb.appSettings.appLogo &&
-                prev.tagTitle === cloudDb.appSettings.tagTitle &&
-                prev.address === cloudDb.appSettings.address &&
-                prev.phone === cloudDb.appSettings.phone &&
-                prev.email === cloudDb.appSettings.email
-              ) {
-                return prev;
-              }
-              return cloudDb.appSettings;
-            });
-          }
-        }
-      } catch (_) {}
-    }, 6000);
-
-    return () => clearInterval(backgroundSyncTimer);
   }, []);
 
   const manualSyncSupabase = async () => {
@@ -1000,7 +956,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('sim_haji_audit_log_added', handleLogAdded);
   }, []);
 
-  const login = (user: User, _preferNamespace?: StorageNamespace, rememberDevice: boolean = true) => {
+  const login = (user: User, _preferNamespace?: StorageNamespace, rememberDevice: boolean = false) => {
     if (user.status === 'Menunggu Persetujuan') {
       showToast("Pendaftaran akun Anda masih menunggu persetujuan (ACC) dari Administrator!", "warning");
       return;
@@ -3099,7 +3055,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const applyRateToAllRooms = (roomType: string, bedType: string, newPrice: number, facilities?: string[]) => {
-    if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && currentUser?.role !== 'Manager Resepsionis')) {
+    if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && currentUser?.role !== 'Manager Resepsionis' && currentUser?.role !== 'Manager')) {
       showToast('Akses Ditolak: Tidak memiliki otorisasi sinkronisasi massal!', 'error');
       return;
     }

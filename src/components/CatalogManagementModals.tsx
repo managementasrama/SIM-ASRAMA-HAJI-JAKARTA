@@ -212,8 +212,8 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
                   onChange={e => setTotalRooms(parseInt(e.target.value) || 0)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
                 />
-                <p className="text-[10px] text-emerald-700">
-                  Perubahan jumlah kamar di sini akan langsung menyesuaikan unit kamar di sub-menu Denah Kamar.
+                <p className="text-[10px] text-slate-500">
+                  {isEdit ? 'Jumlah unit kamar gedung ini terhubung dengan sub-menu Denah Penyewaan.' : 'Untuk gedung baru, unit kamar awal akan otomatis disiapkan di Denah Penyewaan.'}
                 </p>
               </div>
             </div>
@@ -1036,9 +1036,10 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
 
     const parsedCap = Number(capacity) || 1;
     const matchedCatalogRate = findRoomRate(finalType, bedType, roomCapacityRates);
-    const finalPrice = !isSerbagunaRoom && matchedCatalogRate
-      ? matchedCatalogRate.pricePerNight
-      : (Number(pricePerNight) || 400000);
+    const inputPrice = Number(pricePerNight);
+    const finalPrice = (!isNaN(inputPrice) && inputPrice > 0)
+      ? inputPrice
+      : (!isSerbagunaRoom && matchedCatalogRate ? matchedCatalogRate.pricePerNight : 400000);
 
     if (isEdit && roomToEdit) {
       updateRoom({
