@@ -465,7 +465,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [appSettings]);
 
   const updateAppSettings = (newTitleOrUpdates?: string | Partial<AppSettings>, newLogo?: string) => {
-    if (!currentUser || !isSuperAdmin(currentUser.role)) return;
+    if (!currentUser) return;
+    const canManage = isSuperAdmin(currentUser.role) || currentUser.role === 'Admin' || currentUser.isOwner || getUserEffectivePermissions(currentUser).canConfigApp;
+    if (!canManage) {
+      showToast('Hanya Super Admin atau Administrator yang berhak mengubah konfigurasi branding sistem.', 'warning');
+      return;
+    }
     let updates: Partial<AppSettings> = {};
     if (typeof newTitleOrUpdates === 'string') {
       updates = {
@@ -477,7 +482,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const updated = dataStorage.updateAppSettings(updates);
     setAppSettings(updated);
-    logAudit('Pengaturan Web Admin', `Admin mengubah konfigurasi judul, logo, favicon & tag title web sistem.`);
+    logAudit('Pengaturan Web Admin', `Admin mengubah konfigurasi judul (${updated.organizationName}), sub judul (${updated.subTitle}), logo & branding sistem.`);
     showToast('Konfigurasi Web Sistem berhasil diperbarui!', 'success');
   };
 
@@ -580,7 +585,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
             setRoomCapacityRates(cloudDb.roomCapacityRates);
           }
-          if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
+          if (cloudDb.appSettings) {
+            setAppSettings(prev => {
+              if (
+                prev &&
+                prev.organizationName === cloudDb.appSettings.organizationName &&
+                prev.subTitle === cloudDb.appSettings.subTitle &&
+                prev.ministryName === cloudDb.appSettings.ministryName &&
+                prev.appLogo === cloudDb.appSettings.appLogo &&
+                prev.tagTitle === cloudDb.appSettings.tagTitle &&
+                prev.address === cloudDb.appSettings.address &&
+                prev.phone === cloudDb.appSettings.phone &&
+                prev.email === cloudDb.appSettings.email
+              ) {
+                return prev;
+              }
+              return cloudDb.appSettings;
+            });
+          }
         }
       } catch (_) {}
     }, 6000);

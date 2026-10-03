@@ -63,6 +63,7 @@ export interface AppSettings {
   appLogo?: string;
   appFavicon?: string;
   tagTitle?: string;
+  updatedAt?: string;
 }
 
 export interface CompleteStorageDatabase {
@@ -306,27 +307,31 @@ export class DataStorageService {
     (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
     const mergedMeetingRooms = Array.from(mrMap.values());
 
-    // appSettings: prioritaskan pengaturan cloud (Supabase) agar selalu sinkron lintas perangkat dan Vercel
+    // appSettings: prioritaskan data yang memiliki timestamp paling mutakhir, atau gabungkan secara aman
+    const localSettings = local.appSettings || defaultAppSettings;
+    const cloudSettings = cloud.appSettings || defaultAppSettings;
+    
+    // Cek timestamp pembaruan jika ada
+    const localTime = localSettings.updatedAt ? new Date(localSettings.updatedAt).getTime() : 0;
+    const cloudTime = cloudSettings.updatedAt ? new Date(cloudSettings.updatedAt).getTime() : 0;
+
+    // Jika lokal lebih baru daripada cloud (misal baru saja disimpan oleh admin), pertahankan lokal
+    const preferLocal = localTime > cloudTime;
+    const primarySettings = preferLocal ? localSettings : cloudSettings;
+    const secondarySettings = preferLocal ? cloudSettings : localSettings;
+
     const mergedAppSettings: AppSettings = {
       ...defaultAppSettings,
-      ...(local.appSettings || {}),
-      ...(cloud.appSettings || {})
+      ...secondarySettings,
+      ...primarySettings
     };
-    if (cloud.appSettings?.appLogo && cloud.appSettings.appLogo.length > 20) {
-      mergedAppSettings.appLogo = cloud.appSettings.appLogo;
-    } else if (local.appSettings?.appLogo && local.appSettings.appLogo.length > 20) {
-      mergedAppSettings.appLogo = local.appSettings.appLogo;
+
+    if (primarySettings.appLogo && primarySettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = primarySettings.appLogo;
+    } else if (secondarySettings.appLogo && secondarySettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = secondarySettings.appLogo;
     } else {
       mergedAppSettings.appLogo = OFFICIAL_APP_LOGO;
-    }
-    if (cloud.appSettings?.organizationName) {
-      mergedAppSettings.organizationName = cloud.appSettings.organizationName;
-    }
-    if (cloud.appSettings?.subTitle) {
-      mergedAppSettings.subTitle = cloud.appSettings.subTitle;
-    }
-    if (cloud.appSettings?.ministryName) {
-      mergedAppSettings.ministryName = cloud.appSettings.ministryName;
     }
 
     return {
@@ -762,11 +767,7 @@ export class DataStorageService {
             if (!parsed.appSettings || parsed.appSettings.address?.includes('Hankam') || parsed.appSettings.phone === '(021) 8094444') {
               parsed.appSettings = { ...defaultAppSettings };
             } else {
-              if (parsed.appSettings.organizationName === 'UPT ASRAMA HAJI JAKARTA') {
-                parsed.appSettings.organizationName = 'ASRAMA HAJI JAKARTA';
-              }
-              parsed.appSettings.subTitle = 'Sistem Informasi Manajemen Operasional';
-              if (!parsed.appSettings.appLogo || parsed.appSettings.appLogo.length <= 15 || parsed.appSettings.appLogo.startsWith('data:image/svg+xml')) {
+              if (!parsed.appSettings.appLogo || parsed.appSettings.appLogo.length <= 15) {
                 parsed.appSettings.appLogo = OFFICIAL_APP_LOGO;
               }
             }
@@ -1806,7 +1807,8 @@ export class DataStorageService {
     const db = this.getDatabase();
     const newSettings: AppSettings = {
       ...this.getAppSettings(),
-      ...updates
+      ...updates,
+      updatedAt: new Date().toISOString()
     };
     const updatedDb = { ...db, appSettings: newSettings };
     this.saveDatabase(updatedDb);

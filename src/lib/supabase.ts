@@ -514,7 +514,7 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
     if (settingsRes.data) {
       const s = settingsRes.data as any;
       finalAppSettings = {
-        organizationName: s.organization_name || s.organizationName || finalAppSettings?.organizationName || 'UPT ASRAMA HAJI JAKARTA',
+        organizationName: s.organization_name || s.organizationName || finalAppSettings?.organizationName || 'ASRAMA HAJI JAKARTA',
         subTitle: s.sub_title || s.subTitle || finalAppSettings?.subTitle || 'Sistem Informasi Manajemen Operasional',
         ministryName: s.ministry_name || s.ministryName || finalAppSettings?.ministryName || 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA',
         address: s.address || finalAppSettings?.address || '',
@@ -523,7 +523,8 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
         portalUrl: s.portal_url || s.portalUrl || finalAppSettings?.portalUrl || '',
         appLogo: s.app_logo || s.appLogo || finalAppSettings?.appLogo || undefined,
         appFavicon: s.app_favicon || s.appFavicon || finalAppSettings?.appFavicon || undefined,
-        tagTitle: s.tag_title || s.tagTitle || finalAppSettings?.tagTitle || undefined
+        tagTitle: s.tag_title || s.tagTitle || finalAppSettings?.tagTitle || undefined,
+        updatedAt: s.updated_at || finalAppSettings?.updatedAt || undefined
       };
     }
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { User, UserRole, UserPermissions } from '../types';
 import { AppSettings } from '../services/dataStorage';
 import { isSuperAdmin, getUserEffectivePermissions } from '../store';
@@ -613,14 +613,28 @@ export function RolePermissionsSection({
 
   // Modal Konfigurasi Judul, Sub Judul & Logo
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [configOrgName, setConfigOrgName] = useState(appSettings?.organizationName || 'UPT ASRAMA HAJI JAKARTA');
+  const [configOrgName, setConfigOrgName] = useState(appSettings?.organizationName || 'ASRAMA HAJI JAKARTA');
   const [configSubTitle, setConfigSubTitle] = useState(appSettings?.subTitle || 'Sistem Informasi Manajemen Operasional');
   const [configMinistry, setConfigMinistry] = useState(appSettings?.ministryName || 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA');
-  const [configTagTitle, setConfigTagTitle] = useState(appSettings?.tagTitle || 'V44 Manajemen Asrama Haji');
+  const [configTagTitle, setConfigTagTitle] = useState(appSettings?.tagTitle || 'Asrama Haji Jakarta');
   const [configAddress, setConfigAddress] = useState(appSettings?.address || 'Jl. Raya Pd. Gede, RT.1/RW.1, Pinang Ranti, Kec. Makasar, Kota Jakarta Timur, DKI Jakarta 13560');
   const [configPhone, setConfigPhone] = useState(appSettings?.phone || '0816243154');
   const [configEmail, setConfigEmail] = useState(appSettings?.email || 'info@asramahajijakarta.id');
   const [configLogo, setConfigLogo] = useState(appSettings?.appLogo || '');
+
+  // Sinkronkan state modal saat modal dibuka atau appSettings diperbarui
+  useEffect(() => {
+    if (showConfigModal && appSettings) {
+      setConfigOrgName(appSettings.organizationName || 'ASRAMA HAJI JAKARTA');
+      setConfigSubTitle(appSettings.subTitle || 'Sistem Informasi Manajemen Operasional');
+      setConfigMinistry(appSettings.ministryName || 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA');
+      setConfigTagTitle(appSettings.tagTitle || 'Asrama Haji Jakarta');
+      setConfigAddress(appSettings.address || 'Jl. Raya Pd. Gede, RT.1/RW.1, Pinang Ranti, Kec. Makasar, Kota Jakarta Timur, DKI Jakarta 13560');
+      setConfigPhone(appSettings.phone || '0816243154');
+      setConfigEmail(appSettings.email || 'info@asramahajijakarta.id');
+      setConfigLogo(appSettings.appLogo || '');
+    }
+  }, [showConfigModal, appSettings]);
 
   useBodyScrollLock(showConfigModal);
 

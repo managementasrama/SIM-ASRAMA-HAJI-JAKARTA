@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppContext, isSuperAdmin } from '../store';
+import { useAppContext, isSuperAdmin, getUserEffectivePermissions } from '../store';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { generateQrCodeDataUrl } from '../lib/utils';
 
@@ -244,8 +244,14 @@ export function AccountProfileModal({ isOpen, onClose, initialSection }: Account
       signatureHistory
     });
 
-    // If super admin / admin, also update app settings
-    if (isSuperAdmin(currentUser.role)) {
+    // If super admin / admin / has permission, also update app settings
+    const canManageApp = currentUser && (
+      isSuperAdmin(currentUser.role) || 
+      currentUser.role === 'Admin' || 
+      currentUser.isOwner || 
+      getUserEffectivePermissions(currentUser).canConfigApp
+    );
+    if (canManageApp) {
       updateAppSettings({
         organizationName: webTitle.trim(),
         subTitle: webSubTitle.trim(),
