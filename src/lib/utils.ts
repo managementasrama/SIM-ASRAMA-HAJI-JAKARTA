@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { Transaction, Room, RoomCapacityRate } from "../types"
+import { Transaction, Room, RoomCapacityRate, MeetingRoom } from "../types"
 import QRCode from 'qrcode';
 import { dataStorage } from "../services/dataStorage";
 
@@ -107,6 +107,14 @@ export const BUILDING_ORDER = [
   'Gedung B (Muzdalifah)',
   'Gedung C (Mina)',
   'Gedung D (Madinah)',
+  'Gedung D2',
+  'Gedung D3',
+  'Gedung D4',
+  'Gedung D5',
+  'Gedung E',
+  'Gedung G',
+  'Gedung H',
+  'Gedung Utama',
   'Gedung Serbaguna (SG)',
   'Ruang Pertemuan / Aula',
   'Ruang Pertemuan',
@@ -150,13 +158,16 @@ export function compareBuildingOrder(a?: string | null, b?: string | null): numb
   if (isAMeeting && !isBMeeting) return 1;
   if (!isAMeeting && isBMeeting) return -1;
   
-  const idxA = BUILDING_ORDER.findIndex(o => strA.toLowerCase().includes(o.toLowerCase()) || o.toLowerCase().includes(strA.toLowerCase()));
-  const idxB = BUILDING_ORDER.findIndex(o => strB.toLowerCase().includes(o.toLowerCase()) || o.toLowerCase().includes(strB.toLowerCase()));
+  const normA = normalizeBuildingName(strA).toLowerCase();
+  const normB = normalizeBuildingName(strB).toLowerCase();
+
+  const idxA = BUILDING_ORDER.findIndex(o => o.toLowerCase() === normA || o.toLowerCase() === strA.toLowerCase());
+  const idxB = BUILDING_ORDER.findIndex(o => o.toLowerCase() === normB || o.toLowerCase() === strB.toLowerCase());
   
   if (idxA !== -1 && idxB !== -1) return idxA - idxB;
   if (idxA !== -1) return -1;
   if (idxB !== -1) return 1;
-  return strA.localeCompare(strB);
+  return strA.localeCompare(strB, undefined, { numeric: true });
 }
 
 export function getTxDays(t: Transaction): number {
@@ -657,12 +668,83 @@ export function normalizeBuildingName(name: string): string {
   if (!name) return '';
   const trimmed = name.trim();
   const lower = trimmed.toLowerCase();
+
+  // Gedung spesifik D2, D3, D4, D5 harus dicek terlebih dahulu sebelum umum Gedung D / Madinah
+  if (lower === 'gedung d2' || lower === 'd2' || lower.startsWith('gedung d2')) return 'Gedung D2';
+  if (lower === 'gedung d3' || lower === 'd3' || lower.startsWith('gedung d3')) return 'Gedung D3';
+  if (lower === 'gedung d4' || lower === 'd4' || lower.startsWith('gedung d4')) return 'Gedung D4';
+  if (lower === 'gedung d5' || lower === 'd5' || lower.startsWith('gedung d5')) return 'Gedung D5';
+
   if (lower === 'gedung a' || lower === 'arafah' || lower.includes('arafah')) return 'Gedung A (Arafah)';
   if (lower === 'gedung b' || lower === 'muzdalifah' || lower.includes('muzdalifah')) return 'Gedung B (Muzdalifah)';
   if (lower === 'gedung c' || lower === 'mina' || lower.includes('mina')) return 'Gedung C (Mina)';
-  if (lower === 'gedung d' || lower === 'gedung d1' || lower === 'gedung d2' || lower === 'madinah' || lower.includes('madinah') || lower.startsWith('gedung d')) return 'Gedung D (Madinah)';
+  if (lower === 'gedung d' || lower === 'gedung d1' || lower === 'madinah' || lower.includes('madinah')) return 'Gedung D (Madinah)';
+  if (lower === 'gedung e' || lower === 'e') return 'Gedung E';
+  if (lower === 'gedung g' || lower === 'g') return 'Gedung G';
+  if (lower === 'gedung h' || lower === 'h') return 'Gedung H';
+  if (lower === 'gedung utama' || lower === 'utama') return 'Gedung Utama';
   if (lower === 'gedung serbaguna' || lower === 'gedung serbaguna (sg)' || lower === 'sg' || lower.includes('serbaguna')) return 'Gedung Serbaguna (SG)';
   if (lower === 'ruang pertemuan' || lower === 'ruang pertemuan / aula' || lower === 'aula' || lower.includes('ruang pertemuan')) return 'Ruang Pertemuan / Aula';
   return trimmed;
 }
+
+/**
+ * Helper terpadu dan akurat untuk menentukan nama gedung pengelompokan kamar/ruangan
+ * Menghubungkan secara sinkron: Katalog Gedung & Fasilitas, Denah Penyewaan, dan Halaman QC
+ */
+export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): string {
+  if (!r) return '';
+
+  // 1. Cek dari master meetingRooms jika terdaftar
+  if (meetingRooms && meetingRooms.length > 0) {
+    const matchingMr = meetingRooms.find(m => m.id === r.id || m.name.toLowerCase() === (r.roomNumber || '').toLowerCase());
+    if (matchingMr) {
+      if (matchingMr.category === 'SERBAGUNA') {
+        return 'Gedung Serbaguna (SG)';
+      }
+      if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') {
+        return 'Ruang Pertemuan / Aula';
+      }
+      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
+        return normalizeBuildingName(matchingMr.building);
+      }
+      const nLower = matchingMr.name.toLowerCase().trim();
+      const cLower = (matchingMr.code || '').toLowerCase().trim();
+      const bLower = (matchingMr.building || '').toLowerCase().trim();
+      if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
+        return 'Ruang Pertemuan / Aula';
+      }
+      if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
+        return 'Gedung Serbaguna (SG)';
+      }
+      return 'Ruang Pertemuan / Aula';
+    }
+  }
+
+  // 2. Evaluasi tipe/kategori ruang serbaguna & aula
+  if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
+    return 'Gedung Serbaguna (SG)';
+  }
+  if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type || '')) {
+    return 'Ruang Pertemuan / Aula';
+  }
+
+  // 3. Evaluasi prefix nomor kamar untuk gedung khusus seperti D2, D3, D4, D5, D, A, B, C, E, G, H, Utama
+  const rNum = (r.roomNumber || '').trim().toUpperCase();
+  if (rNum.startsWith('D2-') || rNum.startsWith('D2 ')) return 'Gedung D2';
+  if (rNum.startsWith('D3-') || rNum.startsWith('D3 ')) return 'Gedung D3';
+  if (rNum.startsWith('D4-') || rNum.startsWith('D4 ')) return 'Gedung D4';
+  if (rNum.startsWith('D5-') || rNum.startsWith('D5 ')) return 'Gedung D5';
+  if (rNum.startsWith('D1-') || rNum.startsWith('D-')) return 'Gedung D (Madinah)';
+  if (rNum.startsWith('A-')) return 'Gedung A (Arafah)';
+  if (rNum.startsWith('B-')) return 'Gedung B (Muzdalifah)';
+  if (rNum.startsWith('C-')) return 'Gedung C (Mina)';
+  if (rNum.startsWith('E-')) return 'Gedung E';
+  if (rNum.startsWith('G-')) return 'Gedung G';
+  if (rNum.startsWith('H-')) return 'Gedung H';
+  if (rNum.startsWith('GU-')) return 'Gedung Utama';
+
+  return normalizeBuildingName(r.building);
+}
+
 
