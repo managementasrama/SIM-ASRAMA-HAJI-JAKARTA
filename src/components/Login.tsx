@@ -234,7 +234,7 @@ export function Login() {
         <div className="bg-gradient-to-b from-hajj-900 via-hajj-800 to-hajj-900 px-4 py-3 sm:px-5 sm:py-3.5 text-white text-center relative border-b-2 border-gold-500 shrink-0">
           <div className="flex items-center justify-center mb-1.5">
             <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl flex items-center justify-center overflow-hidden shrink-0 transition-transform hover:scale-105 duration-200 bg-transparent border-0 shadow-none text-gold-400">
-              {appSettings?.appLogo && (appSettings.appLogo.startsWith('data:') || appSettings.appLogo.startsWith('http') || appSettings.appLogo.startsWith('blob:')) ? (
+              {appSettings?.appLogo && (appSettings.appLogo.startsWith('data:') || appSettings.appLogo.startsWith('http') || appSettings.appLogo.startsWith('blob:') || appSettings.appLogo.startsWith('/')) ? (
                 <img src={appSettings.appLogo} alt="Logo Asrama Haji" className="w-full h-full object-contain filter drop-shadow" />
               ) : (
                 <i className={`fa-solid ${appSettings?.appLogo || 'fa-kaaba'} text-3xl sm:text-4xl drop-shadow-xs`}></i>
@@ -243,7 +243,7 @@ export function Login() {
           </div>
           
           <h1 className="text-sm sm:text-base font-black text-white tracking-tight leading-snug">
-            {appSettings?.organizationName || 'UPT ASRAMA HAJI JAKARTA'}
+            {appSettings?.organizationName || 'ASRAMA HAJI JAKARTA'}
           </h1>
           <p className="text-[9.5px] sm:text-[10px] text-gold-100/90 mt-0.5 font-medium max-w-xs mx-auto mb-1">
             {appSettings?.subTitle || 'Sistem Informasi Manajemen Operasional'}

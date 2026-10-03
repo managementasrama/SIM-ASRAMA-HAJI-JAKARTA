@@ -32,6 +32,7 @@ import {
 } from '../data';
 import { initialChatChannels, initialChatMessages } from '../chatData';
 import { normalizeBuildingName } from '../lib/utils';
+import { OFFICIAL_APP_LOGO } from '../officialLogo';
 import { 
   supabase, 
   syncFullDatabaseToSupabase, 
@@ -91,14 +92,16 @@ function getMinistryPngLogo(): string {
 }
 
 export const defaultAppSettings: AppSettings = {
-  organizationName: 'UPT ASRAMA HAJI JAKARTA',
+  organizationName: 'ASRAMA HAJI JAKARTA',
   subTitle: 'Sistem Informasi Manajemen Operasional',
   ministryName: 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA',
   address: 'Jl. Raya Pd. Gede, RT.1/RW.1, Pinang Ranti, Kec. Makasar, Kota Jakarta Timur, Daerah Khusus Ibukota Jakarta 13560, Indonesia.',
   phone: '0816243154',
   email: 'info@asramahajijakarta.id',
   portalUrl: 'https://asramahajijakarta.id',
-  appLogo: getMinistryPngLogo()
+  appLogo: OFFICIAL_APP_LOGO,
+  appFavicon: '/logo.png',
+  tagTitle: 'Asrama Haji Jakarta'
 };
 
 export function generateInitialDatabase(onlyAdmin: boolean = false): CompleteStorageDatabase {
@@ -303,11 +306,34 @@ export class DataStorageService {
     (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
     const mergedMeetingRooms = Array.from(mrMap.values());
 
+    // appSettings: prioritaskan pengaturan cloud (Supabase) agar selalu sinkron lintas perangkat dan Vercel
+    const mergedAppSettings: AppSettings = {
+      ...defaultAppSettings,
+      ...(local.appSettings || {}),
+      ...(cloud.appSettings || {})
+    };
+    if (cloud.appSettings?.appLogo && cloud.appSettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = cloud.appSettings.appLogo;
+    } else if (local.appSettings?.appLogo && local.appSettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = local.appSettings.appLogo;
+    } else {
+      mergedAppSettings.appLogo = OFFICIAL_APP_LOGO;
+    }
+    if (cloud.appSettings?.organizationName) {
+      mergedAppSettings.organizationName = cloud.appSettings.organizationName;
+    }
+    if (cloud.appSettings?.subTitle) {
+      mergedAppSettings.subTitle = cloud.appSettings.subTitle;
+    }
+    if (cloud.appSettings?.ministryName) {
+      mergedAppSettings.ministryName = cloud.appSettings.ministryName;
+    }
+
     return {
       schemaVersion: 4,
       appName: local.appName || cloud.appName || 'SIM Asrama Haji Jakarta',
       exportedAt: new Date().toISOString(),
-      appSettings: local.appSettings || cloud.appSettings || { ...defaultAppSettings },
+      appSettings: mergedAppSettings,
       users: mergedUsers,
       buildings: mergedBuildings,
       meetingRooms: mergedMeetingRooms,
@@ -736,9 +762,12 @@ export class DataStorageService {
             if (!parsed.appSettings || parsed.appSettings.address?.includes('Hankam') || parsed.appSettings.phone === '(021) 8094444') {
               parsed.appSettings = { ...defaultAppSettings };
             } else {
+              if (parsed.appSettings.organizationName === 'UPT ASRAMA HAJI JAKARTA') {
+                parsed.appSettings.organizationName = 'ASRAMA HAJI JAKARTA';
+              }
               parsed.appSettings.subTitle = 'Sistem Informasi Manajemen Operasional';
-              if (!parsed.appSettings.appLogo || parsed.appSettings.appLogo.length <= 15) {
-                parsed.appSettings.appLogo = defaultAppSettings.appLogo;
+              if (!parsed.appSettings.appLogo || parsed.appSettings.appLogo.length <= 15 || parsed.appSettings.appLogo.startsWith('data:image/svg+xml')) {
+                parsed.appSettings.appLogo = OFFICIAL_APP_LOGO;
               }
             }
 

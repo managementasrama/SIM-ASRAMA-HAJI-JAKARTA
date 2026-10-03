@@ -120,15 +120,15 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-12 sm:h-16">
           <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-            <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold text-sm sm:text-xl shadow-md border overflow-hidden shrink-0 ${appSettings?.appLogo && typeof appSettings.appLogo === 'string' && (appSettings.appLogo.startsWith('data:') || appSettings.appLogo.startsWith('http') || appSettings.appLogo.startsWith('blob:')) ? 'bg-transparent border-0 shadow-none' : 'bg-gold-500 text-slate-900 border-gold-400'}`}>
-              {appSettings?.appLogo && typeof appSettings.appLogo === 'string' && (appSettings.appLogo.startsWith('data:') || appSettings.appLogo.startsWith('http') || appSettings.appLogo.startsWith('blob:')) ? (
+            <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold text-sm sm:text-xl shadow-md border overflow-hidden shrink-0 ${appSettings?.appLogo && typeof appSettings.appLogo === 'string' && (appSettings.appLogo.startsWith('data:') || appSettings.appLogo.startsWith('http') || appSettings.appLogo.startsWith('blob:') || appSettings.appLogo.startsWith('/')) ? 'bg-transparent border-0 shadow-none' : 'bg-gold-500 text-slate-900 border-gold-400'}`}>
+              {appSettings?.appLogo && typeof appSettings.appLogo === 'string' && (appSettings.appLogo.startsWith('data:') || appSettings.appLogo.startsWith('http') || appSettings.appLogo.startsWith('blob:') || appSettings.appLogo.startsWith('/')) ? (
                 <img src={appSettings.appLogo} alt="Logo" className="w-full h-full object-contain" />
               ) : (
                 <i className={`fa-solid ${appSettings?.appLogo || 'fa-kaaba'}`}></i>
               )}
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-xs sm:text-base md:text-lg tracking-wide text-white truncate leading-tight">{appSettings?.organizationName || 'UPT Asrama Haji Jakarta'}</h1>
+              <h1 className="font-bold text-xs sm:text-base md:text-lg tracking-wide text-white truncate leading-tight">{appSettings?.organizationName || 'ASRAMA HAJI JAKARTA'}</h1>
               <p className="text-[9px] sm:text-xs text-gold-400 font-medium hidden sm:block truncate">{appSettings?.subTitle || 'Sistem Informasi Manajemen Operasional'}</p>
             </div>
           </div>
