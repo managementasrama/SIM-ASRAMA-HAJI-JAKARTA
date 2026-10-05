@@ -1415,26 +1415,47 @@ export class DataStorageService {
       return { success: false, message: 'Gedung tidak ditemukan.' };
     }
 
-    // Validasi apakah ada kamar aktif yang terasosiasi dengan gedung ini
+    // Validasi apakah ada tamu yang sedang aktif (Check-In / Reservasi) di gedung ini
     const rooms = db.rooms || [];
-    const associatedRooms = rooms.filter(r => r.building.toLowerCase() === bld.name.toLowerCase());
-    if (associatedRooms.length > 0) {
+    const bldNameLower = bld.name.trim().toLowerCase();
+    const associatedRooms = rooms.filter(r => (r.building || '').trim().toLowerCase() === bldNameLower);
+    
+    const occupiedRooms = associatedRooms.filter(r => 
+      r.status === 'TERISI' || 
+      r.status === 'BOOKED' || 
+      Boolean(r.activeTxId)
+    );
+
+    if (occupiedRooms.length > 0) {
       return { 
         success: false, 
-        message: `Tidak dapat menghapus '${bld.name}' karena masih terdapat ${associatedRooms.length} kamar aktif di dalamnya. Pindahkan atau hapus kamar terkait terlebih dahulu.` 
+        message: `Tidak dapat menghapus '${bld.name}' karena masih terdapat ${occupiedRooms.length} kamar yang sedang terisi tamu atau terbooking reservasi. Selesaikan transaksi tamu terlebih dahulu.` 
       };
     }
 
-    const updated = buildings.filter(b => b.id !== buildingId);
+    // Hapus gedung dari daftar master gedung
+    const updatedBuildings = buildings.filter(b => b.id !== buildingId);
+
+    // Hapus juga semua unit kamar yang terasosiasi dengan gedung ini agar tidak menjadi data yatim
+    const updatedRooms = rooms.filter(r => (r.building || '').trim().toLowerCase() !== bldNameLower);
+
     // Hapus juga dari meetingRooms jika terdaftar sebagai aula serbaguna
     const updatedMeetingRooms = (db.meetingRooms || []).filter(m => 
       m.id !== `mr-${buildingId}` && 
-      m.building.toLowerCase() !== bld.name.toLowerCase() && 
-      m.name.toLowerCase() !== bld.name.toLowerCase()
+      (m.building || '').toLowerCase() !== bldNameLower && 
+      (m.name || '').toLowerCase() !== bldNameLower
     );
 
-    this.saveDatabase({ ...db, buildings: updated, meetingRooms: updatedMeetingRooms });
-    return { success: true, message: `Gedung '${bld.name}' berhasil dihapus dari database.` };
+    this.saveDatabase({ 
+      ...db, 
+      buildings: updatedBuildings, 
+      rooms: updatedRooms, 
+      meetingRooms: updatedMeetingRooms 
+    });
+    return { 
+      success: true, 
+      message: `Gedung '${bld.name}' ${associatedRooms.length > 0 ? `beserta ${associatedRooms.length} unit kamar di dalamnya` : ''} berhasil dihapus dari database.` 
+    };
   }
 
   // ==========================================
@@ -1442,6 +1463,12 @@ export class DataStorageService {
   // ==========================================
   public getMeetingRooms(): MeetingRoom[] {
     return this.getDatabase().meetingRooms || [];
+  }
+
+  public saveMeetingRooms(meetingRooms: MeetingRoom[]): MeetingRoom[] {
+    const db = this.getDatabase();
+    this.saveDatabase({ ...db, meetingRooms });
+    return meetingRooms;
   }
 
   public saveMeetingRoom(meetingRoom: MeetingRoom): MeetingRoom {
@@ -1719,9 +1746,12 @@ export class DataStorageService {
 
     const updatedRooms = rooms.filter(r => r.id !== roomId);
     
-    // Sinkronkan totalRooms pada daftar gedung
+    // Sinkronkan totalRooms pada daftar gedung (gedung serbaguna/aula tetap 0 unit kamar)
     const buildings = (db.buildings || []).map(b => {
-      const count = updatedRooms.filter(r => r.building === b.name).length;
+      if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
+        return { ...b, totalRooms: 0 };
+      }
+      const count = updatedRooms.filter(r => (r.building || '').trim().toLowerCase() === (b.name || '').trim().toLowerCase()).length;
       return { ...b, totalRooms: count };
     });
 

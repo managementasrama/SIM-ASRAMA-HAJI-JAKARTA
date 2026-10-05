@@ -86,6 +86,7 @@ export interface MeetingRoom {
   status: 'TERSEDIA' | 'TERPAKAI' | 'MAINTENANCE';
   qcStatus?: 'LOLOS_QC' | 'PERLU_INSPEKSI' | 'PERLU_PERBAIKAN' | 'MENUNGGU_QC';
   activeTxId?: string | null;
+  activeMaintId?: string | null;
   createdAt?: string;
 }
 
