@@ -662,30 +662,27 @@ export function deduplicateRoomCapacityRates(rates: RoomCapacityRate[]): RoomCap
 }
 
 /**
- * Normalisasi nama gedung untuk mencegah inkonsistensi alias singkat (misal: "Gedung A" vs "Gedung A (Arafah)")
- * tanpa menimpa nama gedung kustom hasil edit pengguna di Katalog Gedung & Fasilitas.
+ * Normalisasi nama gedung untuk alias singkat legacy (misal: "d2" -> "Gedung D2")
+ * Menjaga 100% nama gedung kustom hasil input/edit pengguna di seluruh aplikasi.
  */
 export function normalizeBuildingName(name: string): string {
   if (!name) return '';
   const trimmed = name.trim();
   const lower = trimmed.toLowerCase();
 
-  // Hanya normalisasi jika sama persis dengan kode/alias singkat standar
-  if (lower === 'gedung d2' || lower === 'd2') return 'Gedung D2';
-  if (lower === 'gedung d3' || lower === 'd3') return 'Gedung D3';
-  if (lower === 'gedung d4' || lower === 'd4') return 'Gedung D4';
-  if (lower === 'gedung d5' || lower === 'd5') return 'Gedung D5';
+  // Hanya normalisasi alias singkatan mentah jika bukan nama lengkap
+  if (lower === 'd2') return 'Gedung D2';
+  if (lower === 'd3') return 'Gedung D3';
+  if (lower === 'd4') return 'Gedung D4';
+  if (lower === 'd5') return 'Gedung D5';
+  if (lower === 'arafah') return 'Gedung A (Arafah)';
+  if (lower === 'muzdalifah') return 'Gedung B (Muzdalifah)';
+  if (lower === 'mina') return 'Gedung C (Mina)';
+  if (lower === 'madinah') return 'Gedung D (Madinah)';
+  if (lower === 'utama') return 'Gedung Utama';
+  if (lower === 'sg') return 'Gedung Serbaguna (SG)';
+  if (lower === 'aula') return 'Ruang Pertemuan / Aula';
 
-  if (lower === 'gedung a' || lower === 'arafah' || lower === 'gedung a (arafah)') return 'Gedung A (Arafah)';
-  if (lower === 'gedung b' || lower === 'muzdalifah' || lower === 'gedung b (muzdalifah)') return 'Gedung B (Muzdalifah)';
-  if (lower === 'gedung c' || lower === 'mina' || lower === 'gedung c (mina)') return 'Gedung C (Mina)';
-  if (lower === 'gedung d' || lower === 'gedung d1' || lower === 'madinah' || lower === 'gedung d (madinah)') return 'Gedung D (Madinah)';
-  if (lower === 'gedung e' || lower === 'e') return 'Gedung E';
-  if (lower === 'gedung g' || lower === 'g') return 'Gedung G';
-  if (lower === 'gedung h' || lower === 'h') return 'Gedung H';
-  if (lower === 'gedung utama' || lower === 'utama') return 'Gedung Utama';
-  if (lower === 'gedung serbaguna' || lower === 'gedung serbaguna (sg)' || lower === 'sg' || lower.includes('serbaguna')) return 'Gedung Serbaguna (SG)';
-  if (lower === 'ruang pertemuan' || lower === 'ruang pertemuan / aula' || lower === 'aula' || lower.includes('ruang pertemuan')) return 'Ruang Pertemuan / Aula';
   return trimmed;
 }
 
@@ -707,7 +704,7 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
         return 'Ruang Pertemuan / Aula';
       }
       if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
-        return normalizeBuildingName(matchingMr.building);
+        return matchingMr.building.trim();
       }
       const nLower = matchingMr.name.toLowerCase().trim();
       const cLower = (matchingMr.code || '').toLowerCase().trim();
@@ -732,7 +729,7 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
 
   // 3. Utamakan nama gedung yang tersimpan pada objek kamar (r.building) agar saat nama gedung diedit tidak memicu gedung baru/terpisah
   if (r.building && r.building.trim() !== '') {
-    return normalizeBuildingName(r.building);
+    return r.building.trim();
   }
 
   // 4. Fallback evaluasi prefix nomor kamar hanya jika r.building kosong
