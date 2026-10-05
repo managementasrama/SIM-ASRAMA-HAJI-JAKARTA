@@ -24,7 +24,7 @@ import { initialChatChannels, initialChatMessages } from './chatData';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
-import { supabase, syncFullDatabaseToSupabase } from './lib/supabase';
+import { supabase, syncFullDatabaseToSupabase, validateDatabaseChecksumAgainstSupabase, computeDatasetChecksums, DatabaseChecksumReport } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -160,12 +160,16 @@ interface AppContextType {
   appSettings: AppSettings;
   updateAppSettings: (newTitleOrUpdates?: string | Partial<AppSettings>, newLogo?: string) => void;
 
-  // Supabase Cloud Sync
+  // Supabase Cloud Sync & Checksum Validation
   supabaseSyncState: {
     status: 'idle' | 'syncing' | 'connected' | 'error';
     lastSyncTime: string | null;
     errorMessage: string | null;
   };
+  checksumReport: DatabaseChecksumReport;
+  verifyDatabaseChecksum: (silent?: boolean) => Promise<DatabaseChecksumReport>;
+  triggerBackgroundSync: (reason?: string) => Promise<void>;
+  pullFromCentralDatabase: () => Promise<void>;
   manualSyncSupabase: () => Promise<void>;
   pushAllToSupabase: () => Promise<void>;
 
@@ -504,16 +508,104 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Supabase Cloud Sync State
+  // Supabase Cloud Sync State & Checksum Validation State
   const [supabaseSyncState, setSupabaseSyncState] = useState(dataStorage.getSupabaseSyncState());
+  const [checksumReport, setChecksumReport] = useState<DatabaseChecksumReport>(() => {
+    const initialSig = computeDatasetChecksums({
+      buildings: dataStorage.getBuildings(),
+      rooms: dataStorage.getRooms(),
+      meetingRooms: dataStorage.getMeetingRooms(),
+      transactions: dataStorage.getTransactions(),
+      maintenances: dataStorage.getMaintenances()
+    });
+    return {
+      status: 'CHECKING',
+      localChecksum: initialSig.masterChecksum,
+      remoteChecksum: 'MEMERIKSA...',
+      isMatch: true,
+      checkedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      modules: [],
+      mismatchedModules: [],
+      message: 'Memvalidasi checksum cache lokal terhadap Database Pusat...'
+    };
+  });
 
-  // Periodik update status Supabase
+  const verifyDatabaseChecksum = async (silent: boolean = false, customDataset?: {
+    buildings?: Building[];
+    rooms?: Room[];
+    meetingRooms?: MeetingRoom[];
+    transactions?: Transaction[];
+    maintenances?: Maintenance[];
+  }): Promise<DatabaseChecksumReport> => {
+    const dataset = customDataset || {
+      buildings,
+      rooms,
+      meetingRooms,
+      transactions,
+      maintenances
+    };
+    if (!silent) {
+      setChecksumReport(prev => ({ ...prev, status: 'CHECKING', message: 'Memvalidasi checksum terhadap Database Pusat...' }));
+    }
+    const report = await validateDatabaseChecksumAgainstSupabase(dataset);
+    setChecksumReport(report);
+    if (!silent) {
+      if (report.status === 'SYNCED') {
+        showToast(`Checksum Valid (${report.localChecksum}): Cache lokal identik dengan Database Pusat!`, 'success');
+      } else if (report.status === 'MISMATCH') {
+        showToast(`Peringatan Checksum: Cache lokal (${report.localChecksum}) berbeda dari Database Pusat (${report.remoteChecksum})!`, 'warning');
+      }
+    }
+    return report;
+  };
+
+  // Periodik update status Supabase & validasi checksum berkala
   useEffect(() => {
     const timer = setInterval(() => {
       setSupabaseSyncState(dataStorage.getSupabaseSyncState());
     }, 4000);
     return () => clearInterval(timer);
   }, []);
+
+  // Dengarkan event sinkronisasi latar belakang dari setiap mutasi dataStorage (misal: booking kamar, check-in, edit gedung/kamar)
+  useEffect(() => {
+    const unsubscribe = dataStorage.onSyncEvent(async (event) => {
+      setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+      if (event.status === 'syncing') {
+        const localSig = computeDatasetChecksums({
+          buildings: event.db.buildings,
+          rooms: event.db.rooms,
+          meetingRooms: event.db.meetingRooms,
+          transactions: event.db.transactions,
+          maintenances: event.db.maintenances
+        });
+        setChecksumReport(prev => ({
+          ...prev,
+          status: 'CHECKING',
+          localChecksum: localSig.masterChecksum,
+          message: 'Menyinkronkan mutasi terbaru ke Database Pusat...'
+        }));
+      } else if (event.status === 'connected' || event.status === 'error') {
+        await verifyDatabaseChecksum(true, {
+          buildings: event.db.buildings,
+          rooms: event.db.rooms,
+          meetingRooms: event.db.meetingRooms,
+          transactions: event.db.transactions,
+          maintenances: event.db.maintenances
+        });
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const debounce = setTimeout(() => {
+      if (!dataStorage.hasPendingSync()) {
+        verifyDatabaseChecksum(true, { buildings, rooms, meetingRooms, transactions, maintenances });
+      }
+    }, 1800);
+    return () => clearTimeout(debounce);
+  }, [buildings, rooms, meetingRooms, transactions, maintenances]);
 
   // =========================================================================
   // LAYER VALIDASI STATE GLOBAL (ROOM & QC REAL-TIME SYNCHRONIZATION)
@@ -635,6 +727,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (hasChanges) {
             dataStorage.saveRooms(nextRooms);
           }
+          await verifyDatabaseChecksum(true, {
+            buildings: cloudDb.buildings || [],
+            rooms: nextRooms,
+            meetingRooms: cloudDb.meetingRooms || [],
+            transactions: cloudDb.transactions || [],
+            maintenances: cloudDb.maintenances || []
+          });
         } else {
           // Hanya jika Supabase tidak tersedia (offline), coba pulihkan dari cadangan lokal
           const recovery = dataStorage.tryRecoverLostData();
@@ -676,10 +775,163 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadCloudDatabase();
   }, []);
 
+  // Sinkronisasi latar belakang otomatis saat berpindah tab (navigasi aplikasi maupun tab browser)
+  const triggerBackgroundSync = async (reason?: string) => {
+    try {
+      setChecksumReport(prev => ({
+        ...prev,
+        status: 'CHECKING',
+        message: reason ? `Sinkronisasi latar belakang (${reason})...` : 'Sinkronisasi latar belakang...'
+      }));
+
+      // Jika ada mutasi lokal yang sedang menunggu dikirim ke Supabase, segera dorong (flush) terlebih dahulu
+      if (dataStorage.hasPendingSync()) {
+        await dataStorage.flushPendingSync();
+        setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+        await verifyDatabaseChecksum(true, {
+          buildings: dataStorage.getBuildings(),
+          rooms: dataStorage.getRooms(),
+          meetingRooms: dataStorage.getMeetingRooms(),
+          transactions: dataStorage.getTransactions(),
+          maintenances: dataStorage.getMaintenances()
+        });
+        return;
+      }
+
+      // Periksa checksum terhadap Database Pusat (Supabase)
+      const currentCheck = await validateDatabaseChecksumAgainstSupabase({
+        buildings: dataStorage.getBuildings(),
+        rooms: dataStorage.getRooms(),
+        meetingRooms: dataStorage.getMeetingRooms(),
+        transactions: dataStorage.getTransactions(),
+        maintenances: dataStorage.getMaintenances()
+      });
+
+      if (currentCheck.status === 'MISMATCH') {
+        // Tarik pembaruan dari Database Pusat secara otomatis di latar belakang agar antar-tab / Vercel & AI Studio selalu selaras
+        const cloudDb = await dataStorage.hydrateFromSupabase(true);
+        if (cloudDb) {
+          setUsers(cloudDb.users);
+          setBuildings(cloudDb.buildings || []);
+          setMeetingRooms(cloudDb.meetingRooms || []);
+          const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+            cloudDb.rooms || [],
+            cloudDb.transactions || [],
+            cloudDb.maintenances || []
+          );
+          setRooms(nextRooms);
+          setTransactions(cloudDb.transactions);
+          setMaintenances(cloudDb.maintenances);
+          setAuditLogs(cloudDb.auditLogs);
+          setWorkSessions(cloudDb.workSessions);
+          setQcInspections(cloudDb.qcInspections);
+          setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
+          setBreakfastOrders(cloudDb.breakfastOrders || []);
+          if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+            setRoomCapacityRates(cloudDb.roomCapacityRates);
+          }
+          if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
+            setPasswordResetRequests(cloudDb.passwordResetRequests);
+          }
+          if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
+          if (hasChanges) {
+            dataStorage.saveRooms(nextRooms);
+          }
+          setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+          await verifyDatabaseChecksum(true, {
+            buildings: cloudDb.buildings || [],
+            rooms: nextRooms,
+            meetingRooms: cloudDb.meetingRooms || [],
+            transactions: cloudDb.transactions || [],
+            maintenances: cloudDb.maintenances || []
+          });
+          return;
+        }
+      }
+
+      setChecksumReport(currentCheck);
+      setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+    } catch (err) {
+      console.warn('Background sync warning:', err);
+    }
+  };
+
+  // Trigger background sync setiap kali pengguna berpindah tab menu di dalam aplikasi (activeTab)
+  useEffect(() => {
+    triggerBackgroundSync(`Menu ${activeTab}`);
+  }, [activeTab]);
+
+  // Trigger background sync setiap kali pengguna kembali ke tab browser / fokus jendela
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerBackgroundSync('Fokus Tab Browser');
+      }
+    };
+    const handleWindowFocus = () => {
+      triggerBackgroundSync('Fokus Jendela');
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, []);
+
+  const pullFromCentralDatabase = async () => {
+    showToast('Menarik & menyamakan data dari Database Pusat (Supabase)...', 'info');
+    try {
+      const cloudDb = await dataStorage.hydrateFromSupabase(true);
+      if (cloudDb) {
+        setUsers(cloudDb.users);
+        setBuildings(cloudDb.buildings || []);
+        setMeetingRooms(cloudDb.meetingRooms || []);
+        const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+          cloudDb.rooms || [],
+          cloudDb.transactions || [],
+          cloudDb.maintenances || []
+        );
+        setRooms(nextRooms);
+        setTransactions(cloudDb.transactions);
+        setMaintenances(cloudDb.maintenances);
+        setAuditLogs(cloudDb.auditLogs);
+        setWorkSessions(cloudDb.workSessions);
+        setQcInspections(cloudDb.qcInspections);
+        setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
+        setBreakfastOrders(cloudDb.breakfastOrders || []);
+        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+          setRoomCapacityRates(cloudDb.roomCapacityRates);
+        }
+        if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
+          setPasswordResetRequests(cloudDb.passwordResetRequests);
+        }
+        if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
+        if (hasChanges) {
+          dataStorage.saveRooms(nextRooms);
+        }
+        await dataStorage.pushAllToSupabase();
+        setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+        await verifyDatabaseChecksum(true, {
+          buildings: cloudDb.buildings || [],
+          rooms: nextRooms,
+          meetingRooms: cloudDb.meetingRooms || [],
+          transactions: cloudDb.transactions || [],
+          maintenances: cloudDb.maintenances || []
+        });
+        showToast('Cache lokal berhasil diselaraskan 100% dengan Database Pusat!', 'success');
+      } else {
+        showToast('Tidak dapat menarik data dari Database Pusat.', 'warning');
+      }
+    } catch (err: any) {
+      showToast(`Gagal menarik data pusat: ${err?.message || 'Error'}`, 'error');
+    }
+  };
+
   const manualSyncSupabase = async () => {
     showToast('Menghubungi Supabase Cloud...', 'info');
     try {
-      const cloudDb = await dataStorage.hydrateFromSupabase();
+      const cloudDb = await dataStorage.hydrateFromSupabase(true);
       if (cloudDb) {
         setUsers(cloudDb.users);
         setBuildings(cloudDb.buildings || []);
@@ -708,10 +960,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (hasChanges) {
           dataStorage.saveRooms(nextRooms);
         }
-        showToast('Sinkronisasi Supabase berhasil diperbarui!', 'success');
+        await dataStorage.pushAllToSupabase();
+        await verifyDatabaseChecksum(true, {
+          buildings: cloudDb.buildings || [],
+          rooms: nextRooms,
+          meetingRooms: cloudDb.meetingRooms || [],
+          transactions: cloudDb.transactions || [],
+          maintenances: cloudDb.maintenances || []
+        });
+        showToast('Sinkronisasi & Validasi Checksum Supabase berhasil diperbarui!', 'success');
       } else {
         const pushRes = await dataStorage.pushAllToSupabase();
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+        await verifyDatabaseChecksum(true);
         if (pushRes.success) {
           showToast('Data berhasil disimpan ke Supabase Cloud!', 'success');
         } else {
@@ -727,8 +988,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast('Mengunggah seluruh basis data ke Supabase...', 'info');
     const res = await dataStorage.pushAllToSupabase();
     setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+    await verifyDatabaseChecksum(true);
     if (res.success) {
-      showToast('Seluruh data berhasil disimpan ke Supabase Cloud!', 'success');
+      showToast('Seluruh data berhasil disimpan & diverifikasi dengan Supabase Cloud!', 'success');
     } else {
       showToast(`Gagal mengunggah ke Supabase: ${res.error || 'Error'}`, 'error');
     }
@@ -3104,16 +3366,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Akses Ditolak: Hanya Super Admin atau Admin yang berwenang mengubah data gedung!', 'error');
       return;
     }
-    dataStorage.saveBuilding(building);
-    setBuildings(dataStorage.getBuildings());
-    setRooms(dataStorage.getRooms());
+    const existingBld = buildings.find(b => b.id === building.id);
+    const previousName = existingBld?.name;
+    const savedBuilding = dataStorage.saveBuilding(building, previousName);
+    const updatedBuildingsList = dataStorage.getBuildings();
+    const updatedRoomsList = dataStorage.getRooms();
+    setBuildings(updatedBuildingsList);
+    setRooms(updatedRoomsList);
     setMeetingRooms(dataStorage.getMeetingRooms());
     setTransactions(dataStorage.getTransactions());
     setMaintenances(dataStorage.getMaintenances());
     setQcInspections(dataStorage.getQcInspections());
     setUsers(dataStorage.getUsers());
-    showToast(`Data gedung "${building.name}" berhasil diperbarui & unit denah kamar otomatis disesuaikan (${building.totalRooms} Kamar)!`, 'success');
-    logAudit('Ubah Gedung', `Memperbarui profil gedung: ${building.name} (Kapasitas: ${building.totalRooms} Kamar)`);
+    if (previousName && selectedBuilding && selectedBuilding.trim().toLowerCase() === previousName.trim().toLowerCase()) {
+      setSelectedBuilding(savedBuilding.name);
+    }
+    const liveCount = updatedRoomsList.filter(r => r.building.trim().toLowerCase() === savedBuilding.name.trim().toLowerCase()).length;
+    showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui & unit denah kamar otomatis disesuaikan (${liveCount} Kamar)!`, 'success');
+    logAudit('Ubah Gedung', `Memperbarui profil gedung: ${previousName && previousName !== savedBuilding.name ? `${previousName} -> ` : ''}${savedBuilding.name} (Kapasitas: ${liveCount} Kamar)`);
   };
 
   const deleteBuilding = (buildingId: string): boolean => {
@@ -3657,7 +3927,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
       login, logout, clearWorkSessions, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, logAudit, addAuditLog, showToast, removeToast, openModal, closeModal,
-      supabaseSyncState, manualSyncSupabase, pushAllToSupabase,
+      supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase
     }}>
       {children}

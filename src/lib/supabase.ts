@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { CompleteStorageDatabase } from '../services/dataStorage';
 import { initialRoomCapacityRates } from '../data';
-import { deduplicateRoomCapacityRates } from './utils';
+import { deduplicateRoomCapacityRates, normalizeBuildingName, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber } from './utils';
 import type { 
   Building, 
   Room, 
@@ -445,16 +445,22 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
     }
 
     // GABUNGKAN SECARA CERDAS & AMAN:
-    // 1. Buildings: Utamakan tabel relasional jika lebih lengkap, atau gabungkan secara unik
+    // 1. Buildings: Jika syncPayload memiliki daftar gedung, gunakan sebagai acuan otoritatif agar gedung yang dihapus/diedit tidak muncul kembali
     const bldMap = new Map<string, Building>();
-    (syncPayload?.buildings || []).forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
-    relBuildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    if (syncPayload?.buildings && syncPayload.buildings.length > 0) {
+      syncPayload.buildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    } else {
+      relBuildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    }
     const mergedBuildings = Array.from(bldMap.values());
 
     // 2. Meeting Rooms: gabungkan unik
     const mrMap = new Map<string, MeetingRoom>();
-    (syncPayload?.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    relMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    if (syncPayload?.meetingRooms && syncPayload.meetingRooms.length > 0) {
+      syncPayload.meetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    } else {
+      relMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    }
     const mergedMeetingRooms = Array.from(mrMap.values());
 
     // 3. Transactions: gabungkan unik berdasarkan ID agar tidak ada transaksi yang terhapus
@@ -469,21 +475,25 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
     relMaintenances.forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     const mergedMaintenances = Array.from(maintMap.values());
 
-    // 5. Rooms: gabungkan unik, pertahankan room dari tabel relasional dan status terbarunya
+    // 5. Rooms: Jika syncPayload memiliki daftar kamar, batasi hanya pada ID yang sah di syncPayload agar kamar yang dikurangi tidak hidup kembali
     const roomMap = new Map<string, Room>();
+    const hasSyncRooms = Boolean(syncPayload?.rooms && syncPayload.rooms.length > 0);
     (syncPayload?.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
     relRooms.forEach(r => {
       if (r && r.id) {
+        if (hasSyncRooms && !roomMap.has(r.id)) return;
         const existing = roomMap.get(r.id);
         roomMap.set(r.id, {
           ...(existing || {}),
           ...r,
+          building: existing?.building || r.building,
+          roomNumber: existing?.roomNumber || r.roomNumber,
           status: r.status || existing?.status || 'KOSONG',
           activeTxId: r.activeTxId || existing?.activeTxId || null
         });
       }
     });
-    const mergedRooms = Array.from(roomMap.values());
+    const mergedRooms = deduplicateRoomsByBuildingAndNumber(Array.from(roomMap.values()), mergedMeetingRooms);
 
     // 6. QC Inspections
     const qcMap = new Map<string, QcInspection>();
@@ -580,8 +590,7 @@ export async function syncFullDatabaseToSupabase(db: CompleteStorageDatabase): P
     }
 
     // 2. Simpan juga ke tabel-tabel individual jika tabel sudah dibuat
-    // (Jalankan secara background/non-blocking)
-    syncIndividualTables(db).catch(err => {
+    await syncIndividualTables(db).catch(err => {
       console.warn('Sync individual tables info/warning:', err?.message);
     });
 
@@ -676,6 +685,16 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
       status: b.status
     }));
     await supabase.from('buildings').upsert(bldPayloads, { onConflict: 'id' });
+    try {
+      const activeIds = db.buildings.map(b => b.id).filter(Boolean);
+      const { data: existingRows } = await supabase.from('buildings').select('id');
+      if (existingRows && existingRows.length > 0) {
+        const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from('buildings').delete().in('id', toDelete);
+        }
+      }
+    } catch (_) {}
   }
 
   // Simpan rooms
@@ -698,6 +717,16 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
       facilities: r.facilities
     }));
     await supabase.from('rooms').upsert(roomPayloads, { onConflict: 'id' });
+    try {
+      const activeIds = db.rooms.map(r => r.id).filter(Boolean);
+      const { data: existingRows } = await supabase.from('rooms').select('id');
+      if (existingRows && existingRows.length > 0) {
+        const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from('rooms').delete().in('id', toDelete);
+        }
+      }
+    } catch (_) {}
   }
 
   // Simpan meeting rooms
@@ -718,6 +747,16 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
       active_tx_id: m.activeTxId
     }));
     await supabase.from('meeting_rooms').upsert(mrPayloads, { onConflict: 'id' });
+    try {
+      const activeIds = db.meetingRooms.map(m => m.id).filter(Boolean);
+      const { data: existingRows } = await supabase.from('meeting_rooms').select('id');
+      if (existingRows && existingRows.length > 0) {
+        const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from('meeting_rooms').delete().in('id', toDelete);
+        }
+      }
+    } catch (_) {}
   }
 
   // Simpan transactions
@@ -1127,5 +1166,261 @@ export async function verifyDocumentFromSupabase(queryCode: string): Promise<{
   } catch (e) {
     console.warn('Gagal verifikasi dari Supabase:', e);
     return { found: false, source: 'not_found' };
+  }
+}
+
+export interface ModuleChecksumItem {
+  key: 'buildings' | 'rooms' | 'meetingRooms' | 'transactions' | 'maintenances';
+  label: string;
+  localCount: number;
+  remoteCount: number;
+  localHash: string;
+  remoteHash: string;
+  isMatch: boolean;
+}
+
+export interface DatabaseChecksumReport {
+  status: 'CHECKING' | 'SYNCED' | 'MISMATCH' | 'OFFLINE' | 'ERROR';
+  localChecksum: string;
+  remoteChecksum: string;
+  isMatch: boolean;
+  checkedAt: string;
+  modules: ModuleChecksumItem[];
+  mismatchedModules: string[];
+  message: string;
+}
+
+/**
+ * Algoritma FNV-1a 32-bit deterministik untuk menghasilkan kode checksum 8-karakter Hex
+ */
+export function fnv1aHex(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
+
+/**
+ * Menghitung checksum kanonik per modul dan master checksum untuk suatu dataset
+ */
+export function computeDatasetChecksums(dataset: {
+  buildings?: Building[];
+  rooms?: Room[];
+  meetingRooms?: MeetingRoom[];
+  transactions?: Transaction[];
+  maintenances?: Maintenance[];
+}) {
+  // 1. Buildings (dinormalisasi berdasarkan nama gedung unik)
+  const bldMap = new Map<string, string>();
+  (dataset.buildings || []).forEach(b => {
+    if (!b || !b.name) return;
+    const normName = normalizeBuildingName(b.name);
+    if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)') return;
+    bldMap.set(normName.toLowerCase(), `${normName}|${Number(b.floors || 1)}`);
+  });
+  const bldSorted = Array.from(bldMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const buildingsHash = fnv1aHex(bldSorted.join(';;'));
+
+  // 2. Meeting Rooms (diurutkan berdasarkan ID unik)
+  const mrMap = new Map<string, string>();
+  (dataset.meetingRooms || []).forEach(m => {
+    if (!m || !m.id) return;
+    mrMap.set(m.id, `${m.id}|${(m.name || '').trim().toLowerCase()}|${Number(m.dailyRate || 0)}|${Number(m.sessionRate || 0)}`);
+  });
+  const mrSorted = Array.from(mrMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const meetingRoomsHash = fnv1aHex(mrSorted.join(';;'));
+
+  // 3. Transactions (diurutkan berdasarkan ID unik)
+  const txList = dataset.transactions || [];
+  const txMap = new Map<string, string>();
+  txList.forEach(t => {
+    if (!t || !t.id) return;
+    const isCancelled = t.status === 'DIBATALKAN' ? 'CANCELLED' : (t.status === 'SELESAI' ? 'DONE' : 'ACTIVE');
+    txMap.set(
+      t.id,
+      `${t.id}|${(t.roomNumber || '').trim().toUpperCase()}|${t.startDate || ''}|${Number(t.duration || 1)}|${t.paymentStatus || 'BELUM_LUNAS'}|${Number(t.paidAmount || 0)}|${isCancelled}`
+    );
+  });
+  const txSorted = Array.from(txMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const transactionsHash = fnv1aHex(txSorted.join(';;'));
+
+  // 4. Maintenances (diurutkan berdasarkan ID unik)
+  const maintList = dataset.maintenances || [];
+  const maintMap = new Map<string, string>();
+  maintList.forEach(m => {
+    if (!m || !m.id) return;
+    maintMap.set(m.id, `${m.id}|${(m.roomNumber || '').trim().toUpperCase()}|${m.status || 'PROSES'}`);
+  });
+  const maintSorted = Array.from(maintMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const maintenancesHash = fnv1aHex(maintSorted.join(';;'));
+
+  // 5. Rooms (diurutkan berdasarkan ID unik setelah deduplikasi, dengan status efektif diselaraskan terhadap transaksi & perawatan aktif)
+  const roomMap = new Map<string, string>();
+  const cleanRooms = deduplicateRoomsByBuildingAndNumber(dataset.rooms || [], dataset.meetingRooms);
+  cleanRooms.forEach(r => {
+    if (!r || !r.id) return;
+    const matchingActiveTxs = txList.filter(t =>
+      (t.roomId === r.id || (t.roomNumber === r.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(r.building))) || t.id === r.activeTxId) &&
+      t.status !== 'DIBATALKAN' &&
+      t.status !== 'SELESAI'
+    );
+    const terisiTx = matchingActiveTxs.find(t => t.status === 'TERISI');
+    const bookedTx = matchingActiveTxs.find(t => t.status === 'BOOKED');
+    const activeMaint = maintList.find(m =>
+      (m.id === r.activeMaintId || m.roomId === r.id || (m.roomNumber === r.roomNumber && (!m.building || normalizeBuildingName(m.building) === normalizeBuildingName(r.building)))) &&
+      m.status !== 'SELESAI'
+    );
+
+    let effectiveStatus = r.status || 'KOSONG';
+    if (activeMaint) {
+      effectiveStatus = 'MAINTENANCE';
+    } else if (terisiTx) {
+      effectiveStatus = 'TERISI';
+    } else if (bookedTx) {
+      if (effectiveStatus !== 'MAINTENANCE') effectiveStatus = 'BOOKED';
+    } else if (effectiveStatus === 'TERISI' || effectiveStatus === 'BOOKED' || effectiveStatus === 'MAINTENANCE') {
+      effectiveStatus = 'KOSONG';
+    }
+
+    const bldKey = getRoomBuildingKey(r, dataset.meetingRooms);
+    roomMap.set(
+      r.id,
+      `${r.id}|${(r.roomNumber || '').trim().toUpperCase()}|${bldKey.toLowerCase()}|${effectiveStatus}|${Number(r.pricePerNight || 0)}`
+    );
+  });
+  const roomSorted = Array.from(roomMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const roomsHash = fnv1aHex(roomSorted.join(';;'));
+
+  const masterChecksum = `CHK-${fnv1aHex(`${buildingsHash}:${meetingRoomsHash}:${roomsHash}:${transactionsHash}:${maintenancesHash}`)}`;
+
+  return {
+    masterChecksum,
+    buildings: { count: bldSorted.length, hash: buildingsHash },
+    meetingRooms: { count: mrSorted.length, hash: meetingRoomsHash },
+    rooms: { count: roomSorted.length, hash: roomsHash },
+    transactions: { count: txSorted.length, hash: transactionsHash },
+    maintenances: { count: maintSorted.length, hash: maintenancesHash }
+  };
+}
+
+/**
+ * Validasi Checksum Cache Lokal terhadap Central Database (Supabase)
+ */
+export async function validateDatabaseChecksumAgainstSupabase(localDataset: {
+  buildings?: Building[];
+  rooms?: Room[];
+  meetingRooms?: MeetingRoom[];
+  transactions?: Transaction[];
+  maintenances?: Maintenance[];
+}): Promise<DatabaseChecksumReport> {
+  const localSig = computeDatasetChecksums(localDataset);
+  const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  try {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        status: 'OFFLINE',
+        localChecksum: localSig.masterChecksum,
+        remoteChecksum: 'OFFLINE',
+        isMatch: false,
+        checkedAt: nowStr,
+        modules: [],
+        mismatchedModules: [],
+        message: 'Perangkat sedang offline. Menggunakan cache lokal.'
+      };
+    }
+
+    const remoteDb = await fetchFullDatabaseFromSupabase();
+    if (!remoteDb) {
+      return {
+        status: 'ERROR',
+        localChecksum: localSig.masterChecksum,
+        remoteChecksum: 'UNAVAILABLE',
+        isMatch: false,
+        checkedAt: nowStr,
+        modules: [],
+        mismatchedModules: [],
+        message: 'Tidak dapat mengambil metadata checksum dari Database Pusat.'
+      };
+    }
+
+    const remoteSig = computeDatasetChecksums(remoteDb);
+
+    const modules: ModuleChecksumItem[] = [
+      {
+        key: 'buildings',
+        label: 'Gedung Asrama',
+        localCount: localSig.buildings.count,
+        remoteCount: remoteSig.buildings.count,
+        localHash: localSig.buildings.hash,
+        remoteHash: remoteSig.buildings.hash,
+        isMatch: localSig.buildings.hash === remoteSig.buildings.hash
+      },
+      {
+        key: 'rooms',
+        label: 'Kamar & Unit Fasilitas',
+        localCount: localSig.rooms.count,
+        remoteCount: remoteSig.rooms.count,
+        localHash: localSig.rooms.hash,
+        remoteHash: remoteSig.rooms.hash,
+        isMatch: localSig.rooms.hash === remoteSig.rooms.hash
+      },
+      {
+        key: 'meetingRooms',
+        label: 'Ruang Pertemuan / Aula',
+        localCount: localSig.meetingRooms.count,
+        remoteCount: remoteSig.meetingRooms.count,
+        localHash: localSig.meetingRooms.hash,
+        remoteHash: remoteSig.meetingRooms.hash,
+        isMatch: localSig.meetingRooms.hash === remoteSig.meetingRooms.hash
+      },
+      {
+        key: 'transactions',
+        label: 'Transaksi & Reservasi',
+        localCount: localSig.transactions.count,
+        remoteCount: remoteSig.transactions.count,
+        localHash: localSig.transactions.hash,
+        remoteHash: remoteSig.transactions.hash,
+        isMatch: localSig.transactions.hash === remoteSig.transactions.hash
+      },
+      {
+        key: 'maintenances',
+        label: 'Tiket Perawatan',
+        localCount: localSig.maintenances.count,
+        remoteCount: remoteSig.maintenances.count,
+        localHash: localSig.maintenances.hash,
+        remoteHash: remoteSig.maintenances.hash,
+        isMatch: localSig.maintenances.hash === remoteSig.maintenances.hash
+      }
+    ];
+
+    const mismatchedModules = modules.filter(m => !m.isMatch).map(m => m.label);
+    const isMatch = localSig.masterChecksum === remoteSig.masterChecksum && mismatchedModules.length === 0;
+
+    return {
+      status: isMatch ? 'SYNCED' : 'MISMATCH',
+      localChecksum: localSig.masterChecksum,
+      remoteChecksum: remoteSig.masterChecksum,
+      isMatch,
+      checkedAt: nowStr,
+      modules,
+      mismatchedModules,
+      message: isMatch
+        ? `Cache lokal terverifikasi identik dengan Database Pusat (${localSig.masterChecksum}).`
+        : `Perbedaan Checksum terdeteksi pada: ${mismatchedModules.join(', ')}.`
+    };
+  } catch (err: any) {
+    return {
+      status: 'ERROR',
+      localChecksum: localSig.masterChecksum,
+      remoteChecksum: 'ERROR',
+      isMatch: false,
+      checkedAt: nowStr,
+      modules: [],
+      mismatchedModules: [],
+      message: err?.message || 'Gagal memvalidasi checksum terhadap Database Pusat.'
+    };
   }
 }

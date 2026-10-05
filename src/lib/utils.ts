@@ -662,23 +662,24 @@ export function deduplicateRoomCapacityRates(rates: RoomCapacityRate[]): RoomCap
 }
 
 /**
- * Normalisasi nama gedung untuk mencegah inkonsistensi (misal: "Gedung A" vs "Gedung A (Arafah)")
+ * Normalisasi nama gedung untuk mencegah inkonsistensi alias singkat (misal: "Gedung A" vs "Gedung A (Arafah)")
+ * tanpa menimpa nama gedung kustom hasil edit pengguna di Katalog Gedung & Fasilitas.
  */
 export function normalizeBuildingName(name: string): string {
   if (!name) return '';
   const trimmed = name.trim();
   const lower = trimmed.toLowerCase();
 
-  // Gedung spesifik D2, D3, D4, D5 harus dicek terlebih dahulu sebelum umum Gedung D / Madinah
-  if (lower === 'gedung d2' || lower === 'd2' || lower.startsWith('gedung d2')) return 'Gedung D2';
-  if (lower === 'gedung d3' || lower === 'd3' || lower.startsWith('gedung d3')) return 'Gedung D3';
-  if (lower === 'gedung d4' || lower === 'd4' || lower.startsWith('gedung d4')) return 'Gedung D4';
-  if (lower === 'gedung d5' || lower === 'd5' || lower.startsWith('gedung d5')) return 'Gedung D5';
+  // Hanya normalisasi jika sama persis dengan kode/alias singkat standar
+  if (lower === 'gedung d2' || lower === 'd2') return 'Gedung D2';
+  if (lower === 'gedung d3' || lower === 'd3') return 'Gedung D3';
+  if (lower === 'gedung d4' || lower === 'd4') return 'Gedung D4';
+  if (lower === 'gedung d5' || lower === 'd5') return 'Gedung D5';
 
-  if (lower === 'gedung a' || lower === 'arafah' || lower.includes('arafah')) return 'Gedung A (Arafah)';
-  if (lower === 'gedung b' || lower === 'muzdalifah' || lower.includes('muzdalifah')) return 'Gedung B (Muzdalifah)';
-  if (lower === 'gedung c' || lower === 'mina' || lower.includes('mina')) return 'Gedung C (Mina)';
-  if (lower === 'gedung d' || lower === 'gedung d1' || lower === 'madinah' || lower.includes('madinah')) return 'Gedung D (Madinah)';
+  if (lower === 'gedung a' || lower === 'arafah' || lower === 'gedung a (arafah)') return 'Gedung A (Arafah)';
+  if (lower === 'gedung b' || lower === 'muzdalifah' || lower === 'gedung b (muzdalifah)') return 'Gedung B (Muzdalifah)';
+  if (lower === 'gedung c' || lower === 'mina' || lower === 'gedung c (mina)') return 'Gedung C (Mina)';
+  if (lower === 'gedung d' || lower === 'gedung d1' || lower === 'madinah' || lower === 'gedung d (madinah)') return 'Gedung D (Madinah)';
   if (lower === 'gedung e' || lower === 'e') return 'Gedung E';
   if (lower === 'gedung g' || lower === 'g') return 'Gedung G';
   if (lower === 'gedung h' || lower === 'h') return 'Gedung H';
@@ -729,7 +730,12 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
     return 'Ruang Pertemuan / Aula';
   }
 
-  // 3. Evaluasi prefix nomor kamar untuk gedung khusus seperti D2, D3, D4, D5, D, A, B, C, E, G, H, Utama
+  // 3. Utamakan nama gedung yang tersimpan pada objek kamar (r.building) agar saat nama gedung diedit tidak memicu gedung baru/terpisah
+  if (r.building && r.building.trim() !== '') {
+    return normalizeBuildingName(r.building);
+  }
+
+  // 4. Fallback evaluasi prefix nomor kamar hanya jika r.building kosong
   const rNum = (r.roomNumber || '').trim().toUpperCase();
   if (rNum.startsWith('D2-') || rNum.startsWith('D2 ')) return 'Gedung D2';
   if (rNum.startsWith('D3-') || rNum.startsWith('D3 ')) return 'Gedung D3';
@@ -744,7 +750,43 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
   if (rNum.startsWith('H-')) return 'Gedung H';
   if (rNum.startsWith('GU-')) return 'Gedung Utama';
 
-  return normalizeBuildingName(r.building);
+  return '';
+}
+
+/**
+ * Deduplikasi daftar kamar berdasarkan ID serta kombinasi (gedung + nomor kamar)
+ * Memprioritaskan kamar yang sedang aktif (TERISI / BOOKED / MAINTENANCE) agar data transaksi aman
+ */
+export function deduplicateRoomsByBuildingAndNumber(rooms: Room[], meetingRooms?: MeetingRoom[]): Room[] {
+  if (!Array.isArray(rooms)) return [];
+  const byId = new Map<string, Room>();
+  rooms.forEach(r => {
+    if (!r || !r.id) return;
+    byId.set(String(r.id).trim(), r);
+  });
+
+  const byBuildingAndNum = new Map<string, Room>();
+  Array.from(byId.values()).forEach(r => {
+    const bKey = getRoomBuildingKey(r, meetingRooms);
+    const numKey = String(r.roomNumber || '').trim().toUpperCase();
+    const compositeKey = `${bKey.toLowerCase()}::${numKey}`;
+    if (!numKey) {
+      byBuildingAndNum.set(`id::${r.id}`, { ...r, building: bKey || r.building });
+      return;
+    }
+    const existing = byBuildingAndNum.get(compositeKey);
+    if (!existing) {
+      byBuildingAndNum.set(compositeKey, { ...r, building: bKey || r.building });
+    } else {
+      const existingActive = existing.status === 'TERISI' || existing.status === 'BOOKED' || existing.status === 'MAINTENANCE' || Boolean(existing.activeTxId) || Boolean(existing.activeMaintId);
+      const currentActive = r.status === 'TERISI' || r.status === 'BOOKED' || r.status === 'MAINTENANCE' || Boolean(r.activeTxId) || Boolean(r.activeMaintId);
+      if (currentActive && !existingActive) {
+        byBuildingAndNum.set(compositeKey, { ...r, building: bKey || r.building });
+      }
+    }
+  });
+
+  return Array.from(byBuildingAndNum.values());
 }
 
 

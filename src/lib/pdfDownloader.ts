@@ -1,8 +1,9 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Transaction, Room, User, ConsolidatedGroupRecord } from '../types';
-import { formatIndonesianDate, getRealTodayDate, addDaysToDateStr, generateQrCodeDataUrl, formatRupiah, angkaKeTerbilang } from './utils';
+import { formatIndonesianDate, getRealTodayDate, addDaysToDateStr, generateQrCodeDataUrl, formatRupiah, angkaKeTerbilang, isMeetingFacility } from './utils';
 import { findRoomRate, OFFICIAL_VA_CONFIG } from '../data';
+import { calculateMeetingRoomPricing } from './pricingCalculator';
 import { dataStorage } from '../services/dataStorage';
 import { recordPdfDownloadLogToSupabase } from './supabase';
 
@@ -152,7 +153,13 @@ export async function renderInvoicePdfContent(
     });
   }
 
-  const isAula = tx.building === 'Ruang Pertemuan';
+  const isAula = tx.category === 'AULA' ||
+                 tx.building === 'Ruang Pertemuan' ||
+                 tx.building === 'Ruang Pertemuan / Aula' ||
+                 tx.building === 'Gedung Serbaguna (SG)' ||
+                 tx.building === 'Gedung Serbaguna' ||
+                 isMeetingFacility(tx.building) ||
+                 isMeetingFacility(tx.roomNumber);
     const realToday = getRealTodayDate();
     const checkoutDate = !isAula ? addDaysToDateStr(tx.startDate, tx.duration) : tx.startDate;
 
@@ -289,33 +296,16 @@ export async function renderInvoicePdfContent(
     }
 
     let subtotalAula = 0;
-    if (isAula) {
-      const mrObj = allMeetingRooms.find(m => m.name.toLowerCase() === tx.roomNumber.toLowerCase() || m.code?.toLowerCase() === tx.roomNumber.toLowerCase());
-      const isDayDuration = tx.durationUnit === 'Hari' || tx.duration >= 24;
-      const rate = isDayDuration ? (mrObj?.dailyRate || 15000000) : (mrObj?.sessionRate || 8500000);
-      const qty = isDayDuration ? Math.ceil(tx.duration / (tx.duration >= 24 ? 24 : 1)) : 1;
-      subtotalAula = rate * qty;
+    const mrPricing = calculateMeetingRoomPricing(tx, allMeetingRooms);
+    if (mrPricing.isAula) {
+      subtotalAula = mrPricing.subtotal;
       invoicePriceItems.push({
-        label: `Sewa Ruang Pertemuan (Aula): ${tx.roomNumber}`,
-        subDesc: mrObj?.description || 'Termasuk Sound System, AC Sentral & Kursi',
-        unitRate: rate,
-        rateUnitLabel: isDayDuration ? '/hari' : '/sesi',
+        label: `Sewa Ruang Pertemuan (Aula): ${mrPricing.name}`,
+        subDesc: `${mrPricing.session} • Termasuk Sound System, AC Sentral & Kursi`,
+        unitRate: mrPricing.rate,
+        rateUnitLabel: mrPricing.rateUnitLabel,
         qty: '1 Gedung',
-        duration: isDayDuration ? `${qty} Hari Pelaksanaan` : `${tx.duration} Jam Pemakaian`,
-        subtotal: subtotalAula
-      });
-    } else if (tx.includeAula && tx.rentAulaName) {
-      const mrObj = allMeetingRooms.find(m => m.name.toLowerCase() === tx.rentAulaName?.toLowerCase() || m.code?.toLowerCase() === tx.rentAulaName?.toLowerCase());
-      const days = tx.rentAulaDurationDays || 1;
-      const rate = mrObj?.dailyRate || 12000000;
-      subtotalAula = rate * days;
-      invoicePriceItems.push({
-        label: `Sewa Ruang Pertemuan (Aula): ${tx.rentAulaName}`,
-        subDesc: `${tx.rentAulaSession || 'Sewa Tambahan Acara'} • Termasuk Sound System & AC Sentral`,
-        unitRate: rate,
-        rateUnitLabel: '/hari',
-        qty: '1 Gedung',
-        duration: `${days} Hari Pelaksanaan`,
+        duration: mrPricing.durationText,
         subtotal: subtotalAula
       });
     }

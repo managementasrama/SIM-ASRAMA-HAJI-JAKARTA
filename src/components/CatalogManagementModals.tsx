@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isSuperAdmin, isRecepRole } from '../store';
 import { Building, MeetingRoom, Room, RoomCapacityRate } from '../types';
-import { formatRupiah, updateRoomNumberWithFloor, extractFloorFromRoomNumber, getNextRoomNumber, isMeetingFacility } from '../lib/utils';
+import { formatRupiah, updateRoomNumberWithFloor, extractFloorFromRoomNumber, getNextRoomNumber, isMeetingFacility, getRoomBuildingKey } from '../lib/utils';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { findRoomRate, initialRoomCapacityRates } from '../data';
 
@@ -15,7 +15,7 @@ interface BuildingModalProps {
 }
 
 export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModalProps) {
-  const { addBuilding, updateBuilding, currentUser, showToast } = useAppContext();
+  const { addBuilding, updateBuilding, currentUser, showToast, rooms, meetingRooms } = useAppContext();
   const isEdit = Boolean(buildingToEdit);
 
   useBodyScrollLock(isOpen);
@@ -29,12 +29,24 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<'AKTIF' | 'NONAKTIF'>('AKTIF');
 
+  const liveBuildingRoomsCount = useMemo(() => {
+    if (!buildingToEdit) return 0;
+    const targetName = (buildingToEdit.name || '').trim().toLowerCase();
+    return (rooms || []).filter(r => {
+      const bKey = getRoomBuildingKey(r, meetingRooms);
+      return bKey.toLowerCase() === targetName || (r.building || '').trim().toLowerCase() === targetName;
+    }).length;
+  }, [buildingToEdit, rooms, meetingRooms]);
+
   useEffect(() => {
     if (buildingToEdit) {
       setName(buildingToEdit.name || '');
       setCode(buildingToEdit.code || '');
       setFloors(buildingToEdit.floors || 3);
-      setTotalRooms(buildingToEdit.totalRooms !== undefined ? buildingToEdit.totalRooms : 3);
+      const initialRoomCount = liveBuildingRoomsCount > 0
+        ? liveBuildingRoomsCount
+        : (buildingToEdit.totalRooms !== undefined ? buildingToEdit.totalRooms : 3);
+      setTotalRooms(initialRoomCount);
       setCapacityDesc(buildingToEdit.capacityDesc || '');
       setCategory((buildingToEdit.category as any) || 'PENGINAPAN');
       setDescription(buildingToEdit.description || '');
@@ -49,7 +61,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
       setDescription('');
       setStatus('AKTIF');
     }
-  }, [buildingToEdit, isOpen]);
+  }, [buildingToEdit, isOpen, liveBuildingRoomsCount]);
 
   if (!isOpen) return null;
 
@@ -61,7 +73,16 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
     }
 
     const isLodging = category === 'PENGINAPAN';
-    const finalTotalRooms = isLodging ? (Number(totalRooms) || 3) : 0;
+    const parsedRooms = Number(totalRooms);
+    const finalTotalRooms = isLodging ? (!isNaN(parsedRooms) && parsedRooms >= 0 ? parsedRooms : 3) : 0;
+    let finalCapDesc = capacityDesc.trim();
+    if (isLodging && (!finalCapDesc || /^\d+\s*Kamar/i.test(finalCapDesc))) {
+      finalCapDesc = finalCapDesc
+        ? finalCapDesc.replace(/^\d+/, String(finalTotalRooms))
+        : `${finalTotalRooms} Kamar Hunian`;
+    } else if (!finalCapDesc) {
+      finalCapDesc = 'Kapasitas Gedung Utuh';
+    }
 
     if (isEdit && buildingToEdit) {
       updateBuilding({
@@ -70,7 +91,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
         code: code.trim().toUpperCase(),
         floors: Number(floors) || 1,
         totalRooms: finalTotalRooms,
-        capacityDesc: capacityDesc.trim() || (isLodging ? `${finalTotalRooms} Kamar Hunian` : 'Kapasitas Gedung Utuh'),
+        capacityDesc: finalCapDesc,
         category,
         description: description.trim(),
         status
@@ -81,7 +102,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
         code: code.trim().toUpperCase(),
         floors: Number(floors) || 1,
         totalRooms: finalTotalRooms,
-        capacityDesc: capacityDesc.trim() || (isLodging ? `${finalTotalRooms} Kamar Hunian` : 'Kapasitas Gedung Utuh'),
+        capacityDesc: finalCapDesc,
         category,
         description: description.trim(),
         status
@@ -244,18 +265,44 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-slate-700">Jumlah Kamar (Unit)</label>
-                    <span className="text-[10px] text-emerald-600 font-bold">Default: 3 Unit</span>
+                    <span className="text-[10px] text-emerald-600 font-bold">
+                      {isEdit ? `Di Denah: ${liveBuildingRoomsCount} Unit` : 'Default: 3 Unit'}
+                    </span>
                   </div>
                   <input
                     type="number"
                     min={1}
+                    max={500}
                     value={totalRooms}
-                    onChange={e => setTotalRooms(parseInt(e.target.value) || 0)}
+                    onChange={e => {
+                      const val = parseInt(e.target.value, 10);
+                      const nextCount = isNaN(val) ? 0 : Math.max(0, val);
+                      setTotalRooms(nextCount);
+                      if (/^\d+\s*Kamar/i.test(capacityDesc.trim())) {
+                        setCapacityDesc(capacityDesc.trim().replace(/^\d+/, String(nextCount)));
+                      }
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   />
-                  <p className="text-[10px] text-slate-500">
-                    {isEdit ? 'Jumlah unit kamar gedung ini terhubung dengan sub-menu Denah Penyewaan.' : 'Default 3 unit kamar awal akan otomatis disiapkan di Denah Penyewaan.'}
-                  </p>
+                  {isEdit ? (
+                    <p className={`text-[10px] font-semibold ${
+                      totalRooms > liveBuildingRoomsCount
+                        ? 'text-blue-700'
+                        : totalRooms < liveBuildingRoomsCount
+                        ? 'text-amber-700'
+                        : 'text-emerald-700'
+                    }`}>
+                      {totalRooms > liveBuildingRoomsCount
+                        ? `+ Menambah ${totalRooms - liveBuildingRoomsCount} unit kamar baru di Denah Penyewaan (Total menjadi ${totalRooms} unit).`
+                        : totalRooms < liveBuildingRoomsCount
+                        ? `- Mengurangi ${liveBuildingRoomsCount - totalRooms} unit kamar kosong di Denah Penyewaan (Total menjadi ${totalRooms} unit).`
+                        : `✓ Sinkron dengan jumlah unit di Denah Penyewaan (${totalRooms} unit).`}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-slate-500">
+                      Default 3 unit kamar awal akan otomatis disiapkan di Denah Penyewaan.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (

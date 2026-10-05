@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { formatRupiah, isMeetingFacility } from '../../lib/utils';
 import { Transaction, Room, Maintenance } from '../../types';
+import { useAppContext } from '../../store';
 
 interface RoleWorkspaceBannerProps {
   currentUser: any;
@@ -60,6 +61,43 @@ export function RoleWorkspaceBanner({
   const assignedBuilding = currentUser?.assignedBuilding || 'Semua Gedung';
   const hasAssignedZone = assignedBuilding && !assignedBuilding.includes('Semua') && assignedBuilding !== '-';
 
+  const {
+    checksumReport,
+    verifyDatabaseChecksum,
+    pullFromCentralDatabase,
+    pushAllToSupabase
+  } = useAppContext();
+
+  const [isChecksumPanelOpen, setIsChecksumPanelOpen] = useState(false);
+  const [isSyncingAction, setIsSyncingAction] = useState(false);
+
+  const handlePullSync = async () => {
+    setIsSyncingAction(true);
+    try {
+      await pullFromCentralDatabase();
+    } finally {
+      setIsSyncingAction(false);
+    }
+  };
+
+  const handlePushSync = async () => {
+    setIsSyncingAction(true);
+    try {
+      await pushAllToSupabase();
+    } finally {
+      setIsSyncingAction(false);
+    }
+  };
+
+  const handleRecheckChecksum = async () => {
+    setIsSyncingAction(true);
+    try {
+      await verifyDatabaseChecksum(false);
+    } finally {
+      setIsSyncingAction(false);
+    }
+  };
+
   // Badge style based on role
   const getRoleBadge = () => {
     if (roleName.includes('Super Admin') || roleName === 'Admin') {
@@ -104,6 +142,46 @@ export function RoleWorkspaceBanner({
                 <i className={`fa-solid ${badge.icon} text-[9px]`}></i>
                 <span>{roleName}</span>
               </span>
+
+              {/* SYNC STATUS BADGE WITH CHECKSUM VALIDATION */}
+              <button
+                type="button"
+                onClick={() => setIsChecksumPanelOpen(prev => !prev)}
+                title="Klik untuk melihat rincian Validasi Checksum Cache Lokal terhadap Database Pusat"
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1.5 transition cursor-pointer shadow-2xs ${
+                  checksumReport.status === 'SYNCED'
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border-emerald-400/40'
+                    : checksumReport.status === 'MISMATCH'
+                    ? 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border-amber-400/60 animate-pulse'
+                    : checksumReport.status === 'CHECKING'
+                    ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border-blue-400/40'
+                    : 'bg-slate-700/60 hover:bg-slate-700 text-slate-200 border-slate-500/40'
+                }`}
+              >
+                {checksumReport.status === 'SYNCED' ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                    <i className="fa-solid fa-shield-halved text-[9px] text-emerald-300"></i>
+                    <span>Sync Status: Terverifikasi ({checksumReport.localChecksum})</span>
+                  </>
+                ) : checksumReport.status === 'MISMATCH' ? (
+                  <>
+                    <i className="fa-solid fa-triangle-exclamation text-[9px] text-amber-300"></i>
+                    <span>Sync Status: Berbeda ({checksumReport.localChecksum} ≠ {checksumReport.remoteChecksum})</span>
+                  </>
+                ) : checksumReport.status === 'CHECKING' ? (
+                  <>
+                    <i className="fa-solid fa-arrows-rotate fa-spin text-[9px] text-blue-300"></i>
+                    <span>Sync Status: Validasi Checksum...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-database text-[9px] text-slate-300"></i>
+                    <span>Sync Status: Lokal ({checksumReport.localChecksum})</span>
+                  </>
+                )}
+                <i className={`fa-solid fa-chevron-${isChecksumPanelOpen ? 'up' : 'down'} text-[8px] opacity-80`}></i>
+              </button>
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-slate-300">
               <span>Departemen: <strong>{currentUser?.department || 'Operasional'}</strong></span>
@@ -202,6 +280,163 @@ export function RoleWorkspaceBanner({
           </button>
         </div>
       </div>
+
+      {/* AUTOMATIC ALERT BANNER WHEN LOCAL CACHE DIFFERS FROM CENTRAL DATABASE */}
+      {checksumReport.status === 'MISMATCH' && !isChecksumPanelOpen && (
+        <div className="bg-amber-50 dark:bg-amber-950/60 border-t border-amber-200 dark:border-amber-800/70 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 border border-amber-300 dark:border-amber-700">
+              <i className="fa-solid fa-triangle-exclamation text-xs"></i>
+            </div>
+            <div className="text-xs">
+              <div className="font-black text-amber-900 dark:text-amber-200 flex flex-wrap items-center gap-1.5">
+                <span>Peringatan Validasi Checksum: Cache Lokal Berbeda dari Database Pusat!</span>
+                <span className="font-mono text-[10px] bg-amber-200/70 dark:bg-amber-900 px-1.5 py-0.5 rounded text-amber-900 dark:text-amber-200">
+                  Lokal: {checksumReport.localChecksum} ≠ Pusat: {checksumReport.remoteChecksum}
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+                {checksumReport.message} Silakan selaraskan data agar tampilan lokal dan server pusat identik.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              disabled={isSyncingAction}
+              onClick={handlePullSync}
+              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1.5 shadow-2xs cursor-pointer transition"
+            >
+              <i className={`fa-solid ${isSyncingAction ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
+              <span>Samakan dari Pusat (Pull)</span>
+            </button>
+            <button
+              type="button"
+              disabled={isSyncingAction}
+              onClick={handlePushSync}
+              className="px-2.5 py-1.5 rounded-lg bg-hajj-700 hover:bg-hajj-800 disabled:opacity-50 text-white font-bold text-[11px] flex items-center gap-1.5 shadow-2xs cursor-pointer transition"
+            >
+              <i className={`fa-solid ${isSyncingAction ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'}`}></i>
+              <span>Unggah ke Pusat (Push)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsChecksumPanelOpen(true)}
+              className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-slate-700 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-bold text-[11px] cursor-pointer transition"
+            >
+              Rincian Checksum
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* EXPANDABLE CHECKSUM VALIDATION INSPECTOR PANEL */}
+      {isChecksumPanelOpen && (
+        <div className="bg-slate-900 text-slate-100 border-t border-slate-800 p-3.5 sm:p-4 space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-gold-400 flex items-center gap-1.5">
+                  <i className="fa-solid fa-fingerprint"></i>
+                  <span>Validasi Checksum Cache Lokal vs Database Pusat (Supabase)</span>
+                </span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                  checksumReport.status === 'SYNCED'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : checksumReport.status === 'MISMATCH'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                }`}>
+                  {checksumReport.status === 'SYNCED' ? 'IDENTIK & TERVERIFIKASI' : checksumReport.status === 'MISMATCH' ? 'PERBEDAAN TERDETEKSI' : 'MEMERIKSA...'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-1">
+                {checksumReport.message} <span className="text-slate-400">(Dicek pukul {checksumReport.checkedAt} WIB)</span>
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-mono">
+                <span className="text-slate-400">Cache Lokal: </span>
+                <strong className="text-emerald-300">{checksumReport.localChecksum}</strong>
+              </div>
+              <div className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-[11px] font-mono">
+                <span className="text-slate-400">Database Pusat: </span>
+                <strong className={checksumReport.isMatch ? 'text-emerald-300' : 'text-amber-300'}>{checksumReport.remoteChecksum}</strong>
+              </div>
+              <button
+                type="button"
+                disabled={isSyncingAction || checksumReport.status === 'CHECKING'}
+                onClick={handleRecheckChecksum}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition"
+              >
+                <i className={`fa-solid fa-rotate ${checksumReport.status === 'CHECKING' || isSyncingAction ? 'fa-spin' : ''}`}></i>
+                <span>Cek Ulang</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSyncingAction}
+                onClick={handlePullSync}
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition"
+                title="Tarik data terbaru dari Database Pusat dan samakan cache lokal"
+              >
+                <i className="fa-solid fa-cloud-arrow-down"></i>
+                <span>Tarik dari Pusat (Pull)</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSyncingAction}
+                onClick={handlePushSync}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition"
+                title="Unggah cache lokal ke Database Pusat agar tersimpan sebagai acuan utama"
+              >
+                <i className="fa-solid fa-cloud-arrow-up"></i>
+                <span>Unggah ke Pusat (Push)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsChecksumPanelOpen(false)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                title="Tutup Panel Checksum"
+              >
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
+            </div>
+          </div>
+
+          {checksumReport.modules.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+              {checksumReport.modules.map(mod => (
+                <div
+                  key={mod.key}
+                  className={`p-2.5 rounded-xl border text-xs ${
+                    mod.isMatch
+                      ? 'bg-slate-800/90 border-slate-700'
+                      : 'bg-amber-950/60 border-amber-500/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-bold text-white truncate">{mod.label}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 ${
+                      mod.isMatch ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/30 text-amber-200'
+                    }`}>
+                      {mod.isMatch ? 'SINKRON' : 'BERBEDA'}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-300">
+                    <span>Record: <strong>{mod.localCount}</strong> (Lokal)</span>
+                    <span><strong>{mod.remoteCount}</strong> (Pusat)</span>
+                  </div>
+                  <div className="mt-1 text-[10px] font-mono text-slate-400 flex items-center justify-between">
+                    <span title="Checksum Lokal">L: {mod.localHash}</span>
+                    <span title="Checksum Pusat" className={mod.isMatch ? 'text-emerald-400' : 'text-amber-300'}>P: {mod.remoteHash}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Role-Tailored Dynamic Content Area */}
       <div className="p-3.5 sm:p-4 bg-slate-50/70 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800">

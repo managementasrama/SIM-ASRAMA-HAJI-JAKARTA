@@ -72,7 +72,7 @@ export function RoomsView() {
   const { 
     rooms, transactions, maintenances, openModal, finishMaintenance, currentUser, setActiveTab,
     buildings = [], meetingRooms = [], deleteBuilding, deleteMeetingRoom, deleteRoom, showToast,
-    selectedBuilding, setSelectedBuilding,
+    selectedBuilding, setSelectedBuilding, triggerBackgroundSync,
     roomCapacityRates = [], addRoomCapacityRate, updateRoomCapacityRate, deleteRoomCapacityRate, resetRoomCapacityRates, applyRateToAllRooms
   } = useAppContext();
 
@@ -190,6 +190,27 @@ export function RoomsView() {
       return () => clearTimeout(timer);
     }
   }, [selectedBuilding]);
+
+  // Sinkronisasi latar belakang otomatis saat berpindah sub-tab katalog
+  useEffect(() => {
+    if (triggerBackgroundSync) {
+      triggerBackgroundSync(`Sub-Tab ${activeCatalogTab}`);
+    }
+  }, [activeCatalogTab]);
+
+  // Pastikan filter gedung di Denah tetap valid jika nama gedung baru saja diubah
+  useEffect(() => {
+    if (
+      bFilter !== 'ALL' &&
+      bFilter !== 'Gedung Serbaguna (SG)' &&
+      bFilter !== 'Gedung Serbaguna' &&
+      bFilter !== 'Ruang Pertemuan / Aula' &&
+      bFilter !== 'Ruang Pertemuan' &&
+      !buildings.some(b => b.name.toLowerCase() === bFilter.toLowerCase())
+    ) {
+      setBFilter('ALL');
+    }
+  }, [buildings, bFilter]);
 
   const isRecep = isRecepRole(currentUser?.role);
   const isTeknisi = isTeknisiRole(currentUser?.role);
