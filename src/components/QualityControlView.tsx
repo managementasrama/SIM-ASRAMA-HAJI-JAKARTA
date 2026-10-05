@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppContext, isQcRole } from '../store';
 import { Room } from '../types';
-import { compareBuildingOrder, formatRupiah, isMeetingFacility } from '../lib/utils';
+import { compareBuildingOrder, formatRupiah, isMeetingFacility, getRoomBuildingKey } from '../lib/utils';
 import { OFFICIAL_TARIFFS } from '../data';
 
 // Helper for distinctive building-related icons for penginapan and other facilities (synchronized with RoomsView)
@@ -101,39 +101,9 @@ export function QualityControlView() {
     }
   }, [selectedBuilding]);
 
-  // Helper untuk penentuan gedung yang konsisten 100% dengan Manajemen Gedung (Denah Penyewaan)
-  const getRoomBuildingKey = (r: Room): string => {
-    const matchingMr = meetingRooms.find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
-    if (matchingMr) {
-      if (matchingMr.category === 'SERBAGUNA') return 'Gedung Serbaguna (SG)';
-      if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') return 'Ruang Pertemuan / Aula';
-      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
-        return matchingMr.building;
-      }
-      const nLower = matchingMr.name.toLowerCase().trim();
-      const cLower = (matchingMr.code || '').toLowerCase().trim();
-      const bLower = (matchingMr.building || '').toLowerCase().trim();
-      if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-        return 'Ruang Pertemuan / Aula';
-      }
-      if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
-        return 'Gedung Serbaguna (SG)';
-      }
-      return 'Ruang Pertemuan / Aula';
-    }
-
-    if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
-      return 'Gedung Serbaguna (SG)';
-    }
-    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type)) {
-      return 'Ruang Pertemuan / Aula';
-    }
-    return r.building;
-  };
-
   // Filtered rooms
   const filteredRooms = rooms.filter(r => {
-    const effectiveBuilding = getRoomBuildingKey(r);
+    const effectiveBuilding = getRoomBuildingKey(r, meetingRooms);
     if (bFilter !== 'ALL') {
       if (bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') {
         if (effectiveBuilding !== 'Gedung Serbaguna (SG)') return false;
@@ -180,7 +150,7 @@ export function QualityControlView() {
   }
 
   filteredRooms.forEach(r => {
-    let bKey = getRoomBuildingKey(r);
+    let bKey = getRoomBuildingKey(r, meetingRooms);
     if (bKey === 'Ruang Pertemuan') bKey = 'Ruang Pertemuan / Aula';
     if (bKey === 'Gedung Serbaguna') bKey = 'Gedung Serbaguna (SG)';
     if (!grouped[bKey]) grouped[bKey] = [];

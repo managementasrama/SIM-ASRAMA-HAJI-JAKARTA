@@ -31,7 +31,7 @@ import {
   findRoomRate
 } from '../data';
 import { initialChatChannels, initialChatMessages } from '../chatData';
-import { normalizeBuildingName, deduplicateRoomCapacityRates } from '../lib/utils';
+import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey } from '../lib/utils';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
 import { 
   supabase, 
@@ -513,7 +513,7 @@ export class DataStorageService {
             if (Array.isArray(parsed.rooms)) {
               parsed.rooms = parsed.rooms.map((r: any) => ({
                 ...r,
-                building: normalizeBuildingName(r.building)
+                building: getRoomBuildingKey(r, parsed.meetingRooms)
               }));
             }
 
@@ -550,6 +550,23 @@ export class DataStorageService {
               parsed.buildings = [...initialBuildings];
             } else {
               parsed.buildings = parsed.buildings.filter((b: any) => b.name !== 'Ruang Pertemuan' && b.id !== 'bld-5');
+            }
+
+            // Sinkronkan totalRooms pada master gedung sesuai dengan jumlah unit kamar riil di database
+            if (Array.isArray(parsed.buildings) && Array.isArray(parsed.rooms)) {
+              parsed.buildings = parsed.buildings.map((b: any) => {
+                if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
+                  return { ...b, totalRooms: 0 };
+                }
+                const actualCount = parsed.rooms.filter((r: any) => 
+                  getRoomBuildingKey(r, parsed.meetingRooms).toLowerCase() === b.name.toLowerCase() || 
+                  (r.building && r.building.toLowerCase() === b.name.toLowerCase())
+                ).length;
+                if (actualCount > 0 && b.totalRooms !== actualCount) {
+                  return { ...b, totalRooms: actualCount };
+                }
+                return b;
+              });
             }
 
             // Inisialisasi meetingRooms jika belum ada
@@ -983,15 +1000,97 @@ export class DataStorageService {
           totalRooms: 0
         };
       } else {
+        const requestedRooms = buildingWithId.totalRooms !== undefined && Number(buildingWithId.totalRooms) >= 0 
+          ? Number(buildingWithId.totalRooms) 
+          : 3;
+
+        // Cari kamar-kamar yang terdaftar untuk gedung ini
         const bldRooms = rooms.filter(r => 
           r.building.toLowerCase() === targetBuildingName.toLowerCase() || 
           (oldBuilding && r.building.toLowerCase() === oldBuilding.name.toLowerCase())
         );
 
-        // Pertahankan unit kamar yang sudah dikonfigurasi di denah penyewaan
+        if (requestedRooms !== bldRooms.length) {
+          if (requestedRooms > bldRooms.length) {
+            // Tambahkan kamar baru hingga mencapai requestedRooms
+            const diff = requestedRooms - bldRooms.length;
+            const bCode = buildingWithId.code ? buildingWithId.code.trim().toUpperCase() : 'RM';
+            const prefix = `${bCode}-`;
+            const floors = Math.max(1, Number(buildingWithId.floors) || 1);
+            
+            // Catat nomor kamar yang sudah ada agar tidak bentrok
+            const existingNums = new Set(rooms.map(r => r.roomNumber.toUpperCase()));
+            const newRooms: Room[] = [];
+            const defType = 'Standar';
+            const defBed = '4 Single Bed';
+            const matchedRate = findRoomRate(defType, defBed, db.roomCapacityRates || initialRoomCapacityRates);
+            const defPrice = matchedRate?.pricePerNight || 480000;
+            const defCap = `${matchedRate?.capacityPax || 4} Orang`;
+            const defFacilities = matchedRate?.facilities || [
+              'AC Split Dingin',
+              '4 Single Bed',
+              'Kamar Mandi Dalam',
+              'Water Heater',
+              'Linen Bersih UPT',
+              'Lemari 4 Pintu'
+            ];
+
+            let addedCount = 0;
+            let currentFloor = 1;
+            let currentRoomInFloor = 1;
+
+            while (addedCount < diff) {
+              const roomNum = `${prefix}${currentFloor}${currentRoomInFloor.toString().padStart(2, '0')}`;
+              if (!existingNums.has(roomNum.toUpperCase())) {
+                existingNums.add(roomNum.toUpperCase());
+                newRooms.push({
+                  id: `room-${Date.now()}-${currentFloor}-${currentRoomInFloor}-${Math.random().toString(36).substr(2, 4)}`,
+                  building: buildingWithId.name,
+                  roomNumber: roomNum,
+                  floor: currentFloor,
+                  type: defType,
+                  bedType: defBed,
+                  capacity: defCap,
+                  capacityNumber: matchedRate?.capacityPax || 4,
+                  pricePerNight: defPrice,
+                  facilities: defFacilities,
+                  status: 'KOSONG',
+                  qcStatus: 'LOLOS_QC',
+                  activeTxId: null,
+                  activeMaintId: null
+                });
+                addedCount++;
+              }
+              currentRoomInFloor++;
+              if (currentRoomInFloor > 50) {
+                currentRoomInFloor = 1;
+                currentFloor = (currentFloor % floors) + 1;
+              }
+            }
+            rooms = [...rooms, ...newRooms];
+          } else {
+            // requestedRooms < bldRooms.length: kurangi unit kamar surplus
+            // Prioritas simpan: kamar yang sedang TERISI / BOOKED / MAINTENANCE tidak boleh dihapus!
+            const diff = bldRooms.length - requestedRooms;
+            const safeRoomsToDelete = bldRooms.filter(r => 
+              r.status !== 'TERISI' && 
+              r.status !== 'BOOKED' && 
+              r.status !== 'MAINTENANCE' && 
+              !r.activeTxId
+            );
+            // Ambil dari kamar bernomor tertinggi ke bawah
+            const toDeleteIds = new Set(
+              safeRoomsToDelete
+                .slice(-diff)
+                .map(r => r.id)
+            );
+            rooms = rooms.filter(r => !toDeleteIds.has(r.id));
+          }
+        }
+
         updatedBuildings[idx] = {
           ...updatedBuildings[idx],
-          totalRooms: bldRooms.length > 0 ? bldRooms.length : (Number(buildingWithId.totalRooms) || 3)
+          totalRooms: requestedRooms
         };
       }
     } else {
@@ -1276,8 +1375,11 @@ export class DataStorageService {
       ? room.pricePerNight 
       : (matchedRate?.pricePerNight || 400000);
 
+    const effectiveBuilding = getRoomBuildingKey(room, db.meetingRooms);
+
     const roomWithId: Room = {
       ...room,
+      building: effectiveBuilding,
       id: room.id && room.id.trim() !== '' ? room.id : `room-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       type: assignedType,
       bedType: assignedBedType,
@@ -1338,8 +1440,11 @@ export class DataStorageService {
     }
 
     buildings = buildings.map(b => {
-      const count = updated.filter(r => r.building.toLowerCase() === b.name.toLowerCase()).length;
-      return { ...b, totalRooms: count };
+      if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
+        return { ...b, totalRooms: 0 };
+      }
+      const count = updated.filter(r => getRoomBuildingKey(r, db.meetingRooms).toLowerCase() === b.name.toLowerCase()).length;
+      return { ...b, totalRooms: count > 0 ? count : (b.totalRooms || 3) };
     });
 
     // Sinkronkan ke meetingRooms jika kamar/gedung ini berkategori Serbaguna / Aula

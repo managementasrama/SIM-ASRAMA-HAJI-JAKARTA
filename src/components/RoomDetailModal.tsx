@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAppContext, isSuperAdmin, isRecepRole } from '../store';
 import { Transaction, Room } from '../types';
-import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatRupiah, isMeetingFacility } from '../lib/utils';
+import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatRupiah, isMeetingFacility, normalizeBuildingName } from '../lib/utils';
 import { useBodyScrollLock } from '../lib/scrollLock';
 
 interface RoomDetailModalProps {
@@ -112,18 +112,24 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   );
   const realToday = getRealTodayDate();
 
+  // Pencocokan multi-field transaksi aktif untuk kamar ini
+  const isMatchRoom = (t: Transaction) => 
+    t.roomId === room.id || 
+    t.id === room.activeTxId || 
+    (t.roomNumber && t.roomNumber.toLowerCase() === room.roomNumber.toLowerCase() && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(room.building)));
+
   // For Ruang Pertemuan (Aula), booking on real today is automatically active / terlaksana today
   const terisiTxs = transactions.filter(t => 
-    t.roomId === room.id && 
+    isMatchRoom(t) && 
     (t.status === 'TERISI' || (isAula && t.status === 'BOOKED' && t.startDate === realToday))
   );
   const bookedTxs = transactions.filter(t => 
-    t.roomId === room.id && 
+    isMatchRoom(t) && 
     t.status === 'BOOKED' && 
     (!isAula || t.startDate > realToday)
   );
-  const pastTxs = transactions.filter(t => t.roomId === room.id && t.status === 'SELESAI');
-  const cancelledTxs = transactions.filter(t => t.roomId === room.id && t.status === 'DIBATALKAN');
+  const pastTxs = transactions.filter(t => isMatchRoom(t) && t.status === 'SELESAI');
+  const cancelledTxs = transactions.filter(t => isMatchRoom(t) && t.status === 'DIBATALKAN');
 
   const todayStr = realToday;
   const tomorrow = new Date();

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { BuildingStat } from './BuildingOccupancySection';
 import { Room, Transaction, Maintenance, MeetingRoom } from '../../types';
-import { formatIndonesianDate, formatRupiah, isMeetingFacility } from '../../lib/utils';
+import { formatIndonesianDate, formatRupiah, isMeetingFacility, getRoomBuildingKey, normalizeBuildingName } from '../../lib/utils';
 import { useBodyScrollLock } from '../../lib/scrollLock';
 import { useAppContext } from '../../store';
 
@@ -66,42 +66,6 @@ export function BuildingDetailModal({
     return list;
   }, [rooms, meetingRooms]);
 
-  // Helper akurat identik 100% dengan RoomsView (Manajemen Gedung)
-  const getRoomBuildingKey = (r: Room): string => {
-    // 1. Cek dari master meetingRooms jika terdaftar
-    const matchingMr = meetingRooms.find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
-    if (matchingMr) {
-      if (matchingMr.category === 'SERBAGUNA') {
-        return 'Gedung Serbaguna (SG)';
-      }
-      if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') {
-        return 'Ruang Pertemuan / Aula';
-      }
-      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
-        return matchingMr.building;
-      }
-      const nLower = matchingMr.name.toLowerCase().trim();
-      const cLower = (matchingMr.code || '').toLowerCase().trim();
-      const bLower = (matchingMr.building || '').toLowerCase().trim();
-      if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-        return 'Ruang Pertemuan / Aula';
-      }
-      if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
-        return 'Gedung Serbaguna (SG)';
-      }
-      return 'Ruang Pertemuan / Aula';
-    }
-
-    // 2. Evaluasi dari properti Room
-    if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
-      return 'Gedung Serbaguna (SG)';
-    }
-    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type)) {
-      return 'Ruang Pertemuan / Aula';
-    }
-    return r.building;
-  };
-
   // Filter kamar yang ada di gedung ini tersinkronisasi 100% dengan manajemen gedung (RoomsView)
   const buildingRooms = useMemo(() => {
     if (!building) return [];
@@ -111,7 +75,7 @@ export function BuildingDetailModal({
     const isTargetAula = !isTargetSG && (bLower.includes('pertemuan') || bLower.includes('aula') || isMeetingFacility(rawBName));
 
     const matched = allRoomsPool.filter(r => {
-      const roomKey = getRoomBuildingKey(r);
+      const roomKey = getRoomBuildingKey(r, meetingRooms);
       const rLower = (roomKey || '').toLowerCase().trim();
       const rNum = (r.roomNumber || '').toLowerCase().trim();
       const rType = (r.type || '').toLowerCase().trim();
@@ -171,7 +135,7 @@ export function BuildingDetailModal({
     // Sinkronisasikan status riil kamar dengan transaksi & perawatan terkini
     const liveEnrichedRooms = matched.map(rm => {
       const activeRoomTxs = transactions.filter(t => 
-        (t.roomId === rm.id || (t.roomNumber === rm.roomNumber && t.building === rm.building)) && 
+        (t.roomId === rm.id || t.id === rm.activeTxId || (t.roomNumber === rm.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(rm.building)))) && 
         t.status !== 'DIBATALKAN' && 
         t.status !== 'SELESAI'
       );
@@ -224,8 +188,9 @@ export function BuildingDetailModal({
     return transactions.filter(t => {
       const matchId = t.roomId && roomIds.has(t.roomId);
       const matchNum = t.roomNumber && roomNumbers.has(t.roomNumber.toLowerCase());
+      const matchTxId = buildingRooms.some(r => r.activeTxId === t.id);
       const isActive = t.status === 'TERISI' || t.status === 'BOOKED';
-      return (matchId || matchNum) && isActive;
+      return (matchId || matchNum || matchTxId) && isActive;
     });
   }, [building, buildingRooms, transactions]);
 
@@ -462,7 +427,7 @@ export function BuildingDetailModal({
                     : 'border-slate-200 dark:border-slate-700 hover:border-slate-400';
 
                   // Temukan nama tamu jika sedang terisi
-                  const currentTx = isTerisi || isBooked ? transactions.find(t => (t.roomId === rm.id || t.roomNumber === rm.roomNumber) && (t.status === 'TERISI' || t.status === 'BOOKED')) : null;
+                  const currentTx = isTerisi || isBooked ? (rm.activeTx || transactions.find(t => (t.roomId === rm.id || t.id === rm.activeTxId || (t.roomNumber === rm.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(rm.building)))) && (t.status === 'TERISI' || t.status === 'BOOKED'))) : null;
 
                   return (
                     <div

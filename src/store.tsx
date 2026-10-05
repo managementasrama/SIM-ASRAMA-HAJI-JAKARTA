@@ -22,7 +22,7 @@ import {
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages } from './chatData';
 import { playNotificationSound } from './lib/sound';
-import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates } from './lib/utils';
+import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
 import { supabase, syncFullDatabaseToSupabase } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
@@ -515,6 +515,93 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, []);
 
+  // =========================================================================
+  // LAYER VALIDASI STATE GLOBAL (ROOM & QC REAL-TIME SYNCHRONIZATION)
+  // Menjamin konsistensi status kamar, transaksi aktif, pemeliharaan & QC
+  // Menghindari data kamar tidak sinkron atau tamu cekin tak terlihat
+  // =========================================================================
+  const validateAndSyncRoomStates = (
+    currentRooms: Room[],
+    currentTransactions: Transaction[],
+    currentMaintenances: Maintenance[]
+  ): { nextRooms: Room[]; hasChanges: boolean } => {
+    let hasChanges = false;
+    const nextRooms = currentRooms.map(r => {
+      // Cari transaksi aktif untuk kamar ini dengan pencocokan multi-field
+      const matchingActiveTxs = currentTransactions.filter(t => 
+        (t.roomId === r.id || (t.roomNumber === r.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(r.building))) || t.id === r.activeTxId) &&
+        t.status !== 'DIBATALKAN' && 
+        t.status !== 'SELESAI'
+      );
+
+      const terisiTx = matchingActiveTxs.find(t => t.status === 'TERISI');
+      const bookedTx = matchingActiveTxs.find(t => t.status === 'BOOKED');
+      const activeMaint = currentMaintenances.find(m => 
+        (m.id === r.activeMaintId || m.roomId === r.id || (m.roomNumber === r.roomNumber && (!m.building || normalizeBuildingName(m.building) === normalizeBuildingName(r.building)))) && 
+        m.status !== 'SELESAI'
+      );
+
+      let targetStatus = r.status;
+      let targetActiveTxId = r.activeTxId;
+      let targetActiveMaintId = r.activeMaintId;
+      let targetQcStatus = r.qcStatus || 'LOLOS_QC';
+
+      if (activeMaint) {
+        targetStatus = 'MAINTENANCE';
+        targetActiveMaintId = activeMaint.id;
+        if (activeMaint.status === 'MENUNGGU_QC') {
+          targetQcStatus = 'MENUNGGU_QC';
+        } else if (activeMaint.qcVerdict === 'PERLU_PERBAIKAN' || targetQcStatus !== 'MENUNGGU_QC') {
+          targetQcStatus = 'PERLU_PERBAIKAN';
+        }
+      } else if (terisiTx) {
+        targetStatus = 'TERISI';
+        targetActiveTxId = terisiTx.id;
+        targetActiveMaintId = null;
+      } else if (bookedTx) {
+        if (targetStatus !== 'MAINTENANCE') {
+          targetStatus = 'BOOKED';
+        }
+        targetActiveTxId = bookedTx.id;
+      } else {
+        // Tidak ada transaksi aktif dan tidak ada maintenance berjalan
+        if (targetStatus === 'TERISI' || targetStatus === 'BOOKED') {
+          targetStatus = 'KOSONG';
+          targetActiveTxId = null;
+          if (targetQcStatus === 'LOLOS_QC') {
+            targetQcStatus = 'PERLU_INSPEKSI';
+          }
+        }
+        if (targetActiveTxId) {
+          targetActiveTxId = null;
+        }
+        if (targetStatus === 'MAINTENANCE' && !activeMaint) {
+          targetStatus = 'KOSONG';
+          targetActiveMaintId = null;
+        }
+      }
+
+      if (
+        r.status !== targetStatus ||
+        r.activeTxId !== targetActiveTxId ||
+        r.activeMaintId !== targetActiveMaintId ||
+        r.qcStatus !== targetQcStatus
+      ) {
+        hasChanges = true;
+        return {
+          ...r,
+          status: targetStatus,
+          activeTxId: targetActiveTxId,
+          activeMaintId: targetActiveMaintId,
+          qcStatus: targetQcStatus
+        };
+      }
+      return r;
+    });
+
+    return { nextRooms, hasChanges };
+  };
+
   // Sinkronisasi data awal saat aplikasi dibuka
   useEffect(() => {
     async function loadCloudDatabase() {
@@ -524,7 +611,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setUsers(cloudDb.users);
           setBuildings(cloudDb.buildings || []);
           setMeetingRooms(cloudDb.meetingRooms || []);
-          setRooms(cloudDb.rooms);
+          const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+            cloudDb.rooms || [],
+            cloudDb.transactions || [],
+            cloudDb.maintenances || []
+          );
+          setRooms(nextRooms);
           setTransactions(cloudDb.transactions);
           setMaintenances(cloudDb.maintenances);
           setAuditLogs(cloudDb.auditLogs);
@@ -540,6 +632,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
           setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+          if (hasChanges) {
+            dataStorage.saveRooms(nextRooms);
+          }
         } else {
           // Hanya jika Supabase tidak tersedia (offline), coba pulihkan dari cadangan lokal
           const recovery = dataStorage.tryRecoverLostData();
@@ -548,7 +643,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setUsers(rDb.users);
             setBuildings(rDb.buildings || []);
             setMeetingRooms(rDb.meetingRooms || []);
-            setRooms(rDb.rooms);
+            const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+              rDb.rooms || [],
+              rDb.transactions || [],
+              rDb.maintenances || []
+            );
+            setRooms(nextRooms);
             setTransactions(rDb.transactions);
             setMaintenances(rDb.maintenances);
             setAuditLogs(rDb.auditLogs);
@@ -556,7 +656,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setQcInspections(rDb.qcInspections);
             setBreakfastMenuItems(rDb.breakfastMenuItems || []);
             setBreakfastOrders(rDb.breakfastOrders || []);
+            if (hasChanges) {
+              dataStorage.saveRooms(nextRooms);
+            }
             showToast(recovery.message, 'success');
+          } else {
+            // Validasi state lokal jika belum terhidrasi
+            setRooms(prev => {
+              const { nextRooms, hasChanges } = validateAndSyncRoomStates(prev, transactions, maintenances);
+              if (hasChanges) dataStorage.saveRooms(nextRooms);
+              return nextRooms;
+            });
           }
         }
       } catch (err) {
@@ -574,7 +684,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setUsers(cloudDb.users);
         setBuildings(cloudDb.buildings || []);
         setMeetingRooms(cloudDb.meetingRooms || []);
-        setRooms(cloudDb.rooms);
+        const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+          cloudDb.rooms || [],
+          cloudDb.transactions || [],
+          cloudDb.maintenances || []
+        );
+        setRooms(nextRooms);
         setTransactions(cloudDb.transactions);
         setMaintenances(cloudDb.maintenances);
         setAuditLogs(cloudDb.auditLogs);
@@ -590,6 +705,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+        if (hasChanges) {
+          dataStorage.saveRooms(nextRooms);
+        }
         showToast('Sinkronisasi Supabase berhasil diperbarui!', 'success');
       } else {
         const pushRes = await dataStorage.pushAllToSupabase();
@@ -1357,17 +1475,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dataStorage.saveBreakfastOrder(newOrder);
     }
 
-    setRooms(prev => prev.map(r => {
-      if (r.id === tx.roomId) {
-        if (r.status === 'KOSONG') {
-          return { ...r, status: tx.status as any, activeTxId: tx.id };
+    setRooms(prev => {
+      const updatedRooms = prev.map(r => {
+        if (r.id === tx.roomId || (r.roomNumber === tx.roomNumber && (!tx.building || normalizeBuildingName(tx.building) === normalizeBuildingName(r.building)))) {
+          if (r.status === 'KOSONG' || tx.status === 'TERISI') {
+            return { ...r, status: tx.status as any, activeTxId: tx.id };
+          }
         }
-        if (tx.status === 'TERISI') {
-          return { ...r, status: tx.status as any, activeTxId: tx.id };
+        return r;
+      });
+      dataStorage.saveRooms(updatedRooms);
+      return updatedRooms;
+    });
+
+    setMeetingRooms(prev => {
+      const updatedMR = prev.map(mr => {
+        if (mr.id === tx.roomId || mr.name === tx.roomNumber) {
+          return {
+            ...mr,
+            status: tx.status === 'TERISI' ? 'TERPAKAI' : (tx.status === 'BOOKED' ? 'TERSEDIA' : mr.status),
+            activeTxId: tx.id
+          };
         }
-      }
-      return r;
-    }));
+        return mr;
+      });
+      dataStorage.saveMeetingRooms(updatedMR);
+      return updatedMR;
+    });
     logAudit(tx.status === 'BOOKED' ? "BOOKING" : "CHECKIN", `Untuk ${tx.roomNumber} (${tx.guestName})`);
     showToast(`Transaksi berhasil dikonfirmasi!`, "success");
   };
@@ -1755,22 +1889,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const updatedTxs = transactions.map(t => t.id === targetTxId ? { ...t, status: "SELESAI" as const } : t);
       setTransactions(updatedTxs);
+      dataStorage.saveTransactions(updatedTxs);
       
-      setRooms(prev => prev.map(r => {
-        if (r.id === roomId) {
-          const activeTxs = updatedTxs.filter(t => t.roomId === roomId && (t.status === 'TERISI' || t.status === 'BOOKED'));
-          const stillTerisi = activeTxs.find(t => t.status === 'TERISI');
-          if (stillTerisi) {
-            return { ...r, status: "TERISI", activeTxId: stillTerisi.id };
+      setRooms(prev => {
+        const nextR = prev.map(r => {
+          if (r.id === roomId || (room && (r.roomNumber === room.roomNumber && (!room.building || normalizeBuildingName(r.building) === normalizeBuildingName(room.building))))) {
+            const activeTxs = updatedTxs.filter(t => (t.roomId === r.id || (t.roomNumber === r.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(r.building))) || t.id === r.activeTxId) && (t.status === 'TERISI' || t.status === 'BOOKED'));
+            const stillTerisi = activeTxs.find(t => t.status === 'TERISI');
+            if (stillTerisi) {
+              return { ...r, status: "TERISI", activeTxId: stillTerisi.id };
+            }
+            const nextBooked = activeTxs.find(t => t.status === 'BOOKED');
+            if (nextBooked) {
+              return { ...r, status: "BOOKED", activeTxId: nextBooked.id, qcStatus: "PERLU_INSPEKSI" };
+            }
+            return { ...r, status: "KOSONG", activeTxId: null, qcStatus: "PERLU_INSPEKSI" };
           }
-          const nextBooked = activeTxs.find(t => t.status === 'BOOKED');
-          if (nextBooked) {
-            return { ...r, status: "BOOKED", activeTxId: nextBooked.id, qcStatus: "PERLU_INSPEKSI" };
+          return r;
+        });
+        dataStorage.saveRooms(nextR);
+        return nextR;
+      });
+
+      setMeetingRooms(prev => {
+        const updatedMR = prev.map(mr => {
+          if (mr.id === roomId || (room && mr.name === room.roomNumber)) {
+            return {
+              ...mr,
+              status: 'TERSEDIA',
+              activeTxId: null,
+              qcStatus: 'PERLU_INSPEKSI'
+            };
           }
-          return { ...r, status: "KOSONG", activeTxId: null, qcStatus: "PERLU_INSPEKSI" };
-        }
-        return r;
-      }));
+          return mr;
+        });
+        dataStorage.saveMeetingRooms(updatedMR);
+        return updatedMR;
+      });
       
       logAudit("Check-Out", `Check-out berhasil untuk ${guestName} di ruangan ${room?.roomNumber || roomId}. Status kamar kini Perlu Inspeksi QC.`);
       showToast(`Check-Out untuk ${guestName} (${room?.roomNumber || roomId}) berhasil! Kamar siap diinspeksi kebersihan QC.`, "success");
@@ -1857,21 +2012,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      setRooms(prev => prev.map(r => {
-        if (affectedRoomIds.has(r.id)) {
-          const activeTxs = updatedTxs.filter(t => (t.roomId === r.id || t.allocatedRoomNumbers?.includes(r.roomNumber)) && (t.status === 'TERISI' || t.status === 'BOOKED'));
-          const stillTerisi = activeTxs.find(t => t.status === 'TERISI');
-          if (stillTerisi) {
-            return { ...r, status: "TERISI", activeTxId: stillTerisi.id };
+      setRooms(prev => {
+        const nextR = prev.map(r => {
+          if (affectedRoomIds.has(r.id) || (room && (r.roomNumber === room.roomNumber && (!room.building || normalizeBuildingName(r.building) === normalizeBuildingName(room.building))))) {
+            const activeTxs = updatedTxs.filter(t => (t.roomId === r.id || t.allocatedRoomNumbers?.includes(r.roomNumber) || (t.roomNumber === r.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(r.building))) || t.id === r.activeTxId) && (t.status === 'TERISI' || t.status === 'BOOKED'));
+            const stillTerisi = activeTxs.find(t => t.status === 'TERISI');
+            if (stillTerisi) {
+              return { ...r, status: "TERISI", activeTxId: stillTerisi.id };
+            }
+            const nextBooked = activeTxs.find(t => t.status === 'BOOKED');
+            if (nextBooked) {
+              return { ...r, status: "BOOKED", activeTxId: nextBooked.id };
+            }
+            return { ...r, status: "KOSONG", activeTxId: null };
           }
-          const nextBooked = activeTxs.find(t => t.status === 'BOOKED');
-          if (nextBooked) {
-            return { ...r, status: "BOOKED", activeTxId: nextBooked.id };
+          return r;
+        });
+        dataStorage.saveRooms(nextR);
+        return nextR;
+      });
+
+      setMeetingRooms(prev => {
+        const updatedMR = prev.map(mr => {
+          if (affectedRoomIds.has(mr.id) || (room && mr.name === room.roomNumber)) {
+            return {
+              ...mr,
+              status: 'TERSEDIA',
+              activeTxId: null
+            };
           }
-          return { ...r, status: "KOSONG", activeTxId: null };
-        }
-        return r;
-      }));
+          return mr;
+        });
+        dataStorage.saveMeetingRooms(updatedMR);
+        return updatedMR;
+      });
       
       logAudit("Batal Booking", `Booking ${guestName} dibatalkan untuk unit ${room?.roomNumber || roomId}${reason ? ` (${reason})` : ''}. Status diperbarui menjadi DIBATALKAN.`);
       showToast(`Booking ${guestName} (${room?.roomNumber || roomId}) telah berhasil dibatalkan. Data tetap tersimpan dalam laporan dengan status DIBATALKAN.`, "success");
@@ -2005,7 +2179,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const updatedTxs = transactions.map(t => t.id === txIdToActivate ? { ...t, status: "TERISI" as const } : t);
     setTransactions(updatedTxs);
-    setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: "TERISI", activeTxId: txIdToActivate } : r));
+    dataStorage.saveTransactions(updatedTxs);
+    setRooms(prev => {
+      const nextR = prev.map(r => (r.id === room.id || r.roomNumber === room.roomNumber) ? { ...r, status: "TERISI", activeTxId: txIdToActivate } : r);
+      dataStorage.saveRooms(nextR);
+      return nextR;
+    });
+    setMeetingRooms(prev => {
+      const nextMR = prev.map(mr => (mr.id === room.id || mr.name === room.roomNumber) ? { ...mr, status: "TERPAKAI", activeTxId: txIdToActivate } : mr);
+      dataStorage.saveMeetingRooms(nextMR);
+      return nextMR;
+    });
 
     logAudit("Aktivasi Check-In", `Aktivasi status terisi dari booking ${room.roomNumber} (${guestName})`);
     showToast(`Check-In untuk ${room.roomNumber} (${guestName}) berhasil diaktifkan!`, "success");
@@ -2543,10 +2727,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (isLolos) {
       // 1. Mark Room / Meeting Hall as KOSONG & LOLOS_QC (Siap Huni / Disewa)
       setRooms(prev => prev.map(r => {
-        if (r.id === inspection.roomId) {
+        if (r.id === inspection.roomId || r.roomNumber === inspection.roomNumber) {
           return {
             ...r,
-            status: 'KOSONG',
+            status: (r.status === 'TERISI' ? 'TERISI' : 'KOSONG') as any,
             activeMaintId: null,
             qcStatus: 'LOLOS_QC',
             lastQcDate: inspection.inspectionDate,
@@ -2562,7 +2746,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (mr.id === inspection.roomId || mr.name === inspection.roomNumber) {
           return {
             ...mr,
-            status: 'TERSEDIA',
+            status: mr.status === 'TERPAKAI' ? 'TERPAKAI' : 'TERSEDIA',
             qcStatus: 'LOLOS_QC'
           };
         }
@@ -2572,7 +2756,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // 2. Resolve any associated maintenance tickets and dispatch completion email to Manager Teknisi
       const resolvedList: Maintenance[] = [];
       setMaintenances(prev => prev.map(m => {
-        if (m.roomId === inspection.roomId && (m.status === 'MENUNGGU_QC' || m.status === 'PROSES' || m.status === 'MENUNGGU_PENUGASAN')) {
+        if ((m.roomId === inspection.roomId || m.roomNumber === inspection.roomNumber) && (m.status === 'MENUNGGU_QC' || m.status === 'PROSES' || m.status === 'MENUNGGU_PENUGASAN')) {
           const resolvedMaint: Maintenance = {
             ...m,
             status: 'SELESAI',
@@ -2612,7 +2796,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } else if (isRevisi) {
       // REVISI: Hasil perbaikan teknisi belum tuntas / tidak memenuhi standar QC
       setRooms(prev => prev.map(r => {
-        if (r.id === inspection.roomId) {
+        if (r.id === inspection.roomId || r.roomNumber === inspection.roomNumber) {
           return {
             ...r,
             status: 'MAINTENANCE',
@@ -2638,7 +2822,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       // Kembalikan tiket maintenance ke PROSES agar teknisi memperbaikinya kembali
       setMaintenances(prev => prev.map(m => {
-        if (m.roomId === inspection.roomId && (m.status === 'MENUNGGU_QC' || m.status === 'PROSES')) {
+        if ((m.roomId === inspection.roomId || m.roomNumber === inspection.roomNumber) && (m.status === 'MENUNGGU_QC' || m.status === 'PROSES')) {
           return {
             ...m,
             status: 'PROSES',
@@ -2660,7 +2844,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const newMaintId = `MNT-QC-${Date.now().toString().slice(-4)}`;
 
       setRooms(prev => prev.map(r => {
-        if (r.id === inspection.roomId) {
+        if (r.id === inspection.roomId || r.roomNumber === inspection.roomNumber) {
           return {
             ...r,
             status: 'MAINTENANCE',
@@ -2707,6 +2891,108 @@ export function AppProvider({ children }: { children: ReactNode }) {
         `QC ${inspection.inspectorName} menyatakan ${inspection.roomNumber} (${inspection.building}) TIDAK LAYAK. Tiket dibuat dengan status MENUNGGU PENUGASAN dari Manager Teknisi.`
       );
       showToast(`Laporan QC tersimpan: ${inspection.roomNumber} TIDAK LAYAK. Diteruskan ke Manager Teknisi!`, "warning");
+    }
+
+    // Persistensi permanen ke dataStorage & sinkronisasi Supabase Cloud
+    try {
+      const currentDb = dataStorage.getDatabase();
+      let nextRooms = [...(currentDb.rooms || rooms)];
+      let nextMeetingRooms = [...(currentDb.meetingRooms || meetingRooms)];
+      let nextMaintenances = [...(currentDb.maintenances || maintenances)];
+
+      if (isLolos) {
+        nextRooms = nextRooms.map(r => (r.id === inspection.roomId || r.roomNumber === inspection.roomNumber) ? {
+          ...r,
+          status: (r.status === 'TERISI' ? 'TERISI' : 'KOSONG') as any,
+          activeMaintId: null,
+          qcStatus: 'LOLOS_QC',
+          lastQcDate: inspection.inspectionDate,
+          lastQcBy: inspection.inspectorName,
+          lastQcNotes: inspection.notes || 'Kondisi kamar/gedung bersih, fasilitas normal, dan LOLOS standar QC'
+        } : r);
+        nextMeetingRooms = nextMeetingRooms.map(mr => (mr.id === inspection.roomId || mr.name === inspection.roomNumber) ? {
+          ...mr,
+          status: mr.status === 'TERPAKAI' ? 'TERPAKAI' : 'TERSEDIA',
+          qcStatus: 'LOLOS_QC'
+        } : mr);
+        nextMaintenances = nextMaintenances.map(m => ((m.roomId === inspection.roomId || m.roomNumber === inspection.roomNumber) && (m.status === 'MENUNGGU_QC' || m.status === 'PROSES' || m.status === 'MENUNGGU_PENUGASAN')) ? {
+          ...m,
+          status: 'SELESAI',
+          resolvedTime: nowStr,
+          qcVerdict: 'LOLOS_QC',
+          qcInspectionId: inspection.id
+        } : m);
+      } else if (isRevisi) {
+        nextRooms = nextRooms.map(r => (r.id === inspection.roomId || r.roomNumber === inspection.roomNumber) ? {
+          ...r,
+          status: 'MAINTENANCE',
+          qcStatus: 'PERLU_PERBAIKAN',
+          lastQcDate: inspection.inspectionDate,
+          lastQcBy: inspection.inspectorName,
+          lastQcNotes: `[REVISI QC]: ${inspection.notes}`
+        } : r);
+        nextMeetingRooms = nextMeetingRooms.map(mr => (mr.id === inspection.roomId || mr.name === inspection.roomNumber) ? {
+          ...mr,
+          status: 'MAINTENANCE',
+          qcStatus: 'PERLU_PERBAIKAN'
+        } : mr);
+        nextMaintenances = nextMaintenances.map(m => ((m.roomId === inspection.roomId || m.roomNumber === inspection.roomNumber) && (m.status === 'MENUNGGU_QC' || m.status === 'PROSES')) ? {
+          ...m,
+          status: 'PROSES',
+          qcVerdict: 'PERLU_PERBAIKAN',
+          description: `${m.description} | [REVISI QC ${inspection.inspectorName}]: ${inspection.notes || 'Hasil perbaikan belum memenuhi standar, perlu perbaikan ulang.'}`
+        } : m);
+      } else {
+        const generatedMaintId = `MNT-QC-${Date.now().toString().slice(-4)}`;
+        nextRooms = nextRooms.map(r => (r.id === inspection.roomId || r.roomNumber === inspection.roomNumber) ? {
+          ...r,
+          status: 'MAINTENANCE',
+          activeMaintId: generatedMaintId,
+          qcStatus: 'PERLU_PERBAIKAN',
+          lastQcDate: inspection.inspectionDate,
+          lastQcBy: inspection.inspectorName,
+          lastQcNotes: inspection.notes || 'Ditemukan ketidaklayakan saat inspeksi QC. Diteruskan ke Manager Teknisi.'
+        } : r);
+        nextMeetingRooms = nextMeetingRooms.map(mr => (mr.id === inspection.roomId || mr.name === inspection.roomNumber) ? {
+          ...mr,
+          status: 'MAINTENANCE',
+          qcStatus: 'PERLU_PERBAIKAN'
+        } : mr);
+        const newMaintItem: Maintenance = {
+          id: generatedMaintId,
+          roomId: inspection.roomId,
+          roomNumber: inspection.roomNumber,
+          building: inspection.building,
+          category: 'Temuan Tidak Layak QC',
+          urgency: 'Tinggi',
+          description: `Laporan QC (${inspection.inspectorName}): ${inspection.notes || 'Fasilitas tidak memenuhi standar kelayakan, butuh perbaikan teknisi.'}`,
+          reportedUser: `QC - ${inspection.inspectorName}`,
+          reportTime: inspection.inspectionDate,
+          status: 'MENUNGGU_PENUGASAN',
+          technician: 'Menunggu Penugasan Manager Teknisi',
+          facilityType: inspection.facilityType || (inspection.roomNumber.includes('Aula') ? 'RUANG_PERTEMUAN' : 'KAMAR')
+        };
+        nextMaintenances = [newMaintItem, ...nextMaintenances.filter(m => m.id !== generatedMaintId)];
+      }
+
+      // Validasi layer untuk memastikan state kamar & denah 100% konsisten
+      const { nextRooms: validatedRooms } = validateAndSyncRoomStates(
+        nextRooms,
+        currentDb.transactions || transactions,
+        nextMaintenances
+      );
+
+      dataStorage.saveDatabase({
+        ...currentDb,
+        qcInspections: [inspection, ...(currentDb.qcInspections || []).filter(q => q.id !== inspection.id)],
+        rooms: validatedRooms,
+        meetingRooms: nextMeetingRooms,
+        maintenances: nextMaintenances
+      });
+      // Sinkronkan state rooms di global context agar denah penyewaan ter-update otomatis
+      setRooms(validatedRooms);
+    } catch (saveErr) {
+      console.error('Failed to persist QC inspection to dataStorage:', saveErr);
     }
   };
 

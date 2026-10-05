@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isTeknisiRole, isManagerTeknisi, isQcRole, isRecepRole, isKoperasiRole, isSuperAdmin } from '../store';
 import { OFFICIAL_TARIFFS, initialRoomCapacityRates, findRoomRate } from '../data';
 import { Room, Building, MeetingRoom, Transaction, RoomCapacityRate } from '../types';
-import { getRealTodayDate, getRealDateWithOffset, formatIndonesianDate, addDaysToDateStr, formatRupiah, getTxDays, compareBuildingOrder, isMeetingFacility, deduplicateRoomCapacityRates } from '../lib/utils';
+import { getRealTodayDate, getRealDateWithOffset, formatIndonesianDate, addDaysToDateStr, formatRupiah, getTxDays, compareBuildingOrder, isMeetingFacility, deduplicateRoomCapacityRates, getRoomBuildingKey, normalizeBuildingName } from '../lib/utils';
 import { BuildingModal, MeetingRoomModal, RoomModal, RoomCapacityRateModal, DeleteConfirmModal, ActionConfirmModal } from './CatalogManagementModals';
 
 // Helper for distinctive building-related icons for penginapan and other facilities
@@ -242,44 +242,8 @@ export function RoomsView() {
     return true;
   };
 
-  // Helper akurat untuk menentukan nama gedung pengelompokan ruangan pada Denah
-  const getRoomBuildingKey = (r: Room): string => {
-    // 1. Cek dari master meetingRooms jika terdaftar
-    const matchingMr = meetingRooms.find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
-    if (matchingMr) {
-      if (matchingMr.category === 'SERBAGUNA') {
-        return 'Gedung Serbaguna (SG)';
-      }
-      if (matchingMr.category === 'AULA' || matchingMr.category === 'RUANG_PERTEMUAN') {
-        return 'Ruang Pertemuan / Aula';
-      }
-      if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
-        return matchingMr.building;
-      }
-      const nLower = matchingMr.name.toLowerCase().trim();
-      const cLower = (matchingMr.code || '').toLowerCase().trim();
-      const bLower = (matchingMr.building || '').toLowerCase().trim();
-      if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-        return 'Ruang Pertemuan / Aula';
-      }
-      if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
-        return 'Gedung Serbaguna (SG)';
-      }
-      return 'Ruang Pertemuan / Aula';
-    }
-
-    // 2. Evaluasi dari properti Room
-    if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
-      return 'Gedung Serbaguna (SG)';
-    }
-    if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type)) {
-      return 'Ruang Pertemuan / Aula';
-    }
-    return r.building;
-  };
-
   const filteredRooms = rooms.filter(r => {
-    const effectiveBuilding = getRoomBuildingKey(r);
+    const effectiveBuilding = getRoomBuildingKey(r, meetingRooms);
 
     if (myZoneOnly && !isRoomInUserZone(effectiveBuilding)) return false;
 
@@ -329,7 +293,7 @@ export function RoomsView() {
   }
 
   filteredRooms.forEach(r => {
-    let bKey = getRoomBuildingKey(r);
+    let bKey = getRoomBuildingKey(r, meetingRooms);
     if (bKey === 'Ruang Pertemuan') bKey = 'Ruang Pertemuan / Aula';
     if (bKey === 'Gedung Serbaguna') bKey = 'Gedung Serbaguna (SG)';
     if (!grouped[bKey]) grouped[bKey] = [];
@@ -396,14 +360,14 @@ export function RoomsView() {
       room.roomNumber.toLowerCase().startsWith('sg')
     );
 
-    // Active transactions for this room
+    // Active transactions for this room with multi-field matching
     const activeRoomTxs = transactions.filter(t => 
-      t.roomId === room.id && 
+      (t.roomId === room.id || (t.roomNumber === room.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(room.building))) || t.id === room.activeTxId) && 
       t.status !== 'DIBATALKAN' && 
       t.status !== 'SELESAI'
     );
 
-    const activeTx = transactions.find(t => t.id === room.activeTxId);
+    const activeTx = activeRoomTxs.find(t => t.status === 'TERISI') || transactions.find(t => t.id === room.activeTxId) || activeRoomTxs[0];
     const evalDate = activeTx?.startDate || activeRoomTxs[0]?.startDate || realTodayStr;
 
     // =========================================================================
@@ -845,8 +809,8 @@ export function RoomsView() {
         }
 
         case 'TERISI': {
-          const bookedTxs = transactions.filter(t => t.roomId === room.id && t.status === 'BOOKED');
-          const terisiTxs = transactions.filter(t => t.roomId === room.id && t.status === 'TERISI');
+          const bookedTxs = activeRoomTxs.filter(t => t.status === 'BOOKED');
+          const terisiTxs = activeRoomTxs.filter(t => t.status === 'TERISI');
           borderClass = 'border-emerald-300 bg-emerald-50/60';
           statusBadge = (
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white flex items-center space-x-1">
@@ -867,7 +831,7 @@ export function RoomsView() {
                     <i className="fa-solid fa-user text-emerald-600 mr-1"></i> 
                     {terisiTxs.length > 1 
                       ? `${terisiTxs[0].guestName} (+${terisiTxs.length - 1})` 
-                      : (activeTx ? activeTx.guestName : 'Jemaah')}
+                      : (terisiTxs[0]?.guestName || activeTx?.guestName || 'Tamu Menginap')}
                   </span>
                   {activeTx?.extraBed && (
                     <span className="text-[9px] px-1 py-0.2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-bold shrink-0 ml-1" title={`${activeTx.extraBedCount || 1} Extra Bed`}>
@@ -2295,7 +2259,7 @@ export function RoomsView() {
 
                         const targetBName = isSG ? 'Gedung Serbaguna (SG)' : isAulaCat ? 'Ruang Pertemuan / Aula' : item.name;
                         const liveRooms = rooms.filter(r => {
-                          const bKey = getRoomBuildingKey(r);
+                          const bKey = getRoomBuildingKey(r, meetingRooms);
                           return bKey === targetBName;
                         });
                         const liveTotal = liveRooms.length;
@@ -2477,7 +2441,7 @@ export function RoomsView() {
 
                     const targetBName = isSG ? 'Gedung Serbaguna (SG)' : isAulaCat ? 'Ruang Pertemuan / Aula' : item.name;
                     const liveRooms = rooms.filter(r => {
-                      const bKey = getRoomBuildingKey(r);
+                      const bKey = getRoomBuildingKey(r, meetingRooms);
                       return bKey === targetBName;
                     });
                     const liveTotal = liveRooms.length;

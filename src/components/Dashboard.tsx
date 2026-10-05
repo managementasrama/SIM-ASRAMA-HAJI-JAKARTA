@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useAppContext, isKeuanganRole, isSuperAdmin, isRecepRole, isTeknisiRole, isQcRole, isKoperasiRole } from '../store';
 import { motion } from 'motion/react';
 import { GroupType, Transaction, Room, MeetingRoom } from '../types';
-import { addDaysToDateStr, formatIndonesianDate, getRealTodayDate, compareBuildingOrder, isMeetingFacility, formatRupiah } from '../lib/utils';
+import { addDaysToDateStr, formatIndonesianDate, getRealTodayDate, compareBuildingOrder, isMeetingFacility, formatRupiah, getRoomBuildingKey } from '../lib/utils';
 import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { calculateTransactionPricing } from '../lib/pricingCalculator';
@@ -760,20 +760,13 @@ export function Dashboard() {
 
       let bRooms: Room[] = [];
       if (isSG) {
-        bRooms = rooms.filter(isRoomSG);
+        bRooms = rooms.filter(r => getRoomBuildingKey(r, meetingRooms) === 'Gedung Serbaguna (SG)' || isRoomSG(r));
       } else if (isAula) {
-        bRooms = rooms.filter(isRoomAula);
+        bRooms = rooms.filter(r => getRoomBuildingKey(r, meetingRooms) === 'Ruang Pertemuan / Aula' || isRoomAula(r));
       } else {
         bRooms = rooms.filter(r => {
-          if (isRoomSG(r) || isRoomAula(r)) return false;
-          const rLower = (r.building || '').toLowerCase().trim();
-          const bLower = (b.name || '').toLowerCase().trim();
-          if (rLower === bLower) return true;
-          if (rLower.includes(bLower) || bLower.includes(rLower)) return true;
-          const aliases = ['arafah', 'muzdalifah', 'mina', 'madinah'];
-          for (const al of aliases) {
-            if (bLower.includes(al) && rLower.includes(al)) return true;
-          }
+          const rBldKey = getRoomBuildingKey(r, meetingRooms);
+          if (rBldKey.toLowerCase() === b.name.toLowerCase()) return true;
           return false;
         });
       }
