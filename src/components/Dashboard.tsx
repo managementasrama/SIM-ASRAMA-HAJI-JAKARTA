@@ -6,6 +6,7 @@ import { addDaysToDateStr, formatIndonesianDate, getRealTodayDate, compareBuildi
 import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { calculateTransactionPricing } from '../lib/pricingCalculator';
+import { calculateSystemFinancials } from '../lib/reportExporter';
 import { dataStorage } from '../services/dataStorage';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { OperationalStatsSection } from './dashboard/OperationalStatsSection';
@@ -180,44 +181,15 @@ export function Dashboard() {
 
   const [activePerspective, setActivePerspective] = useState<'ALL' | 'RESEPSIONIS' | 'KEUANGAN' | 'TEKNISI' | 'QC' | 'KOPERASI'>(defaultPerspective);
 
-  // Perhitungan Keuangan & PNBP untuk Tampilan Akun Keuangan & Pimpinan
+  // Perhitungan Keuangan & PNBP untuk Tampilan Akun Keuangan & Pimpinan (100% Sinkron dengan Laporan & Kwitansi)
   const financialStats = useMemo(() => {
-    let totalPenerimaanPnbp = 0;
-    let totalLunasCount = 0;
-    let totalBelumLunasCount = 0;
-    let totalSisaPiutang = 0;
-    let totalDpMasuk = 0;
-    const unpaidTxs: { tx: Transaction; pricing: any; sisaBayar: number; paid: number }[] = [];
-
-    transactions.forEach(tx => {
-      if (tx.status === 'DIBATALKAN') return;
-      const pricing = calculateTransactionPricing(tx, { rooms, roomCapacityRates, meetingRooms, breakfastMenuItems });
-      const grandTotal = pricing.grandTotal;
-      const paid = tx.alreadyPaid !== undefined ? tx.alreadyPaid : (tx.isPaid ? grandTotal : 0);
-      
-      totalPenerimaanPnbp += paid;
-      if (tx.isPaid || paid >= grandTotal) {
-        totalLunasCount++;
-      } else {
-        totalBelumLunasCount++;
-        const sisa = Math.max(0, grandTotal - paid);
-        totalSisaPiutang += sisa;
-        if (paid > 0) {
-          totalDpMasuk += paid;
-        }
-        unpaidTxs.push({ tx, pricing, sisaBayar: sisa, paid });
-      }
+    return calculateSystemFinancials(transactions, rooms, {
+      roomCapacityRates,
+      meetingRooms,
+      breakfastMenuItems,
+      realToday
     });
-
-    return {
-      totalPenerimaanPnbp,
-      totalLunasCount,
-      totalBelumLunasCount,
-      totalSisaPiutang,
-      totalDpMasuk,
-      unpaidTxs: unpaidTxs.sort((a, b) => b.sisaBayar - a.sisaBayar)
-    };
-  }, [transactions, rooms, roomCapacityRates, meetingRooms, breakfastMenuItems]);
+  }, [transactions, rooms, roomCapacityRates, meetingRooms, breakfastMenuItems, realToday]);
 
   // Perhitungan Katering & Konsumsi untuk Tampilan Akun Koperasi
   const cateringStats = useMemo(() => {

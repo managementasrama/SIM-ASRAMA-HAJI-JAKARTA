@@ -1706,32 +1706,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast("Akses Ditolak: Hanya staf Resepsionis yang berwenang memproses Check-In & Booking!", "error");
       return;
     }
+    const stampedTx: Transaction = {
+      ...tx,
+      createdAt: tx.createdAt || new Date().toISOString()
+    };
     setTransactions(prev => {
-      const next = [...prev, tx];
+      const next = [...prev, stampedTx];
       dataStorage.saveTransactions(next);
       return next;
     });
 
-    if (tx.breakfast && (!tx.cateringPackage || tx.cateringPackage !== 'TIDAK')) {
+    if (stampedTx.breakfast && (!stampedTx.cateringPackage || stampedTx.cateringPackage !== 'TIDAK')) {
       const newOrder: BreakfastOrder = {
-        id: `BO-TX-${tx.id}`,
-        roomNumber: tx.roomNumber,
-        building: tx.building,
-        guestName: tx.guestName,
-        phone: tx.phone,
-        kloter: tx.kloter,
-        transactionId: tx.id,
-        startDate: tx.startDate,
-        days: tx.breakfastDays || tx.duration || 1,
-        portions: tx.breakfastPortions || 1,
-        menuName: tx.breakfastMenu || (tx.building === 'Ruang Pertemuan' ? 'Snack Box Pertemuan & Kopi' : 'Nasi Goreng Spesial'),
+        id: `BO-TX-${stampedTx.id}`,
+        roomNumber: stampedTx.roomNumber,
+        building: stampedTx.building,
+        guestName: stampedTx.guestName,
+        phone: stampedTx.phone,
+        kloter: stampedTx.kloter,
+        transactionId: stampedTx.id,
+        startDate: stampedTx.startDate,
+        days: stampedTx.breakfastDays || stampedTx.duration || 1,
+        portions: stampedTx.breakfastPortions || 1,
+        menuName: stampedTx.breakfastMenu || (stampedTx.building === 'Ruang Pertemuan' ? 'Snack Box Pertemuan & Kopi' : 'Nasi Goreng Spesial'),
         deliveryTime: '06:30 WIB',
-        status: (tx.breakfastStatus as any) || 'MENUNGGU',
-        notes: tx.notes || (tx.building === 'Ruang Pertemuan' ? 'Konsumsi ruang pertemuan / aula' : 'Pesanan sarapan reservasi kamar'),
+        status: (stampedTx.breakfastStatus as any) || 'MENUNGGU',
+        notes: stampedTx.notes || (stampedTx.building === 'Ruang Pertemuan' ? 'Konsumsi ruang pertemuan / aula' : 'Pesanan sarapan reservasi kamar'),
         dietaryRestriction: 'Biasa',
         pricePerPortion: 25000,
-        totalPrice: (tx.breakfastPortions || 1) * 25000 * (tx.breakfastDays || tx.duration || 1),
-        createdAt: `${tx.startDate} 06:00:00`
+        totalPrice: (stampedTx.breakfastPortions || 1) * 25000 * (stampedTx.breakfastDays || stampedTx.duration || 1),
+        createdAt: stampedTx.createdAt || `${stampedTx.startDate} 06:00:00`
       };
       setBreakfastOrders(prev => [newOrder, ...prev.filter(o => o.id !== newOrder.id)]);
       dataStorage.saveBreakfastOrder(newOrder);
@@ -1773,15 +1777,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast("Akses Ditolak: Hanya staf Resepsionis & Admin yang berwenang mendaftarkan rombongan!", "error");
       return;
     }
+    const nowIso = new Date().toISOString();
+    const stampedTxList = txList.map(tx => ({
+      ...tx,
+      createdAt: tx.createdAt || nowIso
+    }));
     setTransactions(prev => {
-      const next = [...prev, ...txList];
+      const next = [...prev, ...stampedTxList];
       dataStorage.saveTransactions(next);
       return next;
     });
 
     // Create breakfast orders for group transactions that have breakfast
     const groupBreakfastOrders: BreakfastOrder[] = [];
-    txList.forEach(tx => {
+    stampedTxList.forEach(tx => {
       if (tx.breakfast && (!tx.cateringPackage || tx.cateringPackage !== 'TIDAK')) {
         const order: BreakfastOrder = {
           id: `BO-TX-${tx.id}`,

@@ -296,8 +296,10 @@ export interface Transaction {
   checkInTime?: string;
   checkOutTime?: string;
   paymentStatus?: 'LUNAS' | 'BELUM_LUNAS' | 'DP' | string;
+  isPaid?: boolean;
   paidAmount?: number;
   dpAmount?: number;
+  alreadyPaid?: number;
   dpDate?: string;
   dpMethod?: 'VA_UPT' | 'TRANSFER' | string;
   dpNote?: string;
@@ -310,6 +312,7 @@ export interface Transaction {
   paymentDate?: string;
   paymentNote?: string;
   kwitansiNo?: string;
+  createdAt?: string;
   cancelledAt?: string;
   cancelReason?: string;
   cancelledUser?: string;

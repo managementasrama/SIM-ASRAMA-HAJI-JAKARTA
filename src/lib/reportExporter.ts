@@ -74,8 +74,9 @@ export function consolidateGroupTransactions(
           groupMap.set(groupKey, []);
         }
         groupMap.get(groupKey)!.push(t);
+      } else {
+        individuList.push(t);
       }
-      individuList.push(t);
     }
   });
 
@@ -188,6 +189,299 @@ export function consolidateGroupTransactions(
   return { rombonganList, individuList, aulaList };
 }
 
+/**
+ * Ekstraksi timestamp pemesanan yang akurat untuk pengurutan data terbaru paling atas.
+ * Memprioritaskan createdAt, checkInTime, kombinasi tanggal startDate, dan nomor urut ID.
+ */
+export function getBookingTimestamp(tx?: Partial<Transaction> | null): number {
+  if (!tx) return 0;
+  if (tx.createdAt) {
+    const t = new Date(tx.createdAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (tx.checkInTime && tx.checkInTime.includes('-')) {
+    const t = new Date(tx.checkInTime).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (tx.startDate) {
+    const timePart = (tx.checkInTime && tx.checkInTime.includes(':'))
+      ? tx.checkInTime.slice(0, 5)
+      : '12:00';
+    const t = new Date(`${tx.startDate}T${timePart}:00`).getTime();
+    if (!isNaN(t) && t > 0) {
+      const numMatch = (tx.id || '').match(/\d+/g);
+      const tieBreaker = numMatch ? parseInt(numMatch.join(''), 10) % 100000 : 0;
+      return t + tieBreaker;
+    }
+  }
+  const numMatch = (tx.id || '').match(/\d+/g);
+  if (numMatch) {
+    return parseInt(numMatch.join(''), 10);
+  }
+  return 0;
+}
+
+/**
+ * Ekstraksi timestamp pemesanan untuk grup rombongan.
+ */
+export function getGroupBookingTimestamp(grp: ConsolidatedGroupRecord): number {
+  const repTime = getBookingTimestamp(grp.representativeTx);
+  if (repTime > 0) return repTime;
+  if (grp.memberTransactions && grp.memberTransactions.length > 0) {
+    return Math.max(...grp.memberTransactions.map(m => getBookingTimestamp(m)));
+  }
+  if (grp.startDate) {
+    const t = new Date(`${grp.startDate}T12:00:00`).getTime();
+    if (!isNaN(t)) return t;
+  }
+  return 0;
+}
+
+export interface SystemFinancialStats {
+  totalEstimatedPNBP: number;
+  totalPenerimaanPnbp: number;
+  pnbpHariIni: number;
+  totalSisaPiutang: number;
+  totalDpMasuk: number;
+  totalLunasCount: number;
+  totalBelumLunasCount: number;
+  totalBatalCount: number;
+  unpaidItems: {
+    id: string;
+    isGroup: boolean;
+    guestName: string;
+    building: string;
+    roomNumber?: string;
+    grandTotal: number;
+    paid: number;
+    sisaBayar: number;
+    hasDp: boolean;
+    status: string;
+    tx: Transaction;
+    groupRecord?: ConsolidatedGroupRecord;
+    groupKey?: string;
+  }[];
+  unpaidTxs: {
+    tx: Transaction;
+    pricing: any;
+    sisaBayar: number;
+    paid: number;
+    isGroup?: boolean;
+    groupRecord?: ConsolidatedGroupRecord;
+    groupKey?: string;
+  }[];
+}
+
+/**
+ * Kalkulasi keuangan & PNBP sentral terpadu yang 100% SINKRON antara:
+ * - Fokus Keuangan & PNBP Dashboard
+ * - Halaman Laporan Hunian Kamar & Booking Ruang Pertemuan
+ * - Lembar Invoice & Kwitansi Resmi
+ */
+export function calculateSystemFinancials(
+  transactions: Transaction[],
+  rooms: Room[] = [],
+  options?: {
+    roomCapacityRates?: any[];
+    meetingRooms?: any[];
+    breakfastMenuItems?: any[];
+    realToday?: string;
+  }
+): SystemFinancialStats {
+  const realToday = options?.realToday || getRealTodayDate();
+  const pricingOptions = {
+    rooms,
+    roomCapacityRates: options?.roomCapacityRates,
+    meetingRooms: options?.meetingRooms,
+    breakfastMenuItems: options?.breakfastMenuItems
+  };
+
+  const { rombonganList, individuList, aulaList } = consolidateGroupTransactions(transactions, rooms);
+
+  let totalEstimatedPNBP = 0;
+  let totalPenerimaanPnbp = 0;
+  let pnbpHariIni = 0;
+  let totalSisaPiutang = 0;
+  let totalDpMasuk = 0;
+  let totalLunasCount = 0;
+  let totalBelumLunasCount = 0;
+  let totalBatalCount = 0;
+
+  const unpaidItems: SystemFinancialStats['unpaidItems'] = [];
+
+  // 1. Rombongan List (Grup dihitung sebagai satu entitas resmi)
+  rombonganList.forEach(grp => {
+    const isBatal = grp.status === 'DIBATALKAN' || grp.status.includes('BATAL') || grp.status.includes('BATAK');
+    if (isBatal) {
+      totalBatalCount++;
+      return;
+    }
+
+    const pricing = calculateGroupPricing(grp, pricingOptions);
+    const grandTotal = pricing.grandTotal;
+    const rep = grp.representativeTx;
+
+    const isLunas = rep.paymentStatus === 'LUNAS' || rep.isPaid || (grp.memberTransactions && grp.memberTransactions.some(m => m.paymentStatus === 'LUNAS' || m.isPaid));
+    const maxMemberPaid = grp.memberTransactions ? grp.memberTransactions.reduce((acc, m) => Math.max(acc, Number(m.paidAmount || m.dpAmount || m.alreadyPaid || 0)), 0) : 0;
+    const repPaid = Number(rep.paidAmount || rep.dpAmount || rep.alreadyPaid || 0);
+    const alreadyPaid = isLunas ? grandTotal : Math.max(repPaid, maxMemberPaid);
+    const hasDp = rep.paymentStatus === 'DP' || (Boolean(rep.dpAmount) && Number(rep.dpAmount) > 0) || (alreadyPaid > 0 && !isLunas);
+    const sisaBayar = Math.max(0, grandTotal - alreadyPaid);
+
+    totalEstimatedPNBP += grandTotal;
+    totalPenerimaanPnbp += alreadyPaid;
+
+    const payDate = rep.paymentDate || rep.dpDate || (isLunas ? rep.startDate : '');
+    if (payDate === realToday && alreadyPaid > 0) {
+      pnbpHariIni += alreadyPaid;
+    }
+
+    if (isLunas || alreadyPaid >= grandTotal) {
+      totalLunasCount++;
+    } else {
+      totalBelumLunasCount++;
+      totalSisaPiutang += sisaBayar;
+      if (alreadyPaid > 0) {
+        totalDpMasuk += alreadyPaid;
+      }
+      unpaidItems.push({
+        id: grp.groupId || grp.key,
+        isGroup: true,
+        guestName: `${grp.groupName} (PIC: ${grp.groupPic})`,
+        building: grp.buildingsList.join(', '),
+        roomNumber: `${grp.allRoomNumbers.length} Kamar`,
+        grandTotal,
+        paid: alreadyPaid,
+        sisaBayar,
+        hasDp,
+        status: grp.status,
+        tx: rep,
+        groupRecord: grp,
+        groupKey: grp.key
+      });
+    }
+  });
+
+  // 2. Individu List (Hunian kamar non-grup)
+  individuList.forEach(tx => {
+    const isBatal = tx.status === 'DIBATALKAN' || tx.status.includes('BATAL') || tx.status.includes('BATAK');
+    if (isBatal) {
+      totalBatalCount++;
+      return;
+    }
+
+    const pricing = calculateTransactionPricing(tx, pricingOptions);
+    const grandTotal = pricing.grandTotal;
+    const isLunas = tx.paymentStatus === 'LUNAS' || tx.isPaid;
+    const alreadyPaid = isLunas ? grandTotal : Number(tx.paidAmount || tx.dpAmount || tx.alreadyPaid || 0);
+    const hasDp = tx.paymentStatus === 'DP' || (Boolean(tx.dpAmount) && Number(tx.dpAmount) > 0) || (alreadyPaid > 0 && !isLunas);
+    const sisaBayar = Math.max(0, grandTotal - alreadyPaid);
+
+    totalEstimatedPNBP += grandTotal;
+    totalPenerimaanPnbp += alreadyPaid;
+
+    const payDate = tx.paymentDate || tx.dpDate || (isLunas ? tx.startDate : '');
+    if (payDate === realToday && alreadyPaid > 0) {
+      pnbpHariIni += alreadyPaid;
+    }
+
+    if (isLunas || alreadyPaid >= grandTotal) {
+      totalLunasCount++;
+    } else {
+      totalBelumLunasCount++;
+      totalSisaPiutang += sisaBayar;
+      if (alreadyPaid > 0) {
+        totalDpMasuk += alreadyPaid;
+      }
+      unpaidItems.push({
+        id: tx.id,
+        isGroup: false,
+        guestName: tx.guestName,
+        building: tx.building,
+        roomNumber: `Kamar ${tx.roomNumber}`,
+        grandTotal,
+        paid: alreadyPaid,
+        sisaBayar,
+        hasDp,
+        status: tx.status,
+        tx
+      });
+    }
+  });
+
+  // 3. Aula List (Sewa Ruang Pertemuan / Gedung SG)
+  aulaList.forEach(tx => {
+    const isBatal = tx.status === 'DIBATALKAN' || tx.status.includes('BATAL') || tx.status.includes('BATAK');
+    if (isBatal) {
+      totalBatalCount++;
+      return;
+    }
+
+    const pricing = calculateTransactionPricing(tx, pricingOptions);
+    const grandTotal = pricing.grandTotal;
+    const isLunas = tx.paymentStatus === 'LUNAS' || tx.isPaid;
+    const alreadyPaid = isLunas ? grandTotal : Number(tx.paidAmount || tx.dpAmount || tx.alreadyPaid || 0);
+    const hasDp = tx.paymentStatus === 'DP' || (Boolean(tx.dpAmount) && Number(tx.dpAmount) > 0) || (alreadyPaid > 0 && !isLunas);
+    const sisaBayar = Math.max(0, grandTotal - alreadyPaid);
+
+    totalEstimatedPNBP += grandTotal;
+    totalPenerimaanPnbp += alreadyPaid;
+
+    const payDate = tx.paymentDate || tx.dpDate || (isLunas ? tx.startDate : '');
+    if (payDate === realToday && alreadyPaid > 0) {
+      pnbpHariIni += alreadyPaid;
+    }
+
+    if (isLunas || alreadyPaid >= grandTotal) {
+      totalLunasCount++;
+    } else {
+      totalBelumLunasCount++;
+      totalSisaPiutang += sisaBayar;
+      if (alreadyPaid > 0) {
+        totalDpMasuk += alreadyPaid;
+      }
+      unpaidItems.push({
+        id: tx.id,
+        isGroup: false,
+        guestName: tx.guestName,
+        building: tx.building,
+        roomNumber: tx.roomNumber,
+        grandTotal,
+        paid: alreadyPaid,
+        sisaBayar,
+        hasDp,
+        status: tx.status,
+        tx
+      });
+    }
+  });
+
+  unpaidItems.sort((a, b) => b.sisaBayar - a.sisaBayar);
+
+  const unpaidTxs = unpaidItems.map(item => ({
+    tx: item.tx,
+    pricing: { grandTotal: item.grandTotal },
+    sisaBayar: item.sisaBayar,
+    paid: item.paid,
+    isGroup: item.isGroup,
+    groupRecord: item.groupRecord,
+    groupKey: item.groupKey
+  }));
+
+  return {
+    totalEstimatedPNBP,
+    totalPenerimaanPnbp,
+    pnbpHariIni,
+    totalSisaPiutang,
+    totalDpMasuk,
+    totalLunasCount,
+    totalBelumLunasCount,
+    totalBatalCount,
+    unpaidItems,
+    unpaidTxs
+  };
+}
+
 export function filterDataByPeriod<T>(
   items: T[],
   period: ReportPeriod,
@@ -292,6 +586,10 @@ export function generateReportData(params: ReportExportParams) {
         filteredAula = [];
       }
     }
+
+    filteredRombongan.sort((a, b) => getGroupBookingTimestamp(b) - getGroupBookingTimestamp(a));
+    filteredIndividu.sort((a, b) => getBookingTimestamp(b) - getBookingTimestamp(a));
+    filteredAula.sort((a, b) => getBookingTimestamp(b) - getBookingTimestamp(a));
 
     // Pastikan seluruh kategori (Rombongan, Kamar Individu, dan Ruang Pertemuan) tetap tercantum lengkap
     let rowCounter = 1;
@@ -445,6 +743,8 @@ export function generateReportData(params: ReportExportParams) {
 
     let filtered = filterDataByPeriod(transactions, period, t => t.startDate);
     const { rombonganList, aulaList } = consolidateGroupTransactions(filtered, rooms);
+    rombonganList.sort((a, b) => getGroupBookingTimestamp(b) - getGroupBookingTimestamp(a));
+    aulaList.sort((a, b) => getBookingTimestamp(b) - getBookingTimestamp(a));
 
     let rowCounter = 1;
     let totalAulaPnbp = 0;

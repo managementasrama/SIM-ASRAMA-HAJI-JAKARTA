@@ -524,6 +524,7 @@ export function Modals() {
 
     const tx: Transaction = {
       id: `TRX-${Math.floor(1000 + Math.random() * 9000)}`,
+      createdAt: new Date().toISOString(),
       roomId: room.id,
       building: room.building,
       roomNumber: room.roomNumber,

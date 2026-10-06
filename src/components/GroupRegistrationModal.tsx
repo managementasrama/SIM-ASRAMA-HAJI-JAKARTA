@@ -379,6 +379,7 @@ export function GroupRegistrationModal({
       const txId = `TRX-${Date.now().toString().slice(-4)}${idx + 1}`;
       newTransactions.push({
         id: txId,
+        createdAt: new Date().toISOString(),
         roomId: roomObj.id,
         building: roomObj.building,
         roomNumber: roomObj.roomNumber,
@@ -438,6 +439,7 @@ export function GroupRegistrationModal({
       const meetingTxId = `TRX-AULA-${Date.now().toString().slice(-4)}`;
       newTransactions.push({
         id: meetingTxId,
+        createdAt: new Date().toISOString(),
         roomId: meetingObj.id,
         building: meetingObj.building,
         roomNumber: meetingObj.roomNumber,

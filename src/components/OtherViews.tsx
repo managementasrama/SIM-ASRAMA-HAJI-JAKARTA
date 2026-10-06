@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAppContext, formatHMS, isTeknisiRole, isManagerTeknisi, isManagerQc, isKoperasiRole, isRecepRole, isQcRole, isSuperAdmin, isKeuanganRole } from '../store';
 import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatIndonesianDateTime, parseLocalTimeString, isMeetingFacility, compareBuildingOrder, formatRupiah } from '../lib/utils';
 import { Transaction, Maintenance, WorkSession, BreakfastMenuItem, BreakfastOrder, AuditLog } from '../types';
-import { consolidateGroupTransactions } from '../lib/reportExporter';
+import { consolidateGroupTransactions, calculateSystemFinancials, getBookingTimestamp, getGroupBookingTimestamp } from '../lib/reportExporter';
 import { calculateTransactionPricing, calculateGroupPricing } from '../lib/pricingCalculator';
 import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
@@ -13,6 +13,7 @@ export function ReportsView() {
   const { currentUser, transactions, rooms, openModal, showToast, roomCapacityRates = [], meetingRooms = [], breakfastMenuItems = [] } = useAppContext();
   const [activeTab, setActiveTab] = useState<'ALL' | 'ROMBONGAN' | 'INDIVIDU' | 'AULA'>('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState<'NEWEST_BOOKING' | 'NEWEST_CHECKIN' | 'OLDEST_CHECKIN' | 'GUEST_NAME' | 'HIGHEST_PRICE'>('NEWEST_BOOKING');
   const [search, setSearch] = useState('');
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Record<string, boolean>>({});
 
@@ -66,7 +67,83 @@ export function ReportsView() {
     return consolidateGroupTransactions(filteredTransactions, rooms);
   }, [filteredTransactions, rooms]);
 
-  // Overall Statistics & Nilai PNBP
+  // Urutan Laporan: Default adalah Pemesanan Terbaru (Paling Atas)
+  const sortedRombonganList = useMemo(() => {
+    return [...rombonganList].sort((a, b) => {
+      if (sortBy === 'NEWEST_BOOKING') {
+        const timeA = getGroupBookingTimestamp(a);
+        const timeB = getGroupBookingTimestamp(b);
+        return timeB - timeA;
+      }
+      if (sortBy === 'NEWEST_CHECKIN') {
+        return (b.startDate || '').localeCompare(a.startDate || '');
+      }
+      if (sortBy === 'OLDEST_CHECKIN') {
+        return (a.startDate || '').localeCompare(b.startDate || '');
+      }
+      if (sortBy === 'GUEST_NAME') {
+        return (a.groupName || '').localeCompare(b.groupName || '');
+      }
+      if (sortBy === 'HIGHEST_PRICE') {
+        const pA = calculateGroupPricing(a, pricingOptions).grandTotal;
+        const pB = calculateGroupPricing(b, pricingOptions).grandTotal;
+        return pB - pA;
+      }
+      return 0;
+    });
+  }, [rombonganList, sortBy, pricingOptions]);
+
+  const sortedIndividuList = useMemo(() => {
+    return [...individuList].sort((a, b) => {
+      if (sortBy === 'NEWEST_BOOKING') {
+        const timeA = getBookingTimestamp(a);
+        const timeB = getBookingTimestamp(b);
+        return timeB - timeA;
+      }
+      if (sortBy === 'NEWEST_CHECKIN') {
+        return (b.startDate || '').localeCompare(a.startDate || '');
+      }
+      if (sortBy === 'OLDEST_CHECKIN') {
+        return (a.startDate || '').localeCompare(b.startDate || '');
+      }
+      if (sortBy === 'GUEST_NAME') {
+        return (a.guestName || '').localeCompare(b.guestName || '');
+      }
+      if (sortBy === 'HIGHEST_PRICE') {
+        const pA = calculateTransactionPricing(a, pricingOptions).grandTotal;
+        const pB = calculateTransactionPricing(b, pricingOptions).grandTotal;
+        return pB - pA;
+      }
+      return 0;
+    });
+  }, [individuList, sortBy, pricingOptions]);
+
+  const sortedAulaList = useMemo(() => {
+    return [...aulaList].sort((a, b) => {
+      if (sortBy === 'NEWEST_BOOKING') {
+        const timeA = getBookingTimestamp(a);
+        const timeB = getBookingTimestamp(b);
+        return timeB - timeA;
+      }
+      if (sortBy === 'NEWEST_CHECKIN') {
+        return (b.startDate || '').localeCompare(a.startDate || '');
+      }
+      if (sortBy === 'OLDEST_CHECKIN') {
+        return (a.startDate || '').localeCompare(b.startDate || '');
+      }
+      if (sortBy === 'GUEST_NAME') {
+        return (a.guestName || '').localeCompare(b.guestName || '');
+      }
+      if (sortBy === 'HIGHEST_PRICE') {
+        const pA = calculateTransactionPricing(a, pricingOptions).grandTotal;
+        const pB = calculateTransactionPricing(b, pricingOptions).grandTotal;
+        return pB - pA;
+      }
+      return 0;
+    });
+  }, [aulaList, sortBy, pricingOptions]);
+
+  // Overall Statistics & Nilai PNBP Terpadu
   const totalRombonganCount = rombonganList.length;
   const rombonganActiveCount = rombonganList.filter(r => r.status === 'TERISI' || r.status === 'BOOKED').length;
   const rombonganBatalCount = rombonganList.filter(r => r.status === 'DIBATALKAN' || r.status.includes('BATAL')).length;
@@ -81,47 +158,19 @@ export function ReportsView() {
 
   const totalBatalCount = rombonganBatalCount + individuBatalCount + aulaBatalCount;
 
-  const { totalEstimatedPNBP, totalRealisasiKas, totalPiutang } = useMemo(() => {
-    let sumPNBP = 0;
-    let sumPaid = 0;
-
-    rombonganList.forEach(grp => {
-      const isBatal = grp.status === 'DIBATALKAN' || grp.status.includes('BATAL') || grp.status.includes('BATAK');
-      if (!isBatal) {
-        const p = calculateGroupPricing(grp, pricingOptions).grandTotal;
-        sumPNBP += p;
-        const rep = grp.representativeTx;
-        const paid = rep.paymentStatus === 'LUNAS' ? p : Number(rep.paidAmount || rep.dpAmount || 0);
-        sumPaid += paid;
-      }
+  // Sinkronisasi PNBP Sentral (100% sama dengan Dashboard & Kwitansi)
+  const systemFinancials = useMemo(() => {
+    return calculateSystemFinancials(filteredTransactions, rooms, {
+      roomCapacityRates,
+      meetingRooms,
+      breakfastMenuItems,
+      realToday: getRealTodayDate()
     });
+  }, [filteredTransactions, rooms, roomCapacityRates, meetingRooms, breakfastMenuItems]);
 
-    individuList.forEach(tx => {
-      const isBatal = tx.status === 'DIBATALKAN' || tx.status.includes('BATAL') || tx.status.includes('BATAK');
-      if (!isBatal) {
-        const p = calculateTransactionPricing(tx, pricingOptions).grandTotal;
-        sumPNBP += p;
-        const paid = tx.paymentStatus === 'LUNAS' ? p : Number(tx.paidAmount || tx.dpAmount || 0);
-        sumPaid += paid;
-      }
-    });
-
-    aulaList.forEach(tx => {
-      const isBatal = tx.status === 'DIBATALKAN' || tx.status.includes('BATAL') || tx.status.includes('BATAK');
-      if (!isBatal) {
-        const p = calculateTransactionPricing(tx, pricingOptions).grandTotal;
-        sumPNBP += p;
-        const paid = tx.paymentStatus === 'LUNAS' ? p : Number(tx.paidAmount || tx.dpAmount || 0);
-        sumPaid += paid;
-      }
-    });
-
-    return {
-      totalEstimatedPNBP: sumPNBP,
-      totalRealisasiKas: sumPaid,
-      totalPiutang: Math.max(0, sumPNBP - sumPaid)
-    };
-  }, [rombonganList, individuList, aulaList, pricingOptions]);
+  const totalEstimatedPNBP = systemFinancials.totalEstimatedPNBP;
+  const totalRealisasiKas = systemFinancials.totalPenerimaanPnbp;
+  const totalPiutang = systemFinancials.totalSisaPiutang;
 
   return (
     <div className="space-y-6">
@@ -273,6 +322,20 @@ export function ReportsView() {
               <option value="SELESAI">Selesai (Check-Out)</option>
               <option value="DIBATALKAN">Dibatalkan</option>
             </select>
+
+            {/* Sort Filter: Default Pemesanan Terbaru (Paling Atas) */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              aria-label="Urutan Tampilan Laporan"
+              className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+            >
+              <option value="NEWEST_BOOKING">⚡ Pemesanan Terbaru (Teratas)</option>
+              <option value="NEWEST_CHECKIN">📅 Check-In Terbaru</option>
+              <option value="OLDEST_CHECKIN">📅 Check-In Terlama</option>
+              <option value="GUEST_NAME">🔤 Nama Tamu / Rombongan (A-Z)</option>
+              <option value="HIGHEST_PRICE">💰 Nilai PNBP Terbesar</option>
+            </select>
           </div>
         </div>
 
@@ -300,7 +363,7 @@ export function ReportsView() {
               </div>
             ) : (
               <div className="space-y-3">
-                {rombonganList.map((grp) => {
+                {sortedRombonganList.map((grp) => {
                   const isExpanded = Boolean(expandedGroupKeys[grp.key]);
                   const checkoutDate = addDaysToDateStr(grp.startDate, grp.duration);
                   const grpPrice = calculateGroupPricing(grp, pricingOptions);
@@ -589,7 +652,7 @@ export function ReportsView() {
                       </td>
                     </tr>
                   ) : (
-                    individuList.map(tx => {
+                    sortedIndividuList.map(tx => {
                       const checkoutDate = addDaysToDateStr(tx.startDate, tx.duration);
                       const matchingRoom = rooms.find(r => r.id === tx.roomId || r.roomNumber === tx.roomNumber);
                       const txPrice = calculateTransactionPricing(tx, pricingOptions);
@@ -788,7 +851,7 @@ export function ReportsView() {
                       </td>
                     </tr>
                   ) : (
-                    aulaList.map(tx => {
+                    sortedAulaList.map(tx => {
                       const aulaDaysCount = Math.max(1, Math.ceil(tx.duration / 24));
                       const endDateStr = addDaysToDateStr(tx.startDate, aulaDaysCount - 1);
                       const aulaPrice = calculateTransactionPricing(tx, pricingOptions);

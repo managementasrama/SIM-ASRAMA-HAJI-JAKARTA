@@ -425,7 +425,17 @@ interface FinancialBillingPanelProps {
     totalBelumLunasCount: number;
     totalSisaPiutang: number;
     totalDpMasuk: number;
-    unpaidTxs: { tx: Transaction; pricing: any; sisaBayar: number; paid: number }[];
+    pnbpHariIni?: number;
+    totalEstimatedPNBP?: number;
+    unpaidTxs: { 
+      tx: Transaction; 
+      pricing: any; 
+      sisaBayar: number; 
+      paid: number;
+      isGroup?: boolean;
+      groupRecord?: any;
+      groupKey?: string;
+    }[];
   };
   openModal: (modal: string, data?: any) => void;
   setActiveTab: (tab: string) => void;
@@ -528,34 +538,44 @@ export function FinancialBillingPanel({
               </p>
             </div>
           ) : (
-            filtered.slice(0, 8).map(({ tx, sisaBayar, paid }) => (
+            filtered.slice(0, 8).map(({ tx, sisaBayar, paid, isGroup, groupRecord, groupKey }) => (
               <div
-                key={tx.id}
+                key={isGroup ? `grp-${groupKey || tx.groupId || tx.id}` : tx.id}
                 className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-xs text-slate-900 dark:text-slate-100">{tx.guestName}</span>
+                    <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                      {isGroup ? (groupRecord?.groupName || tx.groupName || tx.guestName) : tx.guestName}
+                    </span>
+                    {isGroup && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                        Rombongan
+                      </span>
+                    )}
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
                       Sisa: {formatRupiah(sisaBayar)}
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    {tx.building} • Kamar {tx.roomNumber} • Telah Dibayar: <strong className="text-emerald-600">{formatRupiah(paid)}</strong>
+                    {isGroup 
+                      ? `${groupRecord?.buildingsList?.join(', ') || tx.building} • ${groupRecord?.allRoomNumbers?.length || 1} Kamar`
+                      : `${tx.building} • ${tx.roomNumber ? `Kamar ${tx.roomNumber}` : 'Fasilitas'}`
+                    } • Telah Dibayar: <strong className="text-emerald-600">{formatRupiah(paid)}</strong>
                   </p>
                 </div>
 
                 <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
                   <button
                     type="button"
-                    onClick={() => openModal('modalInvoice', { transaction: tx })}
+                    onClick={() => openModal('modalInvoice', isGroup ? { transaction: tx, groupKey, groupRecord } : { transaction: tx })}
                     className="px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-bold transition cursor-pointer"
                   >
                     Invoice
                   </button>
                   <button
                     type="button"
-                    onClick={() => openModal('modalKwitansi', { transaction: tx })}
+                    onClick={() => openModal('modalKwitansi', isGroup ? { transaction: tx, groupKey, groupRecord } : { transaction: tx })}
                     className="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition cursor-pointer"
                   >
                     Kwitansi

@@ -14,7 +14,17 @@ interface RoleWorkspaceBannerProps {
     totalBelumLunasCount: number;
     totalSisaPiutang: number;
     totalDpMasuk: number;
-    unpaidTxs: { tx: Transaction; pricing: any; sisaBayar: number; paid: number }[];
+    pnbpHariIni?: number;
+    totalEstimatedPNBP?: number;
+    unpaidTxs: { 
+      tx: Transaction; 
+      pricing: any; 
+      sisaBayar: number; 
+      paid: number;
+      isGroup?: boolean;
+      groupRecord?: any;
+      groupKey?: string;
+    }[];
   };
   cateringStats: {
     todayOrders: any[];
@@ -464,7 +474,12 @@ export function RoleWorkspaceBanner({
                 <div className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 mt-1">
                   {formatRupiah(financialStats.totalPenerimaanPnbp)}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">{financialStats.totalLunasCount} Transaksi Lunas</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  <span>{financialStats.totalLunasCount} Transaksi Lunas</span>
+                  {Boolean(financialStats.pnbpHariIni && financialStats.pnbpHariIni > 0) && (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold block">Hari Ini: +{formatRupiah(financialStats.pnbpHariIni || 0)}</span>
+                  )}
+                </div>
               </div>
 
               <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
@@ -473,7 +488,7 @@ export function RoleWorkspaceBanner({
                   {formatRupiah(financialStats.totalSisaPiutang)}
                 </div>
                 <div className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold mt-0.5">
-                  {financialStats.totalBelumLunasCount} Invoice Belum Lunas
+                  {financialStats.totalBelumLunasCount} Tagihan Belum Lunas
                 </div>
               </div>
 
@@ -482,7 +497,9 @@ export function RoleWorkspaceBanner({
                 <div className="text-base sm:text-lg font-black text-blue-700 dark:text-blue-400 mt-1">
                   {formatRupiah(financialStats.totalDpMasuk)}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">DP Pemesanan Terbayar</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  Estimasi Total: {formatRupiah(financialStats.totalEstimatedPNBP || (financialStats.totalPenerimaanPnbp + financialStats.totalSisaPiutang))}
+                </div>
               </div>
 
               <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex flex-col justify-between">
@@ -496,7 +513,7 @@ export function RoleWorkspaceBanner({
                   className="mt-2 w-full py-1.5 px-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                 >
                   <i className="fa-solid fa-receipt text-[10px]"></i>
-                  <span>Cek Penagihan Piutang</span>
+                  <span>Cek Laporan &amp; Kwitansi</span>
                 </button>
               </div>
             </div>
