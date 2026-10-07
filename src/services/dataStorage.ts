@@ -43,6 +43,8 @@ import {
   updateUserInSupabaseDirect,
   updateMeetingRoomInSupabaseDirect,
   updateMaintenanceInSupabaseDirect,
+  updateBuildingInSupabaseDirect,
+  updateRoomCapacityRateInSupabaseDirect,
   type SupabaseSyncState 
 } from '../lib/supabase';
 
@@ -1413,6 +1415,10 @@ export class DataStorageService {
       users,
       meetingRooms
     });
+    updateBuildingInSupabaseDirect(buildingWithId).then(res => {
+      if (!res.success) console.warn('Gagal update building ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update building error:', err));
     return buildingWithId;
   }
 
@@ -1831,6 +1837,10 @@ export class DataStorageService {
     const updatedRates = [...remainingRates, rateWithId];
 
     this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
+    updateRoomCapacityRateInSupabaseDirect(rateWithId).then(res => {
+      if (!res.success) console.warn('Gagal update rate ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update rate error:', err));
     return rateWithId;
   }
 

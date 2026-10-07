@@ -1642,3 +1642,55 @@ export async function updateMaintenanceInSupabaseDirect(item: Maintenance): Prom
     return { success: false, error: err?.message || 'Network error' };
   }
 }
+
+/**
+ * 6. Fungsi UPDATE langsung ke tabel buildings di Supabase
+ */
+export async function updateBuildingInSupabaseDirect(b: Building): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: b.id,
+      name: b.name,
+      code: b.code || null,
+      floors: b.floors ?? 1,
+      total_rooms: b.totalRooms ?? 0,
+      capacity_desc: b.capacityDesc || null,
+      category: b.category || 'PENGINAPAN',
+      description: b.description || null,
+      status: b.status || 'AKTIF'
+    };
+    const { error } = await supabase.from('buildings').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 7. Fungsi UPDATE langsung ke tabel room_capacity_rates di Supabase
+ */
+export async function updateRoomCapacityRateInSupabaseDirect(rate: RoomCapacityRate): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: rate.id,
+      room_type: rate.roomType,
+      bed_type: rate.bedType,
+      capacity_pax: rate.capacityPax,
+      price_per_night: rate.pricePerNight,
+      description: rate.description || null,
+      facilities: rate.facilities || [],
+      is_active: rate.isActive ?? true,
+      updated_at: rate.updatedAt || new Date().toISOString()
+    };
+    const { error } = await supabase.from('room_capacity_rates').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
