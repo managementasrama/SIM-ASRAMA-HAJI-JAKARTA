@@ -3370,29 +3370,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Tambah Gedung', `Menambahkan gedung baru: ${building.name} (${building.code}) - ${building.totalRooms} Kamar`);
   };
 
-  const updateBuilding = (building: Building) => {
+  const updateBuilding = async (building: Building) => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin')) {
       showToast('Akses Ditolak: Hanya Super Admin atau Admin yang berwenang mengubah data gedung!', 'error');
       return;
     }
-    const existingBld = buildings.find(b => b.id === building.id);
-    const previousName = existingBld?.name;
-    const savedBuilding = dataStorage.saveBuilding(building, previousName);
-    const updatedBuildingsList = dataStorage.getBuildings();
-    const updatedRoomsList = dataStorage.getRooms();
-    setBuildings(updatedBuildingsList);
-    setRooms(updatedRoomsList);
-    setMeetingRooms(dataStorage.getMeetingRooms());
-    setTransactions(dataStorage.getTransactions());
-    setMaintenances(dataStorage.getMaintenances());
-    setQcInspections(dataStorage.getQcInspections());
-    setUsers(dataStorage.getUsers());
-    if (previousName && selectedBuilding && selectedBuilding.trim().toLowerCase() === previousName.trim().toLowerCase()) {
-      setSelectedBuilding(savedBuilding.name);
+    try {
+      const existingBld = buildings.find(b => b.id === building.id);
+      const previousName = existingBld?.name;
+      const savedBuilding = dataStorage.saveBuilding(building, previousName);
+      const updatedBuildingsList = dataStorage.getBuildings();
+      const updatedRoomsList = dataStorage.getRooms();
+      setBuildings(updatedBuildingsList);
+      setRooms(updatedRoomsList);
+      setMeetingRooms(dataStorage.getMeetingRooms());
+      setTransactions(dataStorage.getTransactions());
+      setMaintenances(dataStorage.getMaintenances());
+      setQcInspections(dataStorage.getQcInspections());
+      setUsers(dataStorage.getUsers());
+      if (previousName && selectedBuilding && selectedBuilding.trim().toLowerCase() === previousName.trim().toLowerCase()) {
+        setSelectedBuilding(savedBuilding.name);
+      }
+      const liveCount = updatedRoomsList.filter(r => r.building.trim().toLowerCase() === savedBuilding.name.trim().toLowerCase()).length;
+      
+      const pushRes = await dataStorage.pushAllToSupabase();
+      if (!pushRes.success) {
+        throw new Error(pushRes.error || 'Gagal menyimpan update gedung ke database Supabase');
+      }
+      showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui dan tersimpan permanen di Supabase!`, 'success');
+      logAudit('Ubah Gedung', `Memperbarui profil gedung: ${previousName && previousName !== savedBuilding.name ? `${previousName} -> ` : ''}${savedBuilding.name}`);
+      await pullFromCentralDatabase();
+    } catch (err: any) {
+      showToast(`Gagal update gedung ke database: ${err?.message || 'Error'}`, 'error');
     }
-    const liveCount = updatedRoomsList.filter(r => r.building.trim().toLowerCase() === savedBuilding.name.trim().toLowerCase()).length;
-    showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui & unit denah kamar otomatis disesuaikan (${liveCount} Kamar)!`, 'success');
-    logAudit('Ubah Gedung', `Memperbarui profil gedung: ${previousName && previousName !== savedBuilding.name ? `${previousName} -> ` : ''}${savedBuilding.name} (Kapasitas: ${liveCount} Kamar)`);
   };
 
   const deleteBuilding = (buildingId: string): boolean => {
@@ -3435,19 +3445,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Tambah Ruang Pertemuan', `Menambahkan ruang pertemuan: ${mr.name} (Kapasitas: ${mr.capacity} orang)`);
   };
 
-  const updateMeetingRoom = (mr: MeetingRoom) => {
+  const updateMeetingRoom = async (mr: MeetingRoom) => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && currentUser?.role !== 'Manager Resepsionis')) {
       showToast('Akses Ditolak: Anda tidak memiliki wewenang untuk mengubah ruang pertemuan!', 'error');
       return;
     }
-    dataStorage.saveMeetingRoom(mr);
-    setMeetingRooms(dataStorage.getMeetingRooms());
-    setRooms(dataStorage.getRooms());
-    setBuildings(dataStorage.getBuildings());
-    setTransactions(dataStorage.getTransactions());
-    setMaintenances(dataStorage.getMaintenances());
-    showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui!`, 'success');
-    logAudit('Ubah Ruang Pertemuan', `Memperbarui ruang pertemuan: ${mr.name}`);
+    try {
+      dataStorage.saveMeetingRoom(mr);
+      setMeetingRooms(dataStorage.getMeetingRooms());
+      setRooms(dataStorage.getRooms());
+      setBuildings(dataStorage.getBuildings());
+      setTransactions(dataStorage.getTransactions());
+      setMaintenances(dataStorage.getMaintenances());
+
+      const pushRes = await dataStorage.pushAllToSupabase();
+      if (!pushRes.success) {
+        throw new Error(pushRes.error || 'Gagal menyimpan ruang pertemuan ke Supabase');
+      }
+      showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui dan tersimpan permanen di Supabase!`, 'success');
+      logAudit('Ubah Ruang Pertemuan', `Memperbarui ruang pertemuan: ${mr.name}`);
+      await pullFromCentralDatabase();
+    } catch (err: any) {
+      showToast(`Gagal update ruang pertemuan ke database: ${err?.message || 'Error'}`, 'error');
+    }
   };
 
   const deleteMeetingRoom = (mrId: string): boolean => {
@@ -3490,20 +3510,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Tambah Kamar', `Menambah kamar: No ${room.roomNumber}, Gedung ${room.building}, Tipe ${room.type}`);
   };
 
-  const updateRoom = (room: Room) => {
+  const updateRoom = async (room: Room) => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && currentUser?.role !== 'Manager Resepsionis')) {
       showToast('Akses Ditolak: Anda tidak memiliki wewenang untuk mengubah profil kamar!', 'error');
       return;
     }
-    dataStorage.saveRoom(room);
-    setRooms(dataStorage.getRooms());
-    setBuildings(dataStorage.getBuildings());
-    setMeetingRooms(dataStorage.getMeetingRooms());
-    setTransactions(dataStorage.getTransactions());
-    setMaintenances(dataStorage.getMaintenances());
-    setQcInspections(dataStorage.getQcInspections());
-    showToast(`Data kamar ${room.roomNumber} berhasil diperbarui!`, 'success');
-    logAudit('Ubah Kamar', `Memperbarui kamar: ${room.roomNumber} (${room.building})`);
+    try {
+      dataStorage.saveRoom(room);
+      setRooms(dataStorage.getRooms());
+      setBuildings(dataStorage.getBuildings());
+      setMeetingRooms(dataStorage.getMeetingRooms());
+      setTransactions(dataStorage.getTransactions());
+      setMaintenances(dataStorage.getMaintenances());
+      setQcInspections(dataStorage.getQcInspections());
+
+      const pushRes = await dataStorage.pushAllToSupabase();
+      if (!pushRes.success) {
+        throw new Error(pushRes.error || 'Gagal menyimpan perubahan kamar ke Supabase');
+      }
+      showToast(`Data kamar ${room.roomNumber} berhasil diperbarui dan tersimpan permanen di Supabase!`, 'success');
+      logAudit('Ubah Kamar', `Memperbarui kamar: ${room.roomNumber} (${room.building})`);
+      await pullFromCentralDatabase();
+    } catch (err: any) {
+      showToast(`Gagal update kamar ke database: ${err?.message || 'Error'}`, 'error');
+    }
   };
 
   const deleteRoom = (roomId: string): boolean => {

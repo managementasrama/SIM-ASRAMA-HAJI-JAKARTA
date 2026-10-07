@@ -38,6 +38,11 @@ import {
   syncFullDatabaseToSupabase, 
   fetchFullDatabaseFromSupabase, 
   testSupabaseConnection, 
+  updateTransactionInSupabaseDirect,
+  updateRoomInSupabaseDirect,
+  updateUserInSupabaseDirect,
+  updateMeetingRoomInSupabaseDirect,
+  updateMaintenanceInSupabaseDirect,
   type SupabaseSyncState 
 } from '../lib/supabase';
 
@@ -1010,6 +1015,10 @@ export class DataStorageService {
     newUsers[idx] = updatedUser;
 
     this.saveDatabase({ ...db, users: newUsers });
+    updateUserInSupabaseDirect(updatedUser).then(res => {
+      if (!res.success) console.warn('Gagal update user ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update user error:', err));
     return updatedUser;
   }
 
@@ -1547,6 +1556,10 @@ export class DataStorageService {
     });
 
     this.saveDatabase({ ...db, meetingRooms: updated, rooms: updatedRooms, buildings });
+    updateMeetingRoomInSupabaseDirect(mrWithId).then(res => {
+      if (!res.success) console.warn('Gagal update meeting room ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update meeting room error:', err));
     return mrWithId;
   }
 
@@ -1723,6 +1736,10 @@ export class DataStorageService {
       qcInspections,
       meetingRooms
     });
+    updateRoomInSupabaseDirect(roomWithId).then(res => {
+      if (!res.success) console.warn('Gagal update kamar ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update room error:', err));
     return roomWithId;
   }
 
@@ -1894,6 +1911,11 @@ export class DataStorageService {
     }
 
     this.saveDatabase({ ...db, transactions: updatedTxs });
+    updateTransactionInSupabaseDirect(tx).then(res => {
+      if (!res.success) console.warn('Gagal update transaksi ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update transaction error:', err));
+
     return tx;
   }
 
@@ -1922,6 +1944,11 @@ export class DataStorageService {
     }
 
     this.saveDatabase({ ...db, maintenances: updated });
+    updateMaintenanceInSupabaseDirect(m).then(res => {
+      if (!res.success) console.warn('Gagal update maintenance ke Supabase:', res.error);
+      else this.hydrateFromSupabase(true).catch(() => {});
+    }).catch(err => console.warn('Supabase update maintenance error:', err));
+
     return m;
   }
 

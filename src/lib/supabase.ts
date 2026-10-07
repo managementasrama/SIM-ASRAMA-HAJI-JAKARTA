@@ -1424,3 +1424,221 @@ export async function validateDatabaseChecksumAgainstSupabase(localDataset: {
     };
   }
 }
+
+/**
+ * 1. Fungsi UPDATE langsung ke tabel transactions di Supabase (menjamin data permanen & lintas perangkat)
+ * Dilengkapi error handling dan re-fetch otomatis.
+ */
+export async function updateTransactionInSupabaseDirect(t: Transaction): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: t.id,
+      room_id: t.roomId,
+      building: t.building,
+      room_number: t.roomNumber,
+      category: t.category,
+      guest_name: t.guestName,
+      guest_type: t.guestType,
+      nik_ktp: t.nikKtp,
+      kloter: t.kloter,
+      start_date: t.startDate,
+      duration: t.duration,
+      phone: t.phone,
+      notes: t.notes,
+      status: t.status,
+      created_user: t.createdUser,
+      is_group: t.isGroup,
+      group_type: t.groupType,
+      group_name: t.groupName,
+      group_pic: t.groupPic,
+      group_pic_phone: t.groupPicPhone,
+      group_id: t.groupId,
+      total_pax: t.totalPax,
+      include_aula: t.includeAula,
+      rent_aula_id: t.rentAulaId,
+      rent_aula_name: t.rentAulaName,
+      catering_package: t.cateringPackage,
+      catering_pax_count: t.cateringPaxCount,
+      spk_number: t.spkNumber,
+      allocated_room_numbers: t.allocatedRoomNumbers,
+      allocated_rooms_count: t.allocatedRoomsCount,
+      breakfast: t.breakfast,
+      breakfast_menu: t.breakfastMenu,
+      breakfast_portions: t.breakfastPortions,
+      breakfast_days: t.breakfastDays,
+      breakfast_status: t.breakfastStatus,
+      rent_type: t.rentType,
+      duration_unit: t.durationUnit,
+      extra_bed: t.extraBed,
+      extra_bed_count: t.extraBedCount,
+      extra_bed_price: t.extraBedPrice || 0,
+      extra_bed_notes: t.extraBedNotes || null,
+      agency_or_document: t.agencyOrDocument || null,
+      price_per_night: t.pricePerNight || 0,
+      payment_status: t.paymentStatus || 'BELUM_LUNAS',
+      paid_amount: t.paidAmount || 0,
+      dp_amount: t.dpAmount || 0,
+      dp_date: t.dpDate || null,
+      dp_method: t.dpMethod || null,
+      dp_note: t.dpNote || null,
+      remaining_amount: t.remainingAmount || 0,
+      va_number: t.vaNumber || null,
+      va_account_name: t.vaAccountName || null,
+      bank_name: t.bankName || null,
+      bank_account_number: t.bankAccountNumber || null,
+      payment_method: t.paymentMethod || null,
+      payment_date: t.paymentDate || null,
+      payment_note: t.paymentNote || null,
+      kwitansi_no: t.kwitansiNo || null,
+      cancelled_at: t.cancelledAt || null,
+      cancel_reason: t.cancelReason || null,
+      cancelled_user: t.cancelledUser || null,
+      extend_history: t.extendHistory || [],
+      check_in_time: t.checkInTime,
+      check_out_time: t.checkOutTime
+    };
+
+    const { error } = await supabase.from('transactions').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('Error updating transaction in Supabase:', error.message);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('Exception updating transaction in Supabase:', err);
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 2. Fungsi UPDATE langsung ke tabel rooms di Supabase
+ */
+export async function updateRoomInSupabaseDirect(r: Room): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: r.id,
+      building: r.building,
+      room_number: r.roomNumber,
+      floor: r.floor,
+      type: r.type,
+      capacity: r.capacity,
+      status: r.status,
+      qc_status: r.qcStatus,
+      last_qc_date: r.lastQcDate,
+      last_qc_by: r.lastQcBy,
+      last_qc_notes: r.lastQcNotes,
+      active_tx_id: r.activeTxId,
+      active_maint_id: r.activeMaintId,
+      price_per_night: r.pricePerNight,
+      facilities: r.facilities
+    };
+    const { error } = await supabase.from('rooms').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 3. Fungsi UPDATE langsung ke tabel users di Supabase
+ */
+export async function updateUserInSupabaseDirect(u: User): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: u.id,
+      username: u.username,
+      full_name: u.fullName,
+      role: u.role,
+      password: u.password,
+      department: u.department,
+      supervisor_id: u.supervisorId || null,
+      assigned_building: u.assignedBuilding || null,
+      phone: u.phone || null,
+      status: u.status || 'Aktif',
+      email: u.email || null,
+      nip: u.nip || null,
+      is_owner: Boolean(u.isOwner),
+      signature_url: u.signatureUrl || null,
+      qr_code_url: u.qrCodeUrl || null,
+      signature_history: u.signatureHistory || []
+    };
+    const { error } = await supabase.from('users').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 4. Fungsi UPDATE langsung ke tabel meeting_rooms di Supabase
+ */
+export async function updateMeetingRoomInSupabaseDirect(m: MeetingRoom): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: m.id,
+      name: m.name,
+      code: m.code,
+      building: m.building,
+      capacity: m.capacity,
+      capacity_number: m.capacityNumber,
+      facilities: m.facilities,
+      daily_rate: m.dailyRate,
+      session_rate: m.sessionRate,
+      description: m.description,
+      status: m.status,
+      qc_status: m.qcStatus,
+      active_tx_id: m.activeTxId
+    };
+    const { error } = await supabase.from('meeting_rooms').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 5. Fungsi UPDATE langsung ke tabel maintenances di Supabase
+ */
+export async function updateMaintenanceInSupabaseDirect(item: Maintenance): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload = {
+      id: item.id,
+      room_id: item.roomId,
+      building: item.building,
+      room_number: item.roomNumber,
+      category: item.category,
+      urgency: item.urgency,
+      technician: item.technician,
+      description: item.description,
+      report_time: item.reportTime,
+      status: item.status,
+      reported_user: item.reportedUser,
+      assigned_technician_id: item.assignedTechnicianId,
+      assigned_technician_name: item.assignedTechnicianName,
+      assigned_by_manager: item.assignedByManager,
+      assigned_time: item.assignedTime,
+      manager_notes: item.managerNotes,
+      work_completed_time: item.workCompletedTime,
+      technician_notes: item.technicianNotes,
+      resolved_time: item.resolvedTime,
+      qc_inspection_id: item.qcInspectionId,
+      facility_type: item.facilityType
+    };
+    const { error } = await supabase.from('maintenances').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
