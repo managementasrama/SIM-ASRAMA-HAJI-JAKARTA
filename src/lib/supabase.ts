@@ -444,79 +444,59 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       return null;
     }
 
-    // GABUNGKAN SECARA CERDAS & AMAN:
-    // 1. Buildings: Jika syncPayload memiliki daftar gedung, gunakan sebagai acuan otoritatif agar gedung yang dihapus/diedit tidak muncul kembali
+    // GABUNGKAN DENGAN PRIORITAS UTAMA PADA TABEL RELASIONAL (PRIMARY SOURCE OF TRUTH):
+    // 1. Buildings: Prioritaskan relBuildings (hasil edit langsung), fallback ke syncPayload
     const bldMap = new Map<string, Building>();
-    if (syncPayload?.buildings && syncPayload.buildings.length > 0) {
-      syncPayload.buildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
-    } else {
-      relBuildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
-    }
+    relBuildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
+    syncPayload?.buildings?.forEach(b => { if (b && b.id && !bldMap.has(b.id)) bldMap.set(b.id, b); });
     const mergedBuildings = Array.from(bldMap.values());
 
-    // 2. Meeting Rooms: gabungkan unik
+    // 2. Meeting Rooms: Relational first
     const mrMap = new Map<string, MeetingRoom>();
-    if (syncPayload?.meetingRooms && syncPayload.meetingRooms.length > 0) {
-      syncPayload.meetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    } else {
-      relMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    }
+    relMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    syncPayload?.meetingRooms?.forEach(m => { if (m && m.id && !mrMap.has(m.id)) mrMap.set(m.id, m); });
     const mergedMeetingRooms = Array.from(mrMap.values());
 
-    // 3. Transactions: gabungkan unik berdasarkan ID agar tidak ada transaksi yang terhapus
+    // 3. Transactions: Relational first
     const txMap = new Map<string, Transaction>();
-    (syncPayload?.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
     relTransactions.forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    (syncPayload?.transactions || []).forEach(t => { if (t && t.id && !txMap.has(t.id)) txMap.set(t.id, t); });
     const mergedTransactions = Array.from(txMap.values());
 
-    // 4. Maintenances: gabungkan unik
+    // 4. Maintenances: Relational first
     const maintMap = new Map<string, Maintenance>();
-    (syncPayload?.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     relMaintenances.forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    (syncPayload?.maintenances || []).forEach(m => { if (m && m.id && !maintMap.has(m.id)) maintMap.set(m.id, m); });
     const mergedMaintenances = Array.from(maintMap.values());
 
-    // 5. Rooms: Jika syncPayload memiliki daftar kamar, batasi hanya pada ID yang sah di syncPayload agar kamar yang dikurangi tidak hidup kembali
+    // 5. Rooms: Relational first
     const roomMap = new Map<string, Room>();
-    const hasSyncRooms = Boolean(syncPayload?.rooms && syncPayload.rooms.length > 0);
-    (syncPayload?.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    relRooms.forEach(r => {
-      if (r && r.id) {
-        if (hasSyncRooms && !roomMap.has(r.id)) return;
-        const existing = roomMap.get(r.id);
-        roomMap.set(r.id, {
-          ...(existing || {}),
-          ...r,
-          building: existing?.building || r.building,
-          roomNumber: existing?.roomNumber || r.roomNumber,
-          status: r.status || existing?.status || 'KOSONG',
-          activeTxId: r.activeTxId || existing?.activeTxId || null
-        });
-      }
-    });
+    relRooms.forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    (syncPayload?.rooms || []).forEach(r => { if (r && r.id && !roomMap.has(r.id)) roomMap.set(r.id, r); });
     const mergedRooms = deduplicateRoomsByBuildingAndNumber(Array.from(roomMap.values()), mergedMeetingRooms);
 
-    // 6. QC Inspections
+    // 6. QC Inspections: Relational first
     const qcMap = new Map<string, QcInspection>();
-    (syncPayload?.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
     relQc.forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    (syncPayload?.qcInspections || []).forEach(q => { if (q && q.id && !qcMap.has(q.id)) qcMap.set(q.id, q); });
     const mergedQc = Array.from(qcMap.values());
 
-    // 7. Audit Logs
+    // 7. Audit Logs: Relational first
     const auditMap = new Map<string, AuditLog>();
-    (syncPayload?.auditLogs || []).forEach(a => { if (a && a.id) auditMap.set(a.id, a); });
     relAudit.forEach(a => { if (a && a.id) auditMap.set(a.id, a); });
+    (syncPayload?.auditLogs || []).forEach(a => { if (a && a.id && !auditMap.has(a.id)) auditMap.set(a.id, a); });
     const mergedAudit = Array.from(auditMap.values()).slice(0, 300);
 
-    // 8. Users
+    // 8. Users: Relational first
     const userMap = new Map<string, User>();
-    (syncPayload?.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
     (directUsers || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    (syncPayload?.users || []).forEach(u => { if (u && u.id && !userMap.has(u.id)) userMap.set(u.id, u); });
     const mergedUsers = Array.from(userMap.values());
 
-    // 9. Breakfast Orders
+    // 9. Breakfast Orders: Relational first
     const bOrderMap = new Map<string, BreakfastOrder>();
-    (syncPayload?.breakfastOrders || []).forEach(o => { if (o && o.id) bOrderMap.set(o.id, o); });
     relOrders.forEach(o => { if (o && o.id) bOrderMap.set(o.id, o); });
+    (syncPayload?.breakfastOrders || []).forEach(o => { if (o && o.id && !bOrderMap.has(o.id)) bOrderMap.set(o.id, o); });
     const mergedOrders = Array.from(bOrderMap.values());
 
     // Pemetaan akurat pengaturan aplikasi (snake_case dari Supabase ke camelCase aplikasi)

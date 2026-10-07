@@ -289,38 +289,25 @@ export class DataStorageService {
   /**
    * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
    */
-  public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, preferCloud: boolean = false): CompleteStorageDatabase {
-    // 1. Transactions
+  public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, _preferCloud: boolean = false): CompleteStorageDatabase {
+    // Utamakan data lokal (hasil edit pengguna) agar perubahan tidak pernah tertimpa oleh cloud.
+    
+    // 1. Transactions (Local wins over cloud)
     const txMap = new Map<string, Transaction>();
-    if (preferCloud) {
-      (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-      (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-    } else {
-      (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-      (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-    }
+    (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
     const mergedTransactions = Array.from(txMap.values());
 
     // 2. Users
     const userMap = new Map<string, User>();
-    if (preferCloud) {
-      (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-      (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-    } else {
-      (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-      (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-    }
+    (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
     const mergedUsers = Array.from(userMap.values());
 
     // 3. Maintenances
     const maintMap = new Map<string, Maintenance>();
-    if (preferCloud) {
-      (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-      (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-    } else {
-      (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-      (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-    }
+    (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
     const mergedMaintenances = Array.from(maintMap.values());
 
     // 4. QC Inspections
@@ -336,37 +323,35 @@ export class DataStorageService {
     const mergedBreakfastOrders = Array.from(bOrdersMap.values());
 
     // 6. Meeting Rooms
-    const rawMeetingRooms = preferCloud
-      ? ((cloud.meetingRooms && cloud.meetingRooms.length > 0) ? cloud.meetingRooms : (local.meetingRooms || []))
-      : ((local.meetingRooms && local.meetingRooms.length > 0) ? local.meetingRooms : (cloud.meetingRooms || []));
     const mrMap = new Map<string, MeetingRoom>();
-    rawMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
     const mergedMeetingRooms = Array.from(mrMap.values());
 
-    // 7. Buildings (deduplikasi berdasarkan ID terlebih dahulu, lalu nama yang dinormalisasi agar edit nama gedung tidak menggandakan gedung)
-    const rawBuildings = preferCloud
-      ? ((cloud.buildings && cloud.buildings.length > 0) ? cloud.buildings : (local.buildings || []))
-      : ((local.buildings && local.buildings.length > 0) ? local.buildings : (cloud.buildings || []));
+    // 7. Buildings (Prioritaskan local agar edit nama gedung tidak revert)
     const bldByIdMap = new Map<string, Building>();
-    rawBuildings.forEach(b => {
+    [...(cloud.buildings || []), ...(local.buildings || [])].forEach(b => {
       if (!b || !b.name) return;
       const normName = normalizeBuildingName(b.name);
       if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
       const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
-      bldByIdMap.set(idKey, { ...b, name: normName });
+      // Local wins over cloud
+      const existing = bldByIdMap.get(idKey);
+      if (!existing || (local.buildings || []).some(lb => lb.id === b.id)) {
+        bldByIdMap.set(idKey, { ...b, name: normName });
+      }
     });
     const bldByNameMap = new Map<string, Building>();
     Array.from(bldByIdMap.values()).forEach(b => {
-      const nameKey = b.name.toLowerCase();
-      bldByNameMap.set(nameKey, b);
+      bldByNameMap.set(b.name.toLowerCase(), b);
     });
     let mergedBuildings = Array.from(bldByNameMap.values());
 
-    // 8. Rooms (gunakan sumber otoritatif sesuai preferCloud agar pengurangan unit kamar atau edit nama gedung tidak dianulir data lama)
-    const sourceRooms = (preferCloud && cloud.rooms && cloud.rooms.length > 0)
-      ? cloud.rooms
-      : ((local.rooms && local.rooms.length > 0) ? local.rooms : (cloud.rooms || []));
-    const normalizedSourceRooms = sourceRooms
+    // 8. Rooms (Prioritaskan local rooms)
+    const roomMap = new Map<string, Room>();
+    (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    const normalizedSourceRooms = Array.from(roomMap.values())
       .filter(r => r && r.id)
       .map(r => ({
         ...r,
@@ -387,33 +372,25 @@ export class DataStorageService {
     });
 
     // 9. Room Capacity Rates
-    const mergedRates = preferCloud
-      ? ((cloud.roomCapacityRates && cloud.roomCapacityRates.length > 0) ? cloud.roomCapacityRates : (local.roomCapacityRates || []))
-      : ((local.roomCapacityRates && local.roomCapacityRates.length > 0) ? local.roomCapacityRates : (cloud.roomCapacityRates || []));
+    const rateMap = new Map<string, RoomCapacityRate>();
+    (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+    (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+    const mergedRates = Array.from(rateMap.values());
 
-    // appSettings: prioritaskan data yang memiliki timestamp paling mutakhir, atau gabungkan secara aman
+    // appSettings: Utamakan local appSettings jika ada perubahan
     const localSettings = local.appSettings || defaultAppSettings;
     const cloudSettings = cloud.appSettings || defaultAppSettings;
     
-    // Cek timestamp pembaruan jika ada
-    const localTime = localSettings.updatedAt ? new Date(localSettings.updatedAt).getTime() : 0;
-    const cloudTime = cloudSettings.updatedAt ? new Date(cloudSettings.updatedAt).getTime() : 0;
-
-    // Jika lokal lebih baru daripada cloud (misal baru saja disimpan oleh admin), pertahankan lokal
-    const preferLocal = localTime > cloudTime;
-    const primarySettings = preferLocal ? localSettings : cloudSettings;
-    const secondarySettings = preferLocal ? cloudSettings : localSettings;
-
     const mergedAppSettings: AppSettings = {
       ...defaultAppSettings,
-      ...secondarySettings,
-      ...primarySettings
+      ...cloudSettings,
+      ...localSettings
     };
 
-    if (primarySettings.appLogo && primarySettings.appLogo.length > 20) {
-      mergedAppSettings.appLogo = primarySettings.appLogo;
-    } else if (secondarySettings.appLogo && secondarySettings.appLogo.length > 20) {
-      mergedAppSettings.appLogo = secondarySettings.appLogo;
+    if (localSettings.appLogo && localSettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = localSettings.appLogo;
+    } else if (cloudSettings.appLogo && cloudSettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = cloudSettings.appLogo;
     } else {
       mergedAppSettings.appLogo = OFFICIAL_APP_LOGO;
     }
