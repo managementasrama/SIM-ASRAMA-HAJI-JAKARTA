@@ -484,6 +484,10 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       ? deduplicateRoomCapacityRates(syncPayload.roomCapacityRates)
       : (relRates.length > 0 ? relRates : initialRoomCapacityRates);
 
+    const mergedWorkSessions = Array.isArray(syncPayload?.workSessions)
+      ? syncPayload.workSessions
+      : (!sessionsRes.error ? relSessions : []);
+
     // Pemetaan akurat pengaturan aplikasi (snake_case dari Supabase ke camelCase aplikasi)
     let finalAppSettings = syncPayload?.appSettings;
     if (settingsRes.data) {
@@ -515,7 +519,7 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       transactions: mergedTransactions,
       maintenances: mergedMaintenances,
       qcInspections: mergedQc,
-      workSessions: relSessions.length > 0 ? relSessions : (syncPayload?.workSessions || []),
+      workSessions: mergedWorkSessions,
       auditLogs: mergedAudit,
       chatChannels: syncPayload?.chatChannels || [],
       chatMessages: syncPayload?.chatMessages || [],
@@ -1020,38 +1024,70 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
   }
 
   // Simpan Work Sessions (Rekap Sesi & Jam Kerja Shift)
-  if (db.workSessions && db.workSessions.length > 0) {
-    const sessionPayloads = db.workSessions.map(s => ({
-      id: s.id,
-      user_id: s.userId,
-      user_name: s.userName,
-      user_role: s.userRole,
-      login_time: s.loginTime,
-      logout_time: s.logoutTime || null,
-      duration_seconds: s.durationSeconds || 0,
-      duration_formatted: s.durationFormatted || '0 Jam 0 Menit 0 Detik',
-      status: s.status || 'AKTIF',
-      notes: s.notes || null
-    }));
-    await supabase.from('work_sessions').upsert(sessionPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.workSessions)) {
+    if (db.workSessions.length > 0) {
+      const sessionPayloads = db.workSessions.map(s => ({
+        id: s.id,
+        user_id: s.userId,
+        user_name: s.userName,
+        user_role: s.userRole,
+        login_time: s.loginTime,
+        logout_time: s.logoutTime || null,
+        duration_seconds: s.durationSeconds || 0,
+        duration_formatted: s.durationFormatted || '0 Jam 0 Menit 0 Detik',
+        status: s.status || 'AKTIF',
+        notes: s.notes || null
+      }));
+      await supabase.from('work_sessions').upsert(sessionPayloads, { onConflict: 'id' });
+      try {
+        const activeIds = db.workSessions.map(s => s.id).filter(Boolean);
+        const { data: existingRows } = await supabase.from('work_sessions').select('id');
+        if (existingRows && existingRows.length > 0) {
+          const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+          if (toDelete.length > 0) {
+            await supabase.from('work_sessions').delete().in('id', toDelete);
+          }
+        }
+      } catch (_) {}
+    } else {
+      try {
+        await supabase.from('work_sessions').delete().neq('id', '___NEVER___');
+      } catch (_) {}
+    }
   }
 
   // Simpan Permohonan Reset Password (password_reset_requests)
-  if (db.passwordResetRequests && db.passwordResetRequests.length > 0) {
-    const pwdPayloads = db.passwordResetRequests.map(p => ({
-      id: p.id,
-      user_id: p.userId,
-      username: p.username,
-      full_name: p.fullName,
-      role: p.role,
-      new_password: p.newPassword,
-      request_date: p.requestDate,
-      status: p.status || 'MENUNGGU_PERSETUJUAN',
-      notes: p.notes || null,
-      processed_by: p.processedBy || null,
-      processed_at: p.processedAt || null
-    }));
-    await supabase.from('password_reset_requests').upsert(pwdPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.passwordResetRequests)) {
+    if (db.passwordResetRequests.length > 0) {
+      const pwdPayloads = db.passwordResetRequests.map(p => ({
+        id: p.id,
+        user_id: p.userId,
+        username: p.username,
+        full_name: p.fullName,
+        role: p.role,
+        new_password: p.newPassword,
+        request_date: p.requestDate,
+        status: p.status || 'MENUNGGU_PERSETUJUAN',
+        notes: p.notes || null,
+        processed_by: p.processedBy || null,
+        processed_at: p.processedAt || null
+      }));
+      await supabase.from('password_reset_requests').upsert(pwdPayloads, { onConflict: 'id' });
+      try {
+        const activeIds = db.passwordResetRequests.map(p => p.id).filter(Boolean);
+        const { data: existingRows } = await supabase.from('password_reset_requests').select('id');
+        if (existingRows && existingRows.length > 0) {
+          const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+          if (toDelete.length > 0) {
+            await supabase.from('password_reset_requests').delete().in('id', toDelete);
+          }
+        }
+      } catch (_) {}
+    } else {
+      try {
+        await supabase.from('password_reset_requests').delete().neq('id', '___NEVER___');
+      } catch (_) {}
+    }
   }
 
   // Simpan Master Tarif Kapasitas Kamar (room_capacity_rates)
@@ -1904,6 +1940,149 @@ export async function deleteRoomCapacityRateInSupabaseDirect(rateId: string): Pr
           payload.roomCapacityRates = payload.roomCapacityRates.filter(r => r.id !== rateId);
           await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
         }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 14. Fungsi DELETE langsung ke tabel maintenances di Supabase
+ */
+export async function deleteMaintenanceInSupabaseDirect(maintenanceId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('maintenances').delete().eq('id', maintenanceId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.maintenances)) {
+          payload.maintenances = payload.maintenances.filter(m => m.id !== maintenanceId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 15. Fungsi DELETE langsung ke tabel qc_inspections di Supabase
+ */
+export async function deleteQcInspectionInSupabaseDirect(qcId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('qc_inspections').delete().eq('id', qcId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.qcInspections)) {
+          payload.qcInspections = payload.qcInspections.filter(q => q.id !== qcId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 16. Fungsi DELETE langsung ke tabel breakfast_orders di Supabase
+ */
+export async function deleteBreakfastOrderInSupabaseDirect(orderId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('breakfast_orders').delete().eq('id', orderId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.breakfastOrders)) {
+          payload.breakfastOrders = payload.breakfastOrders.filter(o => o.id !== orderId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 17. Fungsi DELETE langsung ke tabel breakfast_menu_items di Supabase
+ */
+export async function deleteBreakfastMenuItemInSupabaseDirect(menuItemId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('breakfast_menu_items').delete().eq('id', menuItemId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.breakfastMenuItems)) {
+          payload.breakfastMenuItems = payload.breakfastMenuItems.filter(m => m.id !== menuItemId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 18. Fungsi bersihkan total seluruh log audit di Supabase
+ */
+export async function clearAuditLogsInSupabaseDirect(): Promise<{ success: boolean; error?: string }> {
+  try {
+    await supabase.from('audit_logs').delete().neq('id', '___NEVER___');
+    try {
+      await supabase.from('pdf_download_logs').delete().neq('id', '___NEVER___');
+    } catch (_) {}
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        payload.auditLogs = [];
+        await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 19. Fungsi bersihkan total seluruh rekap sesi kerja di Supabase
+ */
+export async function clearWorkSessionsInSupabaseDirect(): Promise<{ success: boolean; error?: string }> {
+  try {
+    await supabase.from('work_sessions').delete().neq('id', '___NEVER___');
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        payload.workSessions = [];
+        await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
       }
     } catch (_) {}
     return { success: true };

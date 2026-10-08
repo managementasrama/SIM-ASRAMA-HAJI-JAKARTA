@@ -24,7 +24,17 @@ import { initialChatChannels, initialChatMessages } from './chatData';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
-import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, syncFullDatabaseToSupabase, validateDatabaseChecksumAgainstSupabase, computeDatasetChecksums, DatabaseChecksumReport } from './lib/supabase';
+import { 
+  supabase, 
+  SUPABASE_URL, 
+  SUPABASE_ANON_KEY, 
+  syncFullDatabaseToSupabase, 
+  validateDatabaseChecksumAgainstSupabase, 
+  computeDatasetChecksums, 
+  DatabaseChecksumReport,
+  clearAuditLogsInSupabaseDirect,
+  clearWorkSessionsInSupabaseDirect
+} from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -233,12 +243,14 @@ interface AppContextType {
   batchCheckoutGroup: (txIdsOrGroupId: string[] | string) => boolean;
   
   addMaintenance: (maint: Maintenance) => void;
+  deleteMaintenance: (maintId: string) => boolean;
   assignTechnicianToMaintenance: (maintId: string, technicianId: string, technicianName: string, managerNotes?: string) => boolean;
   markMaintenanceRepaired: (maintId: string, technicianNotes: string) => boolean;
   updateMaintenanceStatus: (maintId: string, newStatus: 'MENUNGGU_PENUGASAN' | 'PROSES' | 'MENUNGGU_QC' | 'SELESAI', technicianNotes?: string) => boolean;
   finishMaintenance: (roomId: string) => boolean;
 
   addQcInspection: (inspection: QcInspection) => void;
+  deleteQcInspection: (qcId: string) => boolean;
   
   // Breakfast Orders & Menu Catalog Database Management
   breakfastMenuItems: BreakfastMenuItem[];
@@ -1477,6 +1489,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const clearWorkSessions = () => {
+    dataStorage.clearWorkSessions();
     setWorkSessions([]);
     setActiveSessionId(null);
     setLoginTime(null);
@@ -3309,6 +3322,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteMaintenance = (maintId: string): boolean => {
+    if (!currentUser) return false;
+    dataStorage.deleteMaintenance(maintId);
+    setMaintenances(dataStorage.getMaintenances());
+    setRooms(dataStorage.getRooms());
+    showToast('Tiket pemeliharaan berhasil dihapus.', 'info');
+    logAudit('HAPUS_MAINTENANCE', `Menghapus tiket pemeliharaan ID ${maintId}`);
+    return true;
+  };
+
+  const deleteQcInspection = (qcId: string): boolean => {
+    if (!currentUser) return false;
+    dataStorage.deleteQcInspection(qcId);
+    setQcInspections(dataStorage.getQcInspections());
+    showToast('Laporan inspeksi QC berhasil dihapus.', 'info');
+    logAudit('HAPUS_QC', `Menghapus laporan inspeksi QC ID ${qcId}`);
+    return true;
+  };
+
   const openModal = (modalId: string, data?: any) => {
     // Validasi Cek-In Kamar: Jika status kamar masih butuh cek QC, blokir popup Cek-In dan tampilkan notifikasi
     if (modalId === 'modalCheckin' && data?.actionType === 'CHECKIN' && data?.roomId) {
@@ -3394,6 +3426,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       
       // Kirim pembersihan ke Supabase secara langsung agar di cloud juga bersih tuntas
+      clearWorkSessionsInSupabaseDirect().catch(() => {});
+      clearAuditLogsInSupabaseDirect().catch(() => {});
+      supabase.from('rooms').update({ status: 'KOSONG', active_tx_id: null, active_maint_id: null, qc_status: 'LOLOS_QC' }).neq('id', '___NEVER___').then(() => {});
+      supabase.from('meeting_rooms').update({ status: 'TERSEDIA', active_tx_id: null, qc_status: 'LOLOS_QC' }).neq('id', '___NEVER___').then(() => {});
       await dataStorage.pushAllToSupabase(db);
       await verifyDatabaseChecksum(true, {
         buildings: db.buildings || [],
@@ -4022,7 +4058,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearChatHistory, addChatChannel, deleteChatChannel,
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
       login, logout, clearWorkSessions, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
-      addMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
+      addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase
     }}>

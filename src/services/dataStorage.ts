@@ -51,14 +51,22 @@ import {
   deleteTransactionInSupabaseDirect,
   deleteUserInSupabaseDirect,
   deleteRoomCapacityRateInSupabaseDirect,
+  deleteMaintenanceInSupabaseDirect,
+  deleteQcInspectionInSupabaseDirect,
+  deleteBreakfastOrderInSupabaseDirect,
+  deleteBreakfastMenuItemInSupabaseDirect,
+  clearAuditLogsInSupabaseDirect,
+  clearWorkSessionsInSupabaseDirect,
   type SupabaseSyncState 
 } from '../lib/supabase';
 
 export type StorageNamespace = 'LOCAL' | 'PROD' | 'DEMO';
 
-export const LOCAL_STORAGE_KEY = 'UPT_ASRAMA_HAJI_DATABASE_V4_CLEAN';
-export const LOCAL_STORAGE_BACKUP_KEY = 'UPT_ASRAMA_HAJI_AUTO_BACKUP_LATEST';
+export const LOCAL_STORAGE_KEY = 'UPT_ASRAMA_HAJI_DATABASE_V5_CLEAN';
+export const LOCAL_STORAGE_BACKUP_KEY = 'UPT_ASRAMA_HAJI_BACKUP_V5_CLEAN';
 export const LEGACY_STORAGE_KEYS = [
+  'UPT_ASRAMA_HAJI_DATABASE_V4_CLEAN',
+  'UPT_ASRAMA_HAJI_AUTO_BACKUP_LATEST',
   'UPT_ASRAMA_HAJI_DATABASE_V3_CLEAN',
   'UPT_ASRAMA_HAJI_LOCAL_DATABASE_V1',
   'UPT_ASRAMA_HAJI_DATABASE_V2',
@@ -157,6 +165,14 @@ export class DataStorageService {
   private syncListeners: Array<(event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) => void> = [];
 
   constructor() {
+    // Bersihkan legacy storage keys lama agar data usang tidak pernah terbaca
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        for (const oldKey of LEGACY_STORAGE_KEYS) {
+          window.localStorage.removeItem(oldKey);
+        }
+      } catch (_) {}
+    }
     this.getDatabase();
     // Inisialisasi pengecekan koneksi Supabase di background
     this.checkInitialSupabaseConnection();
@@ -820,23 +836,11 @@ export class DataStorageService {
   }
 
   public saveDatabase(db: CompleteStorageDatabase, options?: { skipCloudSync?: boolean } | any): void {
-    // Pertahankan riwayat audit logs unduh PDF yang mungkin baru saja tercatat di storage/cache
-    const existingAuditLogs = this.cache?.auditLogs || [];
-    const incomingAuditLogs = Array.isArray(db.auditLogs) ? db.auditLogs : [];
-    const mergedAuditLogs = [...incomingAuditLogs];
+    // Hormati array audit logs yang diteruskan, jangan pernah membangkitkan log yang sengaja dihapus/dikosongkan
+    const trimmedAuditLogs = Array.isArray(db.auditLogs)
+      ? db.auditLogs.slice(0, 250)
+      : (this.cache?.auditLogs || []).slice(0, 250);
 
-    existingAuditLogs.forEach(exLog => {
-      const exists = mergedAuditLogs.some(l => 
-        (l.id && l.id === exLog.id) || 
-        (l.verificationCode && exLog.verificationCode && l.verificationCode === exLog.verificationCode)
-      );
-      if (!exists) {
-        mergedAuditLogs.push(exLog);
-      }
-    });
-
-    // Batasi jumlah auditLogs maksimal 250 terbaru untuk mencegah localStorage quota penuh
-    const trimmedAuditLogs = mergedAuditLogs.slice(0, 250);
     // Batasi chatMessages maksimal 300 terbaru
     const trimmedChatMessages = Array.isArray(db.chatMessages) ? db.chatMessages.slice(-300) : [];
 
@@ -1952,6 +1956,14 @@ export class DataStorageService {
     return m;
   }
 
+  public deleteMaintenance(maintId: string): boolean {
+    const db = this.getDatabase();
+    const updated = (db.maintenances || []).filter(m => m.id !== maintId);
+    this.saveDatabase({ ...db, maintenances: updated });
+    deleteMaintenanceInSupabaseDirect(maintId).catch(err => console.warn('Supabase delete maint err:', err));
+    return true;
+  }
+
   // ==========================================
   // AUDIT LOG & AKTIVITAS
   // ==========================================
@@ -1977,7 +1989,9 @@ export class DataStorageService {
 
   public clearAuditLogs(): void {
     const db = this.getDatabase();
+    this.cache = { ...db, auditLogs: [] };
     this.saveDatabase({ ...db, auditLogs: [] });
+    clearAuditLogsInSupabaseDirect().catch(err => console.warn('Supabase clear audit err:', err));
   }
 
   // ==========================================
@@ -2003,6 +2017,13 @@ export class DataStorageService {
     return session;
   }
 
+  public clearWorkSessions(): void {
+    const db = this.getDatabase();
+    this.cache = { ...db, workSessions: [] };
+    this.saveDatabase({ ...db, workSessions: [] });
+    clearWorkSessionsInSupabaseDirect().catch(err => console.warn('Supabase clear work sessions err:', err));
+  }
+
   // ==========================================
   // QUALITY CONTROL (QC) INSPECTIONS
   // ==========================================
@@ -2024,6 +2045,14 @@ export class DataStorageService {
 
     this.saveDatabase({ ...db, qcInspections: updated });
     return inspection;
+  }
+
+  public deleteQcInspection(qcId: string): boolean {
+    const db = this.getDatabase();
+    const updated = (db.qcInspections || []).filter(q => q.id !== qcId);
+    this.saveDatabase({ ...db, qcInspections: updated });
+    deleteQcInspectionInSupabaseDirect(qcId).catch(err => console.warn('Supabase delete qc err:', err));
+    return true;
   }
 
   // ==========================================
@@ -2270,6 +2299,7 @@ export class DataStorageService {
     const items = db.breakfastMenuItems || [];
     const filtered = items.filter(m => m.id !== itemId);
     this.saveDatabase({ ...db, breakfastMenuItems: filtered });
+    deleteBreakfastMenuItemInSupabaseDirect(itemId).catch(err => console.warn('Supabase delete menu item err:', err));
     return true;
   }
 
@@ -2326,6 +2356,7 @@ export class DataStorageService {
       breakfastOrders: filtered,
       transactions: txUpdated ? updatedTxs : db.transactions
     });
+    deleteBreakfastOrderInSupabaseDirect(orderId).catch(err => console.warn('Supabase delete order err:', err));
     return true;
   }
 
