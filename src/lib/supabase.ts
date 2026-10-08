@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { CompleteStorageDatabase } from '../services/dataStorage';
-import { initialRoomCapacityRates } from '../data';
+import { initialRoomCapacityRates, initialUsers } from '../data';
 import { deduplicateRoomCapacityRates, normalizeBuildingName, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber } from './utils';
 import type { 
   Building, 
@@ -445,59 +445,50 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
     }
 
     // GABUNGKAN DENGAN PRIORITAS UTAMA PADA TABEL RELASIONAL (PRIMARY SOURCE OF TRUTH):
-    // 1. Buildings: Prioritaskan relBuildings (hasil edit langsung), fallback ke syncPayload
-    const bldMap = new Map<string, Building>();
-    relBuildings.forEach(b => { if (b && b.id) bldMap.set(b.id, b); });
-    syncPayload?.buildings?.forEach(b => { if (b && b.id && !bldMap.has(b.id)) bldMap.set(b.id, b); });
-    const mergedBuildings = Array.from(bldMap.values());
+    // 1. Buildings: Jika query tabel buildings sukses, gunakan data tabel relasional murni
+    const mergedBuildings = !buildingsRes.error
+      ? relBuildings
+      : (syncPayload?.buildings || []);
 
-    // 2. Meeting Rooms: Relational first
-    const mrMap = new Map<string, MeetingRoom>();
-    relMeetingRooms.forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    syncPayload?.meetingRooms?.forEach(m => { if (m && m.id && !mrMap.has(m.id)) mrMap.set(m.id, m); });
-    const mergedMeetingRooms = Array.from(mrMap.values());
+    // 2. Meeting Rooms
+    const mergedMeetingRooms = !meetingRoomsRes.error
+      ? relMeetingRooms
+      : (syncPayload?.meetingRooms || []);
 
-    // 3. Transactions: Relational first
-    const txMap = new Map<string, Transaction>();
-    relTransactions.forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-    (syncPayload?.transactions || []).forEach(t => { if (t && t.id && !txMap.has(t.id)) txMap.set(t.id, t); });
-    const mergedTransactions = Array.from(txMap.values());
+    // 3. Transactions: Jika query tabel transactions sukses, gunakan data tabel transactions murni
+    const mergedTransactions = !transactionsRes.error
+      ? relTransactions
+      : (syncPayload?.transactions || []);
 
-    // 4. Maintenances: Relational first
-    const maintMap = new Map<string, Maintenance>();
-    relMaintenances.forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-    (syncPayload?.maintenances || []).forEach(m => { if (m && m.id && !maintMap.has(m.id)) maintMap.set(m.id, m); });
-    const mergedMaintenances = Array.from(maintMap.values());
+    // 4. Maintenances
+    const mergedMaintenances = !maintenancesRes.error
+      ? relMaintenances
+      : (syncPayload?.maintenances || []);
 
-    // 5. Rooms: Relational first
-    const roomMap = new Map<string, Room>();
-    relRooms.forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    (syncPayload?.rooms || []).forEach(r => { if (r && r.id && !roomMap.has(r.id)) roomMap.set(r.id, r); });
-    const mergedRooms = deduplicateRoomsByBuildingAndNumber(Array.from(roomMap.values()), mergedMeetingRooms);
+    // 5. Rooms: Jika query tabel rooms sukses, gunakan data tabel rooms murni
+    const mergedRooms = !roomsRes.error
+      ? deduplicateRoomsByBuildingAndNumber(relRooms, mergedMeetingRooms)
+      : (syncPayload?.rooms ? deduplicateRoomsByBuildingAndNumber(syncPayload.rooms, mergedMeetingRooms) : []);
 
-    // 6. QC Inspections: Relational first
-    const qcMap = new Map<string, QcInspection>();
-    relQc.forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
-    (syncPayload?.qcInspections || []).forEach(q => { if (q && q.id && !qcMap.has(q.id)) qcMap.set(q.id, q); });
-    const mergedQc = Array.from(qcMap.values());
+    // 6. QC Inspections
+    const mergedQc = !qcRes.error
+      ? relQc
+      : (syncPayload?.qcInspections || []);
 
-    // 7. Audit Logs: Relational first
-    const auditMap = new Map<string, AuditLog>();
-    relAudit.forEach(a => { if (a && a.id) auditMap.set(a.id, a); });
-    (syncPayload?.auditLogs || []).forEach(a => { if (a && a.id && !auditMap.has(a.id)) auditMap.set(a.id, a); });
-    const mergedAudit = Array.from(auditMap.values()).slice(0, 300);
+    // 7. Audit Logs
+    const mergedAudit = !auditRes.error
+      ? relAudit
+      : (syncPayload?.auditLogs || []).slice(0, 300);
 
-    // 8. Users: Relational first
-    const userMap = new Map<string, User>();
-    (directUsers || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-    (syncPayload?.users || []).forEach(u => { if (u && u.id && !userMap.has(u.id)) userMap.set(u.id, u); });
-    const mergedUsers = Array.from(userMap.values());
+    // 8. Users: Direct users first, fallback ke syncPayload jika tabel users kosong
+    const mergedUsers = (directUsers && directUsers.length > 0)
+      ? directUsers
+      : (syncPayload?.users && syncPayload.users.length > 0 ? syncPayload.users : initialUsers);
 
-    // 9. Breakfast Orders: Relational first
-    const bOrderMap = new Map<string, BreakfastOrder>();
-    relOrders.forEach(o => { if (o && o.id) bOrderMap.set(o.id, o); });
-    (syncPayload?.breakfastOrders || []).forEach(o => { if (o && o.id && !bOrderMap.has(o.id)) bOrderMap.set(o.id, o); });
-    const mergedOrders = Array.from(bOrderMap.values());
+    // 9. Breakfast Orders
+    const mergedOrders = !breakfastOrdersRes.error
+      ? relOrders
+      : (syncPayload?.breakfastOrders || []);
 
     // Pemetaan akurat pengaturan aplikasi (snake_case dari Supabase ke camelCase aplikasi)
     let finalAppSettings = syncPayload?.appSettings;
@@ -539,6 +530,15 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       roomCapacityRates: relRates,
       passwordResetRequests: pwdRes.data || syncPayload?.passwordResetRequests || []
     };
+
+    // Sinkronkan snapshot app_database_sync agar selaras dengan tabel relasional (tanpa data hantu)
+    try {
+      await supabase.from('app_database_sync').upsert({
+        id: 'main_production_db',
+        database_payload: resultDb,
+        updated_at: new Date().toISOString()
+      });
+    } catch (_) {}
 
     return resultDb;
   } catch (e) {
@@ -1669,6 +1669,157 @@ export async function updateRoomCapacityRateInSupabaseDirect(rate: RoomCapacityR
     if (error) {
       return { success: false, error: error.message };
     }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 8. Fungsi DELETE langsung ke tabel rooms di Supabase
+ */
+export async function deleteRoomInSupabaseDirect(roomId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('rooms').delete().eq('id', roomId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    // Hapus juga dari snapshot app_database_sync agar tidak pernah bangkit lagi
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.rooms)) {
+          payload.rooms = payload.rooms.filter(r => r.id !== roomId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 9. Fungsi DELETE langsung ke tabel buildings di Supabase
+ */
+export async function deleteBuildingInSupabaseDirect(buildingId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('buildings').delete().eq('id', buildingId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.buildings)) {
+          payload.buildings = payload.buildings.filter(b => b.id !== buildingId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 10. Fungsi DELETE langsung ke tabel meeting_rooms di Supabase
+ */
+export async function deleteMeetingRoomInSupabaseDirect(meetingRoomId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('meeting_rooms').delete().eq('id', meetingRoomId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.meetingRooms)) {
+          payload.meetingRooms = payload.meetingRooms.filter(m => m.id !== meetingRoomId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 11. Fungsi DELETE langsung ke tabel transactions di Supabase
+ */
+export async function deleteTransactionInSupabaseDirect(transactionId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('transactions').delete().eq('id', transactionId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.transactions)) {
+          payload.transactions = payload.transactions.filter(t => t.id !== transactionId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 12. Fungsi DELETE langsung ke tabel users di Supabase
+ */
+export async function deleteUserInSupabaseDirect(userId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.users)) {
+          payload.users = payload.users.filter(u => u.id !== userId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 13. Fungsi DELETE langsung ke tabel room_capacity_rates di Supabase
+ */
+export async function deleteRoomCapacityRateInSupabaseDirect(rateId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.from('room_capacity_rates').delete().eq('id', rateId);
+    if (error && error.code !== '42P01') {
+      return { success: false, error: error.message };
+    }
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(payload.roomCapacityRates)) {
+          payload.roomCapacityRates = payload.roomCapacityRates.filter(r => r.id !== rateId);
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error' };

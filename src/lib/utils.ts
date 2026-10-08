@@ -675,10 +675,6 @@ export function normalizeBuildingName(name: string): string {
   if (lower === 'd3') return 'Gedung D3';
   if (lower === 'd4') return 'Gedung D4';
   if (lower === 'd5') return 'Gedung D5';
-  if (lower === 'arafah') return 'Gedung A (Arafah)';
-  if (lower === 'muzdalifah') return 'Gedung B (Muzdalifah)';
-  if (lower === 'mina') return 'Gedung C (Mina)';
-  if (lower === 'madinah') return 'Gedung D (Madinah)';
   if (lower === 'utama') return 'Gedung Utama';
   if (lower === 'sg') return 'Gedung Serbaguna (SG)';
   if (lower === 'aula') return 'Ruang Pertemuan / Aula';

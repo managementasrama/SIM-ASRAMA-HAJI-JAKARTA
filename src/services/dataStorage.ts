@@ -45,6 +45,12 @@ import {
   updateMaintenanceInSupabaseDirect,
   updateBuildingInSupabaseDirect,
   updateRoomCapacityRateInSupabaseDirect,
+  deleteRoomInSupabaseDirect,
+  deleteBuildingInSupabaseDirect,
+  deleteMeetingRoomInSupabaseDirect,
+  deleteTransactionInSupabaseDirect,
+  deleteUserInSupabaseDirect,
+  deleteRoomCapacityRateInSupabaseDirect,
   type SupabaseSyncState 
 } from '../lib/supabase';
 
@@ -228,53 +234,30 @@ export class DataStorageService {
    * Hidrasi data terbaru dari Supabase Cloud saat aplikasi dibuka secara aman (non-destructive)
    * Jika forceCloudOverwrite = true, maka seluruh data dari Database Pusat (Supabase) akan menjadi acuan utama.
    */
-  public async hydrateFromSupabase(forceCloudOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
+  public async hydrateFromSupabase(_forceCloudOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
     try {
       this.syncStatus = 'syncing';
       const cloudDb = await fetchFullDatabaseFromSupabase();
-      if (cloudDb && Array.isArray(cloudDb.rooms) && cloudDb.rooms.length > 0) {
-        const localDb = this.getDatabase();
-        
-        // Simpan cadangan snapshot lokal sebelum merger
-        if (typeof window !== 'undefined' && window.localStorage) {
-          try {
-            window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(localDb));
-          } catch (_) {}
-        }
-
-        const localTxCount = Array.isArray(localDb.transactions) ? localDb.transactions.length : 0;
-        const cloudTxCount = Array.isArray(cloudDb.transactions) ? cloudDb.transactions.length : 0;
-
-        // Jika data lokal memiliki transaksi aktif sedangkan Supabase kosong (misal baru di-seed)
-        if (!forceCloudOverwrite && localTxCount > 0 && cloudTxCount === 0) {
-          console.warn('Proteksi Data: Data lokal memiliki transaksi aktif sedangkan Supabase kosong. Mempertahankan data lokal dan mengirim balik ke Supabase.');
-          this.syncStatus = 'connected';
-          this.triggerSupabaseSync(localDb);
-          return localDb;
-        }
-
-        // Lakukan penggabungan cerdas (atau timpa dengan cloud jika forceCloudOverwrite = true)
-        const mergedDb = this.mergeDatabases(localDb, cloudDb, forceCloudOverwrite);
-        this.cache = mergedDb;
+      if (cloudDb) {
+        // SUPABASE ADALAH SINGLE SOURCE OF TRUTH:
+        // Gunakan langsung data terbaru dari Supabase tanpa menggabungkan (union) data lama dari localStorage
+        // agar data yang dihapus di Supabase TIDAK BANGKIT LAGI.
+        // Jangan lakukan triggerSupabaseSync di sini karena hidrasi adalah proses BACA murni.
+        this.cache = cloudDb;
         this.lastSyncTime = new Date().toISOString();
         this.syncStatus = 'connected';
         this.syncError = null;
         this.hasHydratedFromCloud = true;
         
-        // Simpan ke localStorage sebagai cache offline
+        // Simpan ke localStorage sebagai cache offline yang selalu selaras dengan Supabase
         if (typeof window !== 'undefined' && window.localStorage) {
           try {
-            window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mergedDb));
-            window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(mergedDb));
+            window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cloudDb));
+            window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(cloudDb));
           } catch (_) {}
         }
 
-        // Pastikan snapshot pusat & tabel relasional selaras
-        if (forceCloudOverwrite || localTxCount > 0 || (localDb.users && localDb.users.length > (cloudDb.users?.length || 0))) {
-          this.triggerSupabaseSync(mergedDb);
-        }
-
-        return mergedDb;
+        return cloudDb;
       }
       this.syncStatus = 'connected';
       this.hasHydratedFromCloud = true;
@@ -600,7 +583,7 @@ export class DataStorageService {
             if (Array.isArray(parsed.rooms)) {
               const mappedRooms = parsed.rooms.map((r: any) => ({
                 ...r,
-                building: getRoomBuildingKey(r, parsed.meetingRooms)
+                building: (r.building && r.building.trim() !== '') ? r.building.trim() : getRoomBuildingKey(r, parsed.meetingRooms)
               }));
               parsed.rooms = deduplicateRoomsByBuildingAndNumber(mappedRooms, parsed.meetingRooms);
             }
@@ -608,28 +591,28 @@ export class DataStorageService {
             if (Array.isArray(parsed.transactions)) {
               parsed.transactions = parsed.transactions.map((t: any) => ({
                 ...t,
-                building: normalizeBuildingName(t.building)
+                building: t.building ? t.building.trim() : ''
               }));
             }
 
             if (Array.isArray(parsed.maintenances)) {
               parsed.maintenances = parsed.maintenances.map((m: any) => ({
                 ...m,
-                building: normalizeBuildingName(m.building)
+                building: m.building ? m.building.trim() : ''
               }));
             }
 
             if (Array.isArray(parsed.qcInspections)) {
               parsed.qcInspections = parsed.qcInspections.map((q: any) => ({
                 ...q,
-                building: normalizeBuildingName(q.building)
+                building: q.building ? q.building.trim() : ''
               }));
             }
 
             if (Array.isArray(parsed.users)) {
               parsed.users = parsed.users.map((u: any) => ({
                 ...u,
-                assignedBuilding: u.assignedBuilding && !u.assignedBuilding.includes('Semua') ? normalizeBuildingName(u.assignedBuilding) : u.assignedBuilding
+                assignedBuilding: u.assignedBuilding && !u.assignedBuilding.includes('Semua') ? u.assignedBuilding.trim() : u.assignedBuilding
               }));
             }
 
@@ -1025,6 +1008,7 @@ export class DataStorageService {
     if (newUsers.length === initialLen) return false;
 
     this.saveDatabase({ ...db, users: newUsers });
+    deleteUserInSupabaseDirect(userId).catch(err => console.warn('Supabase delete user err:', err));
     return true;
   }
 
@@ -1444,6 +1428,7 @@ export class DataStorageService {
       rooms: updatedRooms, 
       meetingRooms: updatedMeetingRooms 
     });
+    deleteBuildingInSupabaseDirect(buildingId).catch(err => console.warn('Supabase delete building err:', err));
     return { 
       success: true, 
       message: `Gedung '${bld.name}' ${associatedRooms.length > 0 ? `beserta ${associatedRooms.length} unit kamar di dalamnya` : ''} berhasil dihapus dari database.` 
@@ -1576,6 +1561,7 @@ export class DataStorageService {
     });
 
     this.saveDatabase({ ...db, meetingRooms: updatedMR, rooms: updatedRooms, buildings });
+    deleteMeetingRoomInSupabaseDirect(meetingRoomId).catch(err => console.warn('Supabase delete meeting room err:', err));
     return { success: true, message: `Ruang Pertemuan '${mr.name}' berhasil dihapus dari database.` };
   }
 
@@ -1763,6 +1749,7 @@ export class DataStorageService {
     );
 
     this.saveDatabase({ ...db, rooms: updatedRooms, buildings, meetingRooms: updatedMeetingRooms });
+    deleteRoomInSupabaseDirect(roomId).catch(err => console.warn('Supabase delete room err:', err));
     return { success: true, message: `Kamar ${room.roomNumber} (${room.building}) berhasil dihapus.` };
   }
 
@@ -1831,6 +1818,7 @@ export class DataStorageService {
 
     const updatedRates = rates.filter(r => r.id !== rateId);
     this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
+    deleteRoomCapacityRateInSupabaseDirect(rateId).catch(err => console.warn('Supabase delete rate err:', err));
     return { success: true, message: `Konfigurasi '${item.roomType} - ${item.bedType}' berhasil dihapus dari database.` };
   }
 
