@@ -24,7 +24,7 @@ import { initialChatChannels, initialChatMessages } from './chatData';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
-import { supabase, syncFullDatabaseToSupabase, validateDatabaseChecksumAgainstSupabase, computeDatasetChecksums, DatabaseChecksumReport } from './lib/supabase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, syncFullDatabaseToSupabase, validateDatabaseChecksumAgainstSupabase, computeDatasetChecksums, DatabaseChecksumReport } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -560,11 +560,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return report;
   };
 
-  // Periodik update status Supabase & validasi checksum berkala
+  // Langganan Realtime Supabase untuk mendeteksi perubahan langsung dari Dashboard Supabase / antartab
+  useEffect(() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+    
+    const channel = supabase
+      .channel('schema-db-realtime-listener')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        (payload) => {
+          triggerBackgroundSync(`Realtime ${payload.eventType || 'change'} ${payload.table || ''}`);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Periodik update status Supabase & validasi berkala setiap 5 detik agar perubahan langsung di database tersinkron otomatis
   useEffect(() => {
     const timer = setInterval(() => {
       setSupabaseSyncState(dataStorage.getSupabaseSyncState());
-    }, 4000);
+      triggerBackgroundSync('Polling Otomatis 5s');
+    }, 5000);
     return () => clearInterval(timer);
   }, []);
 
@@ -919,7 +940,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           transactions: cloudDb.transactions || [],
           maintenances: cloudDb.maintenances || []
         });
-        showToast('Cache lokal berhasil diselaraskan 100% dengan Database Pusat!', 'success');
+        showToast(`Sinkronisasi Berhasil: ${cloudDb.buildings?.length || 0} Gedung, ${cloudDb.rooms?.length || 0} Kamar, ${cloudDb.transactions?.length || 0} Transaksi termuat dari Supabase.`, 'success');
       } else {
         showToast('Tidak dapat menarik data dari Database Pusat.', 'warning');
       }
@@ -942,11 +963,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           cloudDb.maintenances || []
         );
         setRooms(nextRooms);
-        setTransactions(cloudDb.transactions);
-        setMaintenances(cloudDb.maintenances);
-        setAuditLogs(cloudDb.auditLogs);
-        setWorkSessions(cloudDb.workSessions);
-        setQcInspections(cloudDb.qcInspections);
+        setTransactions(cloudDb.transactions || []);
+        setMaintenances(cloudDb.maintenances || []);
+        setAuditLogs(cloudDb.auditLogs || []);
+        setWorkSessions(cloudDb.workSessions || []);
+        setQcInspections(cloudDb.qcInspections || []);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
         if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
@@ -967,7 +988,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           transactions: cloudDb.transactions || [],
           maintenances: cloudDb.maintenances || []
         });
-        showToast('Sinkronisasi & Validasi Checksum Supabase berhasil diperbarui!', 'success');
+        showToast(`Sinkronisasi Supabase Sukses: ${cloudDb.buildings?.length || 0} Gedung, ${cloudDb.rooms?.length || 0} Kamar, ${cloudDb.transactions?.length || 0} Transaksi.`, 'success');
       } else {
         const pushRes = await dataStorage.pushAllToSupabase();
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
@@ -3331,29 +3352,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const resetDatabase = () => {
+  const resetDatabase = async () => {
     // Reset pangkalan data lokal dan pastikan HANYA akun Super Admin dan Admin yang tersisa
     // Default kosongkan data aktivitas, shift, dan QC
-    const db = dataStorage.resetDatabaseToDefaults();
-    setUsers(db.users);
-    setBuildings(db.buildings || []);
-    setMeetingRooms(db.meetingRooms || []);
-    setRooms(db.rooms);
-    setTransactions([]);
-    setMaintenances([]);
-    setAuditLogs([]);
-    setWorkSessions([]);
-    setQcInspections([]);
-    setActiveSessionId(null);
-    setChatChannels(db.chatChannels);
-    setChatMessages([]);
-    setBreakfastMenuItems(db.breakfastMenuItems);
-    setBreakfastOrders([]);
-    setRoomCapacityRates(db.roomCapacityRates || dataStorage.getRoomCapacityRates());
-    if (db.users && db.users.length > 0) {
-      setCurrentUser(db.users[0]);
+    showToast('Mereset basis data ke kondisi awal...', 'info');
+    try {
+      const db = dataStorage.resetDatabaseToDefaults();
+      setUsers(db.users);
+      setBuildings(db.buildings || []);
+      setMeetingRooms(db.meetingRooms || []);
+      setRooms(db.rooms);
+      setTransactions([]);
+      setMaintenances([]);
+      setAuditLogs([]);
+      setWorkSessions([]);
+      setQcInspections([]);
+      setActiveSessionId(null);
+      setChatChannels(db.chatChannels);
+      setChatMessages([]);
+      setBreakfastMenuItems(db.breakfastMenuItems);
+      setBreakfastOrders([]);
+      setRoomCapacityRates(db.roomCapacityRates || dataStorage.getRoomCapacityRates());
+      if (db.users && db.users.length > 0) {
+        setCurrentUser(db.users[0]);
+      }
+      
+      // Kirim pembersihan ke Supabase secara langsung agar di cloud juga bersih tuntas
+      await dataStorage.pushAllToSupabase(db);
+      await verifyDatabaseChecksum(true, {
+        buildings: db.buildings || [],
+        rooms: db.rooms || [],
+        meetingRooms: db.meetingRooms || [],
+        transactions: [],
+        maintenances: []
+      });
+      showToast('Basis data berhasil direset! Data transaksi, aktivitas, shift, dan QC telah bersih di Supabase dan lokal.', 'success');
+    } catch (err: any) {
+      showToast(`Gagal mereset database: ${err?.message || 'Error'}`, 'error');
     }
-    showToast('Basis data berhasil direset! Data aktivitas, shift, dan QC telah dikosongkan.', 'success');
   };
 
   // ==========================================

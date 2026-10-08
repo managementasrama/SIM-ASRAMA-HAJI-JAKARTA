@@ -524,15 +524,6 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       passwordResetRequests: pwdRes.data || syncPayload?.passwordResetRequests || []
     };
 
-    // Sinkronkan snapshot app_database_sync agar selaras dengan tabel relasional (tanpa data hantu)
-    try {
-      await supabase.from('app_database_sync').upsert({
-        id: 'main_production_db',
-        database_payload: resultDb,
-        updated_at: new Date().toISOString()
-      });
-    } catch (_) {}
-
     return resultDb;
   } catch (e) {
     console.warn('Gagal membaca data dari Supabase:', e);
