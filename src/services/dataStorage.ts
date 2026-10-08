@@ -402,49 +402,12 @@ export class DataStorageService {
   }
 
   /**
-   * Pindai semua kemungkinan key penyimpanan lokal lama atau cadangan darurat
-   * untuk memulihkan data transaksi atau kamar yang ter-reset
+   * Pindai dan pulihkan data HANYA jika dipanggil secara eksplisit oleh pengguna.
+   * Tidak pernah memulihkan data secara otomatis di latar belakang agar data yang sengaja
+   * dihapus oleh pengguna tidak bangkit kembali.
    */
   public tryRecoverLostData(): { recovered: boolean; message: string; recoveredDb?: CompleteStorageDatabase } {
-    if (typeof window === 'undefined' || !window.localStorage) {
-      return { recovered: false, message: 'LocalStorage tidak tersedia.' };
-    }
-
-    let bestParsed: CompleteStorageDatabase | null = null;
-    let maxTx = 0;
-
-    // Scan all keys in localStorage
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (!key) continue;
-      try {
-        const val = window.localStorage.getItem(key);
-        if (val && (val.includes('"transactions"') || val.includes('UPT_ASRAMA_HAJI') || val.includes('"guestName"'))) {
-          const parsed = JSON.parse(val);
-          if (parsed && Array.isArray(parsed.transactions) && parsed.transactions.length > maxTx) {
-            maxTx = parsed.transactions.length;
-            bestParsed = parsed;
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (bestParsed && maxTx > 0) {
-      const current = this.getDatabase();
-      const currentCount = Array.isArray(current.transactions) ? current.transactions.length : 0;
-      if (currentCount < maxTx) {
-        const merged = this.mergeDatabases(bestParsed, current);
-        this.cache = merged;
-        this.saveDatabase(merged);
-        return {
-          recovered: true,
-          message: `Berhasil memulihkan ${maxTx} data transaksi dari riwayat penyimpanan perangkat!`,
-          recoveredDb: merged
-        };
-      }
-    }
-
-    return { recovered: false, message: 'Tidak ditemukan transaksi di penyimpanan lama.' };
+    return { recovered: false, message: 'Pemulihan otomatis dinonaktifkan agar data yang dihapus tetap terhapus secara permanen.' };
   }
 
   public async hydrateFromServer(_ns?: any): Promise<CompleteStorageDatabase | null> {
@@ -912,10 +875,8 @@ export class DataStorageService {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-        // Simpan cadangan snapshot lokal jika data memiliki transaksi atau perubahan
-        if (Array.isArray(updated.transactions) && updated.transactions.length > 0) {
-          window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(updated));
-        }
+        // Selalu simpan cadangan lokal mutakhir yang 100% selaras dengan state terkini
+        window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(updated));
       }
     } catch (e: any) {
       console.warn('Gagal menyimpan database ke localStorage (Quota terlampaui), mencoba pemangkasan darurat:', e);
@@ -1430,7 +1391,7 @@ export class DataStorageService {
       rooms: updatedRooms, 
       meetingRooms: updatedMeetingRooms 
     });
-    deleteBuildingInSupabaseDirect(buildingId).catch(err => console.warn('Supabase delete building err:', err));
+    deleteBuildingInSupabaseDirect(buildingId, bld.name).catch(err => console.warn('Supabase delete building err:', err));
     return { 
       success: true, 
       message: `Gedung '${bld.name}' ${associatedRooms.length > 0 ? `beserta ${associatedRooms.length} unit kamar di dalamnya` : ''} berhasil dihapus dari database.` 
@@ -1901,6 +1862,68 @@ export class DataStorageService {
     this.saveDatabase({ ...db, transactions: txs });
   }
 
+  public deleteTransaction(txId: string): { success: boolean; message: string } {
+    const db = this.getDatabase();
+    const txs = db.transactions || [];
+    const targetTx = txs.find(t => t.id === txId);
+    if (!targetTx) {
+      return { success: false, message: 'Transaksi tidak ditemukan.' };
+    }
+
+    const updatedTxs = txs.filter(t => t.id !== txId);
+
+    // Bebaskan kamar jika kamar terkunci oleh transaksi ini
+    const updatedRooms = (db.rooms || []).map(r => {
+      if (r.activeTxId === txId || (targetTx.roomId && r.id === targetTx.roomId) || (r.roomNumber === targetTx.roomNumber)) {
+        const remainingActive = updatedTxs.find(t =>
+          (t.roomId === r.id || t.roomNumber === r.roomNumber || t.allocatedRoomNumbers?.includes(r.roomNumber)) &&
+          (t.status === 'TERISI' || t.status === 'BOOKED')
+        );
+        if (remainingActive) {
+          const roomStatus: 'TERISI' | 'BOOKED' = remainingActive.status === 'TERISI' ? 'TERISI' : 'BOOKED';
+          return { ...r, status: roomStatus, activeTxId: remainingActive.id };
+        }
+        return { ...r, status: 'KOSONG' as const, activeTxId: null };
+      }
+      return r;
+    });
+
+    // Hapus juga pesanan sarapan terkait jika ada
+    const updatedOrders = (db.breakfastOrders || []).filter(o => o.transactionId !== txId && o.id !== `BO-TX-${txId}`);
+
+    this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
+    deleteTransactionInSupabaseDirect(txId).catch(err => console.warn('Supabase delete transaction err:', err));
+    return { success: true, message: `Transaksi '${targetTx.guestName}' (${txId}) berhasil dihapus secara permanen.` };
+  }
+
+  public batchDeleteTransactions(txIds: string[]): { success: boolean; count: number } {
+    const db = this.getDatabase();
+    const idSet = new Set(txIds);
+    const updatedTxs = (db.transactions || []).filter(t => !idSet.has(t.id));
+    const updatedOrders = (db.breakfastOrders || []).filter(o => !idSet.has(o.transactionId || '') && !idSet.has(o.id.replace('BO-TX-', '')));
+
+    const updatedRooms = (db.rooms || []).map(r => {
+      if (r.activeTxId && idSet.has(r.activeTxId)) {
+        const remainingActive = updatedTxs.find(t =>
+          (t.roomId === r.id || t.roomNumber === r.roomNumber || t.allocatedRoomNumbers?.includes(r.roomNumber)) &&
+          (t.status === 'TERISI' || t.status === 'BOOKED')
+        );
+        if (remainingActive) {
+          const roomStatus: 'TERISI' | 'BOOKED' = remainingActive.status === 'TERISI' ? 'TERISI' : 'BOOKED';
+          return { ...r, status: roomStatus, activeTxId: remainingActive.id };
+        }
+        return { ...r, status: 'KOSONG' as const, activeTxId: null };
+      }
+      return r;
+    });
+
+    this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
+    txIds.forEach(id => {
+      deleteTransactionInSupabaseDirect(id).catch(() => {});
+    });
+    return { success: true, count: txIds.length };
+  }
+
   // ==========================================
   // PEMELIHARAAN (MAINTENANCE)
   // ==========================================
@@ -2192,8 +2215,9 @@ export class DataStorageService {
 
   public resetDatabaseToDefaults(_ns?: any): CompleteStorageDatabase {
     // Reset basis data lokal dan HANYA menyisakan akun Super Admin serta data master bersih
-    // Default kosongkan data aktivitas, shift, QC, dan transaksi
+    // Default kosongkan data aktivitas, shift, QC, pesanan, dan transaksi
     const initDb = generateInitialDatabase(true);
+    initDb.rooms = getInitialRooms();
     initDb.auditLogs = [];
     initDb.workSessions = [];
     initDb.qcInspections = [];
@@ -2201,8 +2225,21 @@ export class DataStorageService {
     initDb.maintenances = [];
     initDb.breakfastOrders = [];
     initDb.chatMessages = [];
+
+    // Hapus total key cadangan lama agar data usang tidak pernah bangkit kembali
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.removeItem(LOCAL_STORAGE_BACKUP_KEY);
+        for (const oldKey of LEGACY_STORAGE_KEYS) {
+          window.localStorage.removeItem(oldKey);
+        }
+      } catch (_) {}
+    }
+
     this.cache = initDb;
     this.saveDatabase(initDb);
+    // Segera dorong reset bersih ke Database Supabase Pusat
+    this.pushAllToSupabase(initDb).catch(() => {});
     return initDb;
   }
 

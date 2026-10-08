@@ -10,12 +10,15 @@ import { VerifyPdfView } from './VerifyPdfView';
 import { RolePermissionsSection } from './RolePermissionsSection';
 
 export function ReportsView() {
-  const { currentUser, transactions, rooms, openModal, showToast, roomCapacityRates = [], meetingRooms = [], breakfastMenuItems = [] } = useAppContext();
+  const { currentUser, transactions, rooms, openModal, showToast, roomCapacityRates = [], meetingRooms = [], breakfastMenuItems = [], deleteTransaction, batchDeleteGroup } = useAppContext();
   const [activeTab, setActiveTab] = useState<'ALL' | 'ROMBONGAN' | 'INDIVIDU' | 'AULA'>('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState<'NEWEST_BOOKING' | 'NEWEST_CHECKIN' | 'OLDEST_CHECKIN' | 'GUEST_NAME' | 'HIGHEST_PRICE'>('NEWEST_BOOKING');
   const [search, setSearch] = useState('');
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Record<string, boolean>>({});
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string; isGroup?: boolean } | null>(null);
+
+  const canDeleteTx = currentUser?.role === 'Super Admin' || currentUser?.role === 'Admin' || isRecepRole(currentUser?.role);
 
   const isKeuangan = isKeuanganRole(currentUser?.role, currentUser?.department);
 
@@ -456,6 +459,18 @@ export function ReportsView() {
                             <i className={`fa-solid ${isExpanded ? 'fa-chevron-up' : 'fa-chevron-down'} text-slate-500 dark:text-slate-400 text-[10px]`}></i>
                             <span>{isExpanded ? 'Tutup Rincian' : `Rincian Kamar (${grp.allRoomNumbers.length})`}</span>
                           </button>
+
+                          {canDeleteTx && (
+                            <button
+                              type="button"
+                              onClick={() => setItemToDelete({ id: grp.key, name: grp.name, isGroup: true })}
+                              className="px-2 py-1 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-bold rounded-lg text-xs border border-rose-200 dark:border-rose-700 flex items-center space-x-1 transition cursor-pointer"
+                              title="Hapus data transaksi rombongan secara permanen"
+                            >
+                              <i className="fa-solid fa-trash-can text-rose-500 text-[10px]"></i>
+                              <span>Hapus</span>
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -795,6 +810,18 @@ export function ReportsView() {
                                   <span>Extend</span>
                                 </button>
                               )}
+
+                              {canDeleteTx && (
+                                <button
+                                  type="button"
+                                  onClick={() => setItemToDelete({ id: tx.id, name: tx.guestName, isGroup: false })}
+                                  className="px-2 py-1 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-bold rounded-lg text-xs border border-rose-200 dark:border-rose-700 flex items-center space-x-1 transition cursor-pointer"
+                                  title="Hapus transaksi ini secara permanen dari sistem"
+                                >
+                                  <i className="fa-solid fa-trash-can text-rose-500 text-[10px]"></i>
+                                  <span>Hapus</span>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -954,6 +981,18 @@ export function ReportsView() {
                                 <span>Extend</span>
                               </button>
                             )}
+
+                            {canDeleteTx && (
+                              <button
+                                type="button"
+                                onClick={() => setItemToDelete({ id: tx.id, name: tx.guestName, isGroup: false })}
+                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs border border-rose-200 flex items-center space-x-1 transition cursor-pointer"
+                                title="Hapus transaksi aula ini secara permanen dari sistem"
+                              >
+                                <i className="fa-solid fa-trash-can text-rose-500 text-[10px]"></i>
+                                <span>Hapus</span>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -966,6 +1005,61 @@ export function ReportsView() {
           </div>
         )}
       </div>
+
+      {/* Modal Konfirmasi Hapus Transaksi Permanen */}
+      {itemToDelete && (
+        <div 
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150"
+          onClick={() => setItemToDelete(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 dark:border-slate-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 rounded-xl bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 flex items-center justify-center text-xl shrink-0">
+                <i className="fa-solid fa-trash-can"></i>
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-900 dark:text-slate-100 text-base">Hapus Transaksi Permanen</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Data akan dihapus dari penyimpanan lokal dan Supabase Cloud</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-xl p-3 text-xs text-rose-900 dark:text-rose-200 space-y-1">
+              <p className="font-bold">Apakah Anda yakin ingin menghapus data {itemToDelete.isGroup ? 'rombongan' : 'transaksi'} "{itemToDelete.name}"?</p>
+              <p className="text-slate-600 dark:text-slate-400 text-[11px]">
+                Data akan dibersihkan tuntas dan tidak akan muncul kembali di sistem maupun cloud. Kamar terkait akan otomatis dibebaskan ke status KOSONG jika tidak ada booking lain.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (itemToDelete.isGroup) {
+                    batchDeleteGroup(itemToDelete.id);
+                  } else {
+                    deleteTransaction(itemToDelete.id);
+                  }
+                  setItemToDelete(null);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+              >
+                <i className="fa-solid fa-trash-can"></i>
+                <span>Ya, Hapus Permanen</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

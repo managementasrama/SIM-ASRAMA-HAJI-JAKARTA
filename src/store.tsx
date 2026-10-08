@@ -209,6 +209,8 @@ interface AppContextType {
   activateCheckin: (roomId: string, targetTxId?: string) => void;
   cancelBooking: (roomId: string, txId?: string, reason?: string) => void;
   batchCancelGroup: (txIdsOrGroupId: string[] | string, reason?: string) => boolean;
+  deleteTransaction: (txId: string) => boolean;
+  batchDeleteGroup: (groupId: string) => boolean;
   extendTransaction: (
     txId: string, 
     additionalDuration: number, 
@@ -757,38 +759,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             maintenances: cloudDb.maintenances || []
           });
         } else {
-          // Hanya jika Supabase tidak tersedia (offline), coba pulihkan dari cadangan lokal
-          const recovery = dataStorage.tryRecoverLostData();
-          if (recovery.recovered && recovery.recoveredDb) {
-            const rDb = recovery.recoveredDb;
-            setUsers(rDb.users);
-            setBuildings(rDb.buildings || []);
-            setMeetingRooms(rDb.meetingRooms || []);
-            const { nextRooms, hasChanges } = validateAndSyncRoomStates(
-              rDb.rooms || [],
-              rDb.transactions || [],
-              rDb.maintenances || []
-            );
-            setRooms(nextRooms);
-            setTransactions(rDb.transactions);
-            setMaintenances(rDb.maintenances);
-            setAuditLogs(rDb.auditLogs);
-            setWorkSessions(rDb.workSessions);
-            setQcInspections(rDb.qcInspections);
-            setBreakfastMenuItems(rDb.breakfastMenuItems || []);
-            setBreakfastOrders(rDb.breakfastOrders || []);
-            if (hasChanges) {
-              dataStorage.saveRooms(nextRooms);
-            }
-            showToast(recovery.message, 'success');
-          } else {
-            // Validasi state lokal jika belum terhidrasi
-            setRooms(prev => {
-              const { nextRooms, hasChanges } = validateAndSyncRoomStates(prev, transactions, maintenances);
-              if (hasChanges) dataStorage.saveRooms(nextRooms);
-              return nextRooms;
-            });
-          }
+          // Validasi state lokal jika offline atau Supabase belum terhubung
+          setRooms(prev => {
+            const { nextRooms, hasChanges } = validateAndSyncRoomStates(prev, transactions, maintenances);
+            if (hasChanges) dataStorage.saveRooms(nextRooms);
+            return nextRooms;
+          });
         }
       } catch (err) {
         console.warn('Gagal memuat database dari Supabase:', err);
@@ -2449,6 +2425,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const deleteTransaction = (txId: string): boolean => {
+    if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && !isRecepRole(currentUser?.role))) {
+      showToast('Akses Ditolak: Hanya Super Admin, Admin, atau Resepsionis yang berwenang menghapus transaksi!', 'error');
+      return false;
+    }
+    const target = transactions.find(t => t.id === txId);
+    const res = dataStorage.deleteTransaction(txId);
+    if (!res.success) {
+      showToast(res.message, 'error');
+      return false;
+    }
+    setTransactions(dataStorage.getTransactions());
+    setRooms(dataStorage.getRooms());
+    setBreakfastOrders(dataStorage.getBreakfastOrders());
+    showToast(res.message, 'info');
+    logAudit('HAPUS_TRANSAKSI', `Menghapus transaksi secara permanen: ${target?.guestName || txId} (${txId})`);
+    return true;
+  };
+
+  const batchDeleteGroup = (groupId: string): boolean => {
+    if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && !isRecepRole(currentUser?.role))) {
+      showToast('Akses Ditolak: Hanya Super Admin, Admin, atau Resepsionis yang berwenang menghapus data rombongan!', 'error');
+      return false;
+    }
+    const groupTxs = transactions.filter(t => t.groupId === groupId || t.id === groupId);
+    if (groupTxs.length === 0) {
+      showToast('Data rombongan tidak ditemukan.', 'error');
+      return false;
+    }
+    const ids = groupTxs.map(t => t.id);
+    const grpName = groupTxs[0].groupName || groupTxs[0].guestName || groupId;
+    dataStorage.batchDeleteTransactions(ids);
+    setTransactions(dataStorage.getTransactions());
+    setRooms(dataStorage.getRooms());
+    setBreakfastOrders(dataStorage.getBreakfastOrders());
+    showToast(`Berhasil menghapus ${ids.length} transaksi rombongan '${grpName}' secara permanen.`, 'info');
+    logAudit('HAPUS_ROMBONGAN', `Menghapus seluruh transaksi rombongan: ${grpName} (${ids.length} kamar)`);
+    return true;
+  };
+
   const activateCheckin = (roomIdOrTxId: string, targetTxId?: string) => {
     if (!isRecepRole(currentUser?.role)) {
       showToast("Akses Ditolak: Hanya staf Resepsionis yang berwenang mengaktifkan Check-In!", "error");
@@ -4005,7 +4021,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       markChannelAsRead, dismissChatNotification, simulateIncomingChatMessage,
       clearChatHistory, addChatChannel, deleteChatChannel,
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
-      login, logout, clearWorkSessions, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
+      login, logout, clearWorkSessions, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase
