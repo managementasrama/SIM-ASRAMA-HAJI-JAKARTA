@@ -431,16 +431,9 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       ? deduplicateRoomCapacityRates(ratesRes.data.map(mapSupabaseRoomCapacityRateToAppRate))
       : (syncPayload?.roomCapacityRates || initialRoomCapacityRates);
 
-    // Cek apakah setidaknya ada sumber data dari relational tables atau snapshot
-    const hasAnyData = Boolean(
-      syncPayload || 
-      relBuildings.length > 0 || 
-      relRooms.length > 0 || 
-      relTransactions.length > 0 || 
-      (directUsers && directUsers.length > 0)
-    );
-
-    if (!hasAnyData) {
+    // Cek apakah server Supabase berhasil dihubungi (bukan kegagalan koneksi total)
+    const isSupabaseReachable = !buildingsRes.error || !roomsRes.error || !transactionsRes.error || !syncRes.error;
+    if (!isSupabaseReachable) {
       return null;
     }
 
@@ -652,19 +645,21 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
   }
 
   // Simpan buildings
-  if (db.buildings && db.buildings.length > 0) {
-    const bldPayloads = db.buildings.map(b => ({
-      id: b.id,
-      name: b.name,
-      code: b.code,
-      floors: b.floors,
-      total_rooms: b.totalRooms,
-      capacity_desc: b.capacityDesc,
-      category: b.category,
-      description: b.description,
-      status: b.status
-    }));
-    await supabase.from('buildings').upsert(bldPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.buildings)) {
+    if (db.buildings.length > 0) {
+      const bldPayloads = db.buildings.map(b => ({
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        floors: b.floors,
+        total_rooms: b.totalRooms,
+        capacity_desc: b.capacityDesc,
+        category: b.category,
+        description: b.description,
+        status: b.status
+      }));
+      await supabase.from('buildings').upsert(bldPayloads, { onConflict: 'id' });
+    }
     try {
       const activeIds = db.buildings.map(b => b.id).filter(Boolean);
       const { data: existingRows } = await supabase.from('buildings').select('id');
@@ -678,25 +673,27 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
   }
 
   // Simpan rooms
-  if (db.rooms && db.rooms.length > 0) {
-    const roomPayloads = db.rooms.map(r => ({
-      id: r.id,
-      building: r.building,
-      room_number: r.roomNumber,
-      floor: r.floor,
-      type: r.type,
-      capacity: r.capacity,
-      status: r.status,
-      qc_status: r.qcStatus,
-      last_qc_date: r.lastQcDate,
-      last_qc_by: r.lastQcBy,
-      last_qc_notes: r.lastQcNotes,
-      active_tx_id: r.activeTxId,
-      active_maint_id: r.activeMaintId,
-      price_per_night: r.pricePerNight,
-      facilities: r.facilities
-    }));
-    await supabase.from('rooms').upsert(roomPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.rooms)) {
+    if (db.rooms.length > 0) {
+      const roomPayloads = db.rooms.map(r => ({
+        id: r.id,
+        building: r.building,
+        room_number: r.roomNumber,
+        floor: r.floor,
+        type: r.type,
+        capacity: r.capacity,
+        status: r.status,
+        qc_status: r.qcStatus,
+        last_qc_date: r.lastQcDate,
+        last_qc_by: r.lastQcBy,
+        last_qc_notes: r.lastQcNotes,
+        active_tx_id: r.activeTxId,
+        active_maint_id: r.activeMaintId,
+        price_per_night: r.pricePerNight,
+        facilities: r.facilities
+      }));
+      await supabase.from('rooms').upsert(roomPayloads, { onConflict: 'id' });
+    }
     try {
       const activeIds = db.rooms.map(r => r.id).filter(Boolean);
       const { data: existingRows } = await supabase.from('rooms').select('id');
@@ -710,23 +707,25 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
   }
 
   // Simpan meeting rooms
-  if (db.meetingRooms && db.meetingRooms.length > 0) {
-    const mrPayloads = db.meetingRooms.map(m => ({
-      id: m.id,
-      name: m.name,
-      code: m.code,
-      building: m.building,
-      capacity: m.capacity,
-      capacity_number: m.capacityNumber,
-      facilities: m.facilities,
-      daily_rate: m.dailyRate,
-      session_rate: m.sessionRate,
-      description: m.description,
-      status: m.status,
-      qc_status: m.qcStatus,
-      active_tx_id: m.activeTxId
-    }));
-    await supabase.from('meeting_rooms').upsert(mrPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.meetingRooms)) {
+    if (db.meetingRooms.length > 0) {
+      const mrPayloads = db.meetingRooms.map(m => ({
+        id: m.id,
+        name: m.name,
+        code: m.code,
+        building: m.building,
+        capacity: m.capacity,
+        capacity_number: m.capacityNumber,
+        facilities: m.facilities,
+        daily_rate: m.dailyRate,
+        session_rate: m.sessionRate,
+        description: m.description,
+        status: m.status,
+        qc_status: m.qcStatus,
+        active_tx_id: m.activeTxId
+      }));
+      await supabase.from('meeting_rooms').upsert(mrPayloads, { onConflict: 'id' });
+    }
     try {
       const activeIds = db.meetingRooms.map(m => m.id).filter(Boolean);
       const { data: existingRows } = await supabase.from('meeting_rooms').select('id');
@@ -740,102 +739,126 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
   }
 
   // Simpan transactions
-  if (db.transactions && db.transactions.length > 0) {
-    const txPayloads = db.transactions.map(t => ({
-      id: t.id,
-      room_id: t.roomId,
-      building: t.building,
-      room_number: t.roomNumber,
-      category: t.category,
-      guest_name: t.guestName,
-      guest_type: t.guestType,
-      nik_ktp: t.nikKtp,
-      kloter: t.kloter,
-      start_date: t.startDate,
-      duration: t.duration,
-      phone: t.phone,
-      notes: t.notes,
-      status: t.status,
-      created_user: t.createdUser,
-      is_group: t.isGroup,
-      group_type: t.groupType,
-      group_name: t.groupName,
-      group_pic: t.groupPic,
-      group_pic_phone: t.groupPicPhone,
-      group_id: t.groupId,
-      total_pax: t.totalPax,
-      include_aula: t.includeAula,
-      rent_aula_id: t.rentAulaId,
-      rent_aula_name: t.rentAulaName,
-      catering_package: t.cateringPackage,
-      catering_pax_count: t.cateringPaxCount,
-      spk_number: t.spkNumber,
-      allocated_room_numbers: t.allocatedRoomNumbers,
-      allocated_rooms_count: t.allocatedRoomsCount,
-      breakfast: t.breakfast,
-      breakfast_menu: t.breakfastMenu,
-      breakfast_portions: t.breakfastPortions,
-      breakfast_days: t.breakfastDays,
-      breakfast_status: t.breakfastStatus,
-      rent_type: t.rentType,
-      duration_unit: t.durationUnit,
-      extra_bed: t.extraBed,
-      extra_bed_count: t.extraBedCount,
-      extra_bed_price: t.extraBedPrice || 0,
-      extra_bed_notes: t.extraBedNotes || null,
-      agency_or_document: t.agencyOrDocument || null,
-      price_per_night: t.pricePerNight || 0,
-      payment_status: t.paymentStatus || 'BELUM_LUNAS',
-      paid_amount: t.paidAmount || 0,
-      dp_amount: t.dpAmount || 0,
-      dp_date: t.dpDate || null,
-      dp_method: t.dpMethod || null,
-      dp_note: t.dpNote || null,
-      remaining_amount: t.remainingAmount || 0,
-      va_number: t.vaNumber || null,
-      va_account_name: t.vaAccountName || null,
-      bank_name: t.bankName || null,
-      bank_account_number: t.bankAccountNumber || null,
-      payment_method: t.paymentMethod || null,
-      payment_date: t.paymentDate || null,
-      payment_note: t.paymentNote || null,
-      kwitansi_no: t.kwitansiNo || null,
-      cancelled_at: t.cancelledAt || null,
-      cancel_reason: t.cancelReason || null,
-      cancelled_user: t.cancelledUser || null,
-      extend_history: t.extendHistory || [],
-      check_in_time: t.checkInTime,
-      check_out_time: t.checkOutTime
-    }));
-    await supabase.from('transactions').upsert(txPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.transactions)) {
+    if (db.transactions.length > 0) {
+      const txPayloads = db.transactions.map(t => ({
+        id: t.id,
+        room_id: t.roomId,
+        building: t.building,
+        room_number: t.roomNumber,
+        category: t.category,
+        guest_name: t.guestName,
+        guest_type: t.guestType,
+        nik_ktp: t.nikKtp,
+        kloter: t.kloter,
+        start_date: t.startDate,
+        duration: t.duration,
+        phone: t.phone,
+        notes: t.notes,
+        status: t.status,
+        created_user: t.createdUser,
+        is_group: t.isGroup,
+        group_type: t.groupType,
+        group_name: t.groupName,
+        group_pic: t.groupPic,
+        group_pic_phone: t.groupPicPhone,
+        group_id: t.groupId,
+        total_pax: t.totalPax,
+        include_aula: t.includeAula,
+        rent_aula_id: t.rentAulaId,
+        rent_aula_name: t.rentAulaName,
+        catering_package: t.cateringPackage,
+        catering_pax_count: t.cateringPaxCount,
+        spk_number: t.spkNumber,
+        allocated_room_numbers: t.allocatedRoomNumbers,
+        allocated_rooms_count: t.allocatedRoomsCount,
+        breakfast: t.breakfast,
+        breakfast_menu: t.breakfastMenu,
+        breakfast_portions: t.breakfastPortions,
+        breakfast_days: t.breakfastDays,
+        breakfast_status: t.breakfastStatus,
+        rent_type: t.rentType,
+        duration_unit: t.durationUnit,
+        extra_bed: t.extraBed,
+        extra_bed_count: t.extraBedCount,
+        extra_bed_price: t.extraBedPrice || 0,
+        extra_bed_notes: t.extraBedNotes || null,
+        agency_or_document: t.agencyOrDocument || null,
+        price_per_night: t.pricePerNight || 0,
+        payment_status: t.paymentStatus || 'BELUM_LUNAS',
+        paid_amount: t.paidAmount || 0,
+        dp_amount: t.dpAmount || 0,
+        dp_date: t.dpDate || null,
+        dp_method: t.dpMethod || null,
+        dp_note: t.dpNote || null,
+        remaining_amount: t.remainingAmount || 0,
+        va_number: t.vaNumber || null,
+        va_account_name: t.vaAccountName || null,
+        bank_name: t.bankName || null,
+        bank_account_number: t.bankAccountNumber || null,
+        payment_method: t.paymentMethod || null,
+        payment_date: t.paymentDate || null,
+        payment_note: t.paymentNote || null,
+        kwitansi_no: t.kwitansiNo || null,
+        cancelled_at: t.cancelledAt || null,
+        cancel_reason: t.cancelReason || null,
+        cancelled_user: t.cancelledUser || null,
+        extend_history: t.extendHistory || [],
+        check_in_time: t.checkInTime,
+        check_out_time: t.checkOutTime
+      }));
+      await supabase.from('transactions').upsert(txPayloads, { onConflict: 'id' });
+    }
+    try {
+      const activeIds = db.transactions.map(t => t.id).filter(Boolean);
+      const { data: existingRows } = await supabase.from('transactions').select('id');
+      if (existingRows && existingRows.length > 0) {
+        const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from('transactions').delete().in('id', toDelete);
+        }
+      }
+    } catch (_) {}
   }
 
   // Simpan maintenances
-  if (db.maintenances && db.maintenances.length > 0) {
-    const maintPayloads = db.maintenances.map(m => ({
-      id: m.id,
-      room_id: m.roomId,
-      building: m.building,
-      room_number: m.roomNumber,
-      category: m.category,
-      urgency: m.urgency,
-      technician: m.technician,
-      description: m.description,
-      report_time: m.reportTime,
-      status: m.status,
-      reported_user: m.reportedUser,
-      assigned_technician_id: m.assignedTechnicianId,
-      assigned_technician_name: m.assignedTechnicianName,
-      assigned_by_manager: m.assignedByManager,
-      assigned_time: m.assignedTime,
-      manager_notes: m.managerNotes,
-      work_completed_time: m.workCompletedTime,
-      technician_notes: m.technicianNotes,
-      resolved_time: m.resolvedTime,
-      qc_inspection_id: m.qcInspectionId,
-      facility_type: m.facilityType
-    }));
-    await supabase.from('maintenances').upsert(maintPayloads, { onConflict: 'id' });
+  if (Array.isArray(db.maintenances)) {
+    if (db.maintenances.length > 0) {
+      const maintPayloads = db.maintenances.map(m => ({
+        id: m.id,
+        room_id: m.roomId,
+        building: m.building,
+        room_number: m.roomNumber,
+        category: m.category,
+        urgency: m.urgency,
+        technician: m.technician,
+        description: m.description,
+        report_time: m.reportTime,
+        status: m.status,
+        reported_user: m.reportedUser,
+        assigned_technician_id: m.assignedTechnicianId,
+        assigned_technician_name: m.assignedTechnicianName,
+        assigned_by_manager: m.assignedByManager,
+        assigned_time: m.assignedTime,
+        manager_notes: m.managerNotes,
+        work_completed_time: m.workCompletedTime,
+        technician_notes: m.technicianNotes,
+        resolved_time: m.resolvedTime,
+        qc_inspection_id: m.qcInspectionId,
+        facility_type: m.facilityType
+      }));
+      await supabase.from('maintenances').upsert(maintPayloads, { onConflict: 'id' });
+    }
+    try {
+      const activeIds = db.maintenances.map(m => m.id).filter(Boolean);
+      const { data: existingRows } = await supabase.from('maintenances').select('id');
+      if (existingRows && existingRows.length > 0) {
+        const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from('maintenances').delete().in('id', toDelete);
+        }
+      }
+    } catch (_) {}
   }
 
   // Simpan QC inspections

@@ -616,8 +616,8 @@ export class DataStorageService {
               }));
             }
 
-            // Inisialisasi buildings jika belum ada, dan bersihkan duplikat legacy 'Ruang Pertemuan' dari daftar gedung penginapan
-            if (!Array.isArray(parsed.buildings) || parsed.buildings.length === 0) {
+            // Inisialisasi buildings hanya jika belum ada sama sekali (undefined/null), hormati jika kosong karena dihapus
+            if (!Array.isArray(parsed.buildings)) {
               parsed.buildings = [...initialBuildings];
             } else {
               parsed.buildings = parsed.buildings.filter((b: any) => b.name !== 'Ruang Pertemuan' && b.id !== 'bld-5');
@@ -640,8 +640,8 @@ export class DataStorageService {
               });
             }
 
-            // Inisialisasi meetingRooms jika belum ada
-            if (!Array.isArray(parsed.meetingRooms) || parsed.meetingRooms.length === 0) {
+            // Inisialisasi meetingRooms hanya jika belum ada sama sekali (undefined/null)
+            if (!Array.isArray(parsed.meetingRooms)) {
               parsed.meetingRooms = [...initialMeetingRooms];
             } else {
               // Deduplikasi parsed.meetingRooms berdasarkan id & nama unik
@@ -838,7 +838,6 @@ export class DataStorageService {
             }
 
             this.cache = parsed as CompleteStorageDatabase;
-            this.saveDatabase(this.cache);
             return this.cache;
           }
         }
@@ -857,7 +856,7 @@ export class DataStorageService {
     return initDb;
   }
 
-  public saveDatabase(db: CompleteStorageDatabase, _ns?: any): void {
+  public saveDatabase(db: CompleteStorageDatabase, options?: { skipCloudSync?: boolean } | any): void {
     // Pertahankan riwayat audit logs unduh PDF yang mungkin baru saja tercatat di storage/cache
     const existingAuditLogs = this.cache?.auditLogs || [];
     const incomingAuditLogs = Array.isArray(db.auditLogs) ? db.auditLogs : [];
@@ -932,8 +931,11 @@ export class DataStorageService {
       }
     }
 
-    // Sinkronisasi otomatis ke Supabase Backend di cloud
-    this.triggerSupabaseSync(updated);
+    // Sinkronisasi otomatis ke Supabase Backend di cloud (lewati jika dipanggil saat proses pembacaan/hidrasi lokal)
+    const shouldSkipCloud = Boolean(options && typeof options === 'object' && options.skipCloudSync);
+    if (!shouldSkipCloud) {
+      this.triggerSupabaseSync(updated);
+    }
   }
 
   // ==========================================
@@ -1712,9 +1714,9 @@ export class DataStorageService {
     return roomWithId;
   }
 
-  public saveRooms(rooms: Room[]): Room[] {
+  public saveRooms(rooms: Room[], options?: { skipCloudSync?: boolean }): Room[] {
     const db = this.getDatabase();
-    this.saveDatabase({ ...db, rooms });
+    this.saveDatabase({ ...db, rooms }, options);
     return rooms;
   }
 
@@ -1948,6 +1950,11 @@ export class DataStorageService {
       window.dispatchEvent(new CustomEvent('sim_haji_audit_log_added', { detail: finalLog }));
     }
     return finalLog;
+  }
+
+  public clearAuditLogs(): void {
+    const db = this.getDatabase();
+    this.saveDatabase({ ...db, auditLogs: [] });
   }
 
   // ==========================================

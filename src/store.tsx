@@ -251,6 +251,7 @@ interface AppContextType {
 
   logAudit: (action: string, details: string, durationMinutes?: number) => void;
   addAuditLog: (log: AuditLog) => AuditLog;
+  clearAuditLogs: () => void;
   showToast: (msg: string, type?: string) => void;
   removeToast: (id: string) => void;
   
@@ -725,7 +726,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
           setSupabaseSyncState(dataStorage.getSupabaseSyncState());
           if (hasChanges) {
-            dataStorage.saveRooms(nextRooms);
+            dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
           }
           await verifyDatabaseChecksum(true, {
             buildings: cloudDb.buildings || [],
@@ -835,7 +836,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
           if (hasChanges) {
-            dataStorage.saveRooms(nextRooms);
+            dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
           }
           setSupabaseSyncState(dataStorage.getSupabaseSyncState());
           await verifyDatabaseChecksum(true, {
@@ -908,9 +909,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
         if (hasChanges) {
-          dataStorage.saveRooms(nextRooms);
+          dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
         }
-        await dataStorage.pushAllToSupabase();
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
         await verifyDatabaseChecksum(true, {
           buildings: cloudDb.buildings || [],
@@ -958,9 +958,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
         if (hasChanges) {
-          dataStorage.saveRooms(nextRooms);
+          dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
         }
-        await dataStorage.pushAllToSupabase();
         await verifyDatabaseChecksum(true, {
           buildings: cloudDb.buildings || [],
           rooms: nextRooms,
@@ -1322,6 +1321,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const saved = dataStorage.addAuditLog(log);
     setAuditLogs(prev => [saved, ...prev.filter(l => l.id !== saved.id && (!saved.verificationCode || l.verificationCode !== saved.verificationCode))]);
     return saved;
+  };
+
+  const clearAuditLogs = () => {
+    dataStorage.clearAuditLogs();
+    setAuditLogs([]);
+    showToast('Seluruh riwayat log aktivitas berhasil dibersihkan!', 'success');
   };
 
   // Sinkronisasi otomatis saat ada log unduh PDF yang ditambahkan dari modul ekspor PDF
@@ -3965,7 +3970,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearChatHistory, addChatChannel, deleteChatChannel,
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
       login, logout, clearWorkSessions, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
-      addMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, logAudit, addAuditLog, showToast, removeToast, openModal, closeModal,
+      addMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase
     }}>

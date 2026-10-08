@@ -734,10 +734,10 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
   if (rNum.startsWith('D3-') || rNum.startsWith('D3 ')) return 'Gedung D3';
   if (rNum.startsWith('D4-') || rNum.startsWith('D4 ')) return 'Gedung D4';
   if (rNum.startsWith('D5-') || rNum.startsWith('D5 ')) return 'Gedung D5';
-  if (rNum.startsWith('D1-') || rNum.startsWith('D-')) return 'Gedung D (Madinah)';
-  if (rNum.startsWith('A-')) return 'Gedung A (Arafah)';
-  if (rNum.startsWith('B-')) return 'Gedung B (Muzdalifah)';
-  if (rNum.startsWith('C-')) return 'Gedung C (Mina)';
+  if (rNum.startsWith('D1-') || rNum.startsWith('D-')) return 'Gedung D';
+  if (rNum.startsWith('A-')) return 'Gedung A';
+  if (rNum.startsWith('B-')) return 'Gedung B';
+  if (rNum.startsWith('C-')) return 'Gedung C';
   if (rNum.startsWith('E-')) return 'Gedung E';
   if (rNum.startsWith('G-')) return 'Gedung G';
   if (rNum.startsWith('H-')) return 'Gedung H';
