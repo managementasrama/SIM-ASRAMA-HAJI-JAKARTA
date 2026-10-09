@@ -1627,13 +1627,18 @@ export class DataStorageService {
     return this.getDatabase().auditLogs;
   }
 
-  public clearAuditLogs(): boolean {
+  public addAuditLog(log: AuditLog): AuditLog {
     const db = this.getDatabase();
-    this.saveDatabase({ ...db, auditLogs: [] });
+    const existingLogs = Array.isArray(db.auditLogs) ? db.auditLogs : [];
+    const filtered = existingLogs.filter(
+      l => l.id !== log.id && (!log.verificationCode || l.verificationCode !== log.verificationCode)
+    );
+    const updated = [log, ...filtered].slice(0, 250);
+    this.saveDatabase({ ...db, auditLogs: updated });
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('sim_haji_audit_logs_cleared', {}));
+      window.dispatchEvent(new CustomEvent('sim_haji_audit_log_added', { detail: log }));
     }
-    return true;
+    return log;
   }
 
   public truncateAuditLogs(keepCount: number = 50): number {
@@ -1647,11 +1652,15 @@ export class DataStorageService {
     return currentLogs.length - truncated.length;
   }
 
-  public clearAuditLogs(): void {
+  public clearAuditLogs(): boolean {
     const db = this.getDatabase();
     this.cache = { ...db, auditLogs: [] };
     this.saveDatabase({ ...db, auditLogs: [] });
     clearAuditLogsInSupabaseDirect().catch(err => console.warn('Supabase clear audit err:', err));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sim_haji_audit_logs_cleared', {}));
+    }
+    return true;
   }
 
   // ==========================================
