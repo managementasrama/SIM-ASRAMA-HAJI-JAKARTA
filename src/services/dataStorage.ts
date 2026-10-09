@@ -165,9 +165,11 @@ export class DataStorageService {
   private syncListeners: Array<(event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) => void> = [];
 
   constructor() {
-    // Bersihkan legacy storage keys lama agar data usang tidak pernah terbaca
+    // Hapus seluruh kunci penyimpanan lokal (tidak ada cache lokal database)
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
+        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+        window.localStorage.removeItem(LOCAL_STORAGE_BACKUP_KEY);
         for (const oldKey of LEGACY_STORAGE_KEYS) {
           window.localStorage.removeItem(oldKey);
         }
@@ -183,6 +185,10 @@ export class DataStorageService {
     return () => {
       this.syncListeners = this.syncListeners.filter(l => l !== listener);
     };
+  }
+
+  public subscribeSync(listener: (event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) => void): () => void {
+    return this.onSyncEvent(listener);
   }
 
   private notifySyncListeners(event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) {
@@ -214,6 +220,9 @@ export class DataStorageService {
       const res = await testSupabaseConnection();
       if (res.success) {
         this.syncStatus = 'connected';
+        if (!this.lastSyncTime) {
+          this.lastSyncTime = new Date().toISOString();
+        }
       } else {
         this.syncStatus = 'error';
         this.syncError = res.message;
@@ -242,7 +251,10 @@ export class DataStorageService {
       status: this.syncStatus,
       lastSyncTime: this.lastSyncTime,
       errorMessage: this.syncError,
-      isConfigured: true
+      isConfigured: true,
+      isSyncing: this.syncStatus === 'syncing',
+      lastSyncedAt: this.lastSyncTime,
+      lastError: this.syncError
     };
   }
 
@@ -255,24 +267,12 @@ export class DataStorageService {
       this.syncStatus = 'syncing';
       const cloudDb = await fetchFullDatabaseFromSupabase();
       if (cloudDb) {
-        // SUPABASE ADALAH SINGLE SOURCE OF TRUTH:
-        // Gunakan langsung data terbaru dari Supabase tanpa menggabungkan (union) data lama dari localStorage
-        // agar data yang dihapus di Supabase TIDAK BANGKIT LAGI.
-        // Jangan lakukan triggerSupabaseSync di sini karena hidrasi adalah proses BACA murni.
+        // SUPABASE ADALAH SINGLE SOURCE OF TRUTH (TANPA CACHE LOKAL):
         this.cache = cloudDb;
         this.lastSyncTime = new Date().toISOString();
         this.syncStatus = 'connected';
         this.syncError = null;
         this.hasHydratedFromCloud = true;
-        
-        // Simpan ke localStorage sebagai cache offline yang selalu selaras dengan Supabase
-        if (typeof window !== 'undefined' && window.localStorage) {
-          try {
-            window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cloudDb));
-            window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(cloudDb));
-          } catch (_) {}
-        }
-
         return cloudDb;
       }
       this.syncStatus = 'connected';
@@ -327,18 +327,22 @@ export class DataStorageService {
     (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
     const mergedMeetingRooms = Array.from(mrMap.values());
 
-    // 7. Buildings (Prioritaskan local agar edit nama gedung tidak revert)
+    // 7. Buildings (Prioritaskan mutlak local agar edit nama gedung tidak pernah revert)
     const bldByIdMap = new Map<string, Building>();
-    [...(cloud.buildings || []), ...(local.buildings || [])].forEach(b => {
+    (cloud.buildings || []).forEach(b => {
       if (!b || !b.name) return;
       const normName = normalizeBuildingName(b.name);
       if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
       const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
-      // Local wins over cloud
-      const existing = bldByIdMap.get(idKey);
-      if (!existing || (local.buildings || []).some(lb => lb.id === b.id)) {
-        bldByIdMap.set(idKey, { ...b, name: normName });
-      }
+      bldByIdMap.set(idKey, { ...b, name: normName });
+    });
+    (local.buildings || []).forEach(b => {
+      if (!b || !b.name) return;
+      const normName = normalizeBuildingName(b.name);
+      if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
+      const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
+      // Local wins unconditionally
+      bldByIdMap.set(idKey, { ...b, name: normName });
     });
     const bldByNameMap = new Map<string, Building>();
     Array.from(bldByIdMap.values()).forEach(b => {
@@ -452,7 +456,7 @@ export class DataStorageService {
   }
 
   /**
-   * Mengirim data ke Supabase dengan debouncing agar hemat bandwidth dan langsung memberi notifikasi ke Sync Status Badge
+   * Mengirim data ke Supabase secara instan (langsung detik itu juga / 0ms delay) setiap ada perubahan
    */
   private triggerSupabaseSync(db: CompleteStorageDatabase) {
     this.pendingSyncDb = db;
@@ -461,11 +465,13 @@ export class DataStorageService {
 
     if (this.syncDebounceTimer) {
       clearTimeout(this.syncDebounceTimer);
-    }
-    this.syncDebounceTimer = setTimeout(async () => {
       this.syncDebounceTimer = null;
-      const payload = this.pendingSyncDb || db;
-      this.pendingSyncDb = null;
+    }
+
+    const payload = this.pendingSyncDb || db;
+    this.pendingSyncDb = null;
+
+    (async () => {
       try {
         this.syncStatus = 'syncing';
         const res = await syncFullDatabaseToSupabase(payload);
@@ -484,7 +490,7 @@ export class DataStorageService {
         this.syncError = err?.message || 'Sync error';
         this.notifySyncListeners({ status: 'error', db: payload, error: this.syncError });
       }
-    }, 600);
+    })();
   }
 
   public setNamespace(_ns: any): CompleteStorageDatabase {
@@ -500,338 +506,8 @@ export class DataStorageService {
       return this.cache;
     }
 
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        let stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (!stored) {
-          for (const oldKey of LEGACY_STORAGE_KEYS) {
-            const oldVal = window.localStorage.getItem(oldKey);
-            if (oldVal) {
-              stored = oldVal;
-              try { window.localStorage.removeItem(oldKey); } catch (_) {}
-              break;
-            }
-          }
-        }
-
-        if (stored) {
-          const parsed = JSON.parse(stored) as Partial<CompleteStorageDatabase>;
-          if (parsed && Array.isArray(parsed.rooms)) {
-            // SINKRONISASI PENGGUNA: Gunakan akun yang tersimpan dari storage/Supabase, fallback ke initialUsers hanya jika kosong
-            if (!Array.isArray(parsed.users) || parsed.users.length === 0) {
-              parsed.users = [...initialUsers];
-            }
-
-            // Pastikan schemaVersion ter-upgrade tanpa menghapus transaksi dan data pengguna
-            if (!parsed.schemaVersion || parsed.schemaVersion < 4) {
-              parsed.schemaVersion = 4;
-            }
-
-            if (!Array.isArray(parsed.transactions)) parsed.transactions = [];
-            if (!Array.isArray(parsed.maintenances)) parsed.maintenances = [];
-            if (!Array.isArray(parsed.qcInspections)) parsed.qcInspections = [];
-            if (!Array.isArray(parsed.workSessions)) parsed.workSessions = [];
-            if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
-            if (!Array.isArray(parsed.breakfastOrders)) parsed.breakfastOrders = [];
-            if (!Array.isArray(parsed.chatMessages)) parsed.chatMessages = [];
-
-            // Pastikan data aktivitas, shift, dan QC bertipe array
-            if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
-            if (!Array.isArray(parsed.workSessions)) parsed.workSessions = [];
-            if (!Array.isArray(parsed.qcInspections)) parsed.qcInspections = [];
-
-            // Normalisasi nama gedung dan deduplikasi berdasarkan ID terlebih dahulu, lalu nama gedung
-            if (Array.isArray(parsed.buildings)) {
-              const bById = new Map<string, Building>();
-              parsed.buildings.forEach((b: any) => {
-                if (!b || !b.name) return;
-                const normName = normalizeBuildingName(b.name);
-                if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
-                const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
-                bById.set(idKey, { ...b, name: normName });
-              });
-              const bByName = new Map<string, Building>();
-              Array.from(bById.values()).forEach(b => {
-                bByName.set(b.name.toLowerCase(), b);
-              });
-              parsed.buildings = Array.from(bByName.values());
-            } else {
-              parsed.buildings = [...initialBuildings];
-            }
-
-            if (Array.isArray(parsed.rooms)) {
-              const mappedRooms = parsed.rooms.map((r: any) => ({
-                ...r,
-                building: (r.building && r.building.trim() !== '') ? r.building.trim() : getRoomBuildingKey(r, parsed.meetingRooms)
-              }));
-              parsed.rooms = deduplicateRoomsByBuildingAndNumber(mappedRooms, parsed.meetingRooms);
-            }
-
-            if (Array.isArray(parsed.transactions)) {
-              parsed.transactions = parsed.transactions.map((t: any) => ({
-                ...t,
-                building: t.building ? t.building.trim() : ''
-              }));
-            }
-
-            if (Array.isArray(parsed.maintenances)) {
-              parsed.maintenances = parsed.maintenances.map((m: any) => ({
-                ...m,
-                building: m.building ? m.building.trim() : ''
-              }));
-            }
-
-            if (Array.isArray(parsed.qcInspections)) {
-              parsed.qcInspections = parsed.qcInspections.map((q: any) => ({
-                ...q,
-                building: q.building ? q.building.trim() : ''
-              }));
-            }
-
-            if (Array.isArray(parsed.users)) {
-              parsed.users = parsed.users.map((u: any) => ({
-                ...u,
-                assignedBuilding: u.assignedBuilding && !u.assignedBuilding.includes('Semua') ? u.assignedBuilding.trim() : u.assignedBuilding
-              }));
-            }
-
-            // Inisialisasi buildings hanya jika belum ada sama sekali (undefined/null), hormati jika kosong karena dihapus
-            if (!Array.isArray(parsed.buildings)) {
-              parsed.buildings = [...initialBuildings];
-            } else {
-              parsed.buildings = parsed.buildings.filter((b: any) => b.name !== 'Ruang Pertemuan' && b.id !== 'bld-5');
-            }
-
-            // Sinkronkan totalRooms pada master gedung sesuai dengan jumlah unit kamar riil di database
-            if (Array.isArray(parsed.buildings) && Array.isArray(parsed.rooms)) {
-              parsed.buildings = parsed.buildings.map((b: any) => {
-                if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
-                  return { ...b, totalRooms: 0 };
-                }
-                const actualCount = parsed.rooms.filter((r: any) => 
-                  getRoomBuildingKey(r, parsed.meetingRooms).toLowerCase() === b.name.toLowerCase() || 
-                  (r.building && r.building.toLowerCase() === b.name.toLowerCase())
-                ).length;
-                if (actualCount > 0 && b.totalRooms !== actualCount) {
-                  return { ...b, totalRooms: actualCount };
-                }
-                return b;
-              });
-            }
-
-            // Inisialisasi meetingRooms hanya jika belum ada sama sekali (undefined/null)
-            if (!Array.isArray(parsed.meetingRooms)) {
-              parsed.meetingRooms = [...initialMeetingRooms];
-            } else {
-              // Deduplikasi parsed.meetingRooms berdasarkan id & nama unik
-              const seenMRIds = new Set<string>();
-              parsed.meetingRooms = parsed.meetingRooms.filter((mr: any) => {
-                if (!mr || !mr.id) return false;
-                const idKey = String(mr.id).trim();
-                if (seenMRIds.has(idKey)) return false;
-                seenMRIds.add(idKey);
-                return true;
-              });
-
-              // Pastikan setiap data meetingRoom memiliki category dan building yang tepat
-              parsed.meetingRooms = parsed.meetingRooms.map((mr: any) => {
-                const nLower = (mr.name || '').toLowerCase().trim();
-                const cLower = (mr.code || '').toLowerCase().trim();
-                const bLower = (mr.building || '').toLowerCase().trim();
-
-                let cat = mr.category;
-                if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
-                  cat = 'AULA';
-                } else if (!cat || (cat !== 'AULA' && cat !== 'SERBAGUNA' && cat !== 'RUANG_PERTEMUAN')) {
-                  if (nLower.includes('serbaguna') || nLower.includes('multipurpose') || nLower.startsWith('gedung sg') || nLower.startsWith('sg-') || cLower === 'mp' || cLower.startsWith('sg-') || bLower.includes('serbaguna')) {
-                    cat = 'SERBAGUNA';
-                  } else {
-                    cat = 'AULA';
-                  }
-                }
-                const isSG = cat === 'SERBAGUNA';
-                const bld = mr.building && mr.building !== 'Ruang Pertemuan' && mr.building !== 'Gedung Serbaguna (SG)' && mr.building !== 'Gedung Serbaguna'
-                  ? mr.building
-                  : (isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan');
-                return { ...mr, category: cat, building: bld };
-              });
-            }
-
-            // Pastikan semua meetingRooms tersinkronkan ke dalam parsed.rooms dengan building dan type yang sesuai
-            if (Array.isArray(parsed.rooms)) {
-              // Deduplikasi parsed.rooms berdasarkan id
-              const seenRoomIds = new Set<string>();
-              parsed.rooms = parsed.rooms.filter((r: any) => {
-                if (!r || !r.id) return false;
-                const idKey = String(r.id).trim();
-                if (seenRoomIds.has(idKey)) return false;
-                seenRoomIds.add(idKey);
-                return true;
-              });
-
-              parsed.meetingRooms.forEach((mr: any) => {
-                const isSG = mr.category === 'SERBAGUNA';
-                const targetBuilding = mr.building && mr.building !== 'Ruang Pertemuan' && mr.building !== 'Gedung Serbaguna (SG)' && mr.building !== 'Gedung Serbaguna'
-                  ? mr.building
-                  : (isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan');
-                const targetType = isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan / Aula';
-
-                const roomIdx = parsed.rooms!.findIndex((r: any) => r.id === mr.id || r.roomNumber.toLowerCase() === mr.name.toLowerCase());
-                if (roomIdx >= 0) {
-                  parsed.rooms![roomIdx].id = mr.id;
-                  parsed.rooms![roomIdx].building = targetBuilding;
-                  parsed.rooms![roomIdx].type = targetType;
-                } else {
-                  parsed.rooms!.push({
-                    id: mr.id,
-                    building: targetBuilding,
-                    roomNumber: mr.name,
-                    type: targetType,
-                    capacity: mr.capacity,
-                    status: mr.status === 'MAINTENANCE' ? 'MAINTENANCE' : (mr.status === 'TERPAKAI' || mr.status === 'TERISI' ? 'TERISI' : (mr.status === 'BOOKED' ? 'BOOKED' : 'KOSONG')),
-                    qcStatus: mr.qcStatus || 'LOLOS_QC',
-                    activeTxId: mr.activeTxId || null,
-                    activeMaintId: null
-                  });
-                }
-              });
-
-              // Final deduplikasi rooms berdasarkan ID serta kombinasi (gedung + nomor kamar)
-              parsed.rooms = deduplicateRoomsByBuildingAndNumber(parsed.rooms, parsed.meetingRooms);
-            }
-
-            // Inisialisasi & pembersihan duplikasi roomCapacityRates katalog jika belum ada
-            if (!Array.isArray(parsed.roomCapacityRates) || parsed.roomCapacityRates.length === 0) {
-              parsed.roomCapacityRates = [...initialRoomCapacityRates];
-            } else {
-              const seenRateIds = new Set<string>();
-              const seenCombos = new Set<string>();
-              parsed.roomCapacityRates = parsed.roomCapacityRates.filter((r: any) => {
-                if (!r || !r.id) return false;
-                const idKey = String(r.id).trim();
-                const comboKey = `${String(r.roomType || '').trim().toLowerCase()}::${String(r.bedType || '').trim().toLowerCase()}`;
-                if (seenRateIds.has(idKey) || (comboKey !== '::' && seenCombos.has(comboKey))) {
-                  return false;
-                }
-                seenRateIds.add(idKey);
-                if (comboKey !== '::') seenCombos.add(comboKey);
-                return true;
-              });
-            }
-
-            // Migrasi tipe kamar (Ekonomi, Standar, Superior) dan bedType untuk semua kamar hunian
-            if (Array.isArray(parsed.rooms)) {
-              parsed.rooms = parsed.rooms.map((r: any) => {
-                if (r.building === 'Ruang Pertemuan' || r.type?.includes('Aula') || r.type?.includes('Pertemuan')) {
-                  return {
-                    ...r,
-                    type: 'Ruang Pertemuan / Aula',
-                    capacityNumber: r.capacityNumber || parseInt(String(r.capacity).replace(/\D/g, '')) || 300,
-                    pricePerNight: r.pricePerNight || 8500000
-                  };
-                }
-
-                let roomType = r.type;
-                if (!roomType || roomType === 'Kamar Penginapan' || roomType === 'Standar (4 Bed)' || !['Ekonomi', 'Standar', 'Superior'].includes(roomType)) {
-                  if (r.building?.includes('Arafah') || r.building?.includes('Gedung A')) {
-                    const num = parseInt(String(r.roomNumber).replace(/\D/g, '')) || 0;
-                    roomType = (num % 3 === 0) ? 'Superior' : (num % 3 === 1 ? 'Standar' : 'Ekonomi');
-                  } else if (r.building?.includes('Madinah') || r.building?.includes('Gedung D')) {
-                    roomType = 'Superior';
-                  } else if (r.building?.includes('Mina') || r.building?.includes('Gedung C')) {
-                    const num = parseInt(String(r.roomNumber).replace(/\D/g, '')) || 0;
-                    roomType = (num % 2 === 0) ? 'Ekonomi' : 'Standar';
-                  } else {
-                    roomType = 'Standar';
-                  }
-                }
-
-                let bedType = r.bedType;
-                if (!bedType) {
-                  const capNum = parseInt(String(r.capacity).replace(/\D/g, '')) || 4;
-                  if (capNum === 2) {
-                    bedType = (r.roomNumber?.endsWith('1') || r.roomNumber?.endsWith('5')) ? 'Double Bed' : '2 Single Bed';
-                  } else if (capNum === 3) {
-                    bedType = '3 Single Bed';
-                  } else if (capNum === 5) {
-                    bedType = '5 Single Bed';
-                  } else if (capNum === 6) {
-                    bedType = '6 Single Bed';
-                  } else if (capNum === 7) {
-                    bedType = '7 Single Bed';
-                  } else if (capNum >= 8) {
-                    bedType = '8 Single Bed';
-                  } else {
-                    bedType = '4 Single Bed';
-                  }
-                }
-
-                const matchedRate = findRoomRate(roomType, bedType, parsed.roomCapacityRates || initialRoomCapacityRates);
-                const capPax = matchedRate ? matchedRate.capacityPax : (parseInt(String(r.capacity).replace(/\D/g, '')) || 4);
-                const price = (r.pricePerNight && r.pricePerNight >= 100000 && r.pricePerNight !== 400000)
-                  ? r.pricePerNight 
-                  : (matchedRate ? matchedRate.pricePerNight : 400000);
-                const facilities = (r.facilities && r.facilities.length > 0 && !r.facilities.includes('4 Single Bed'))
-                  ? r.facilities
-                  : (matchedRate?.facilities || ['AC', 'Kamar Mandi Dalam', `${bedType}`, 'Water Heater', 'Linen Bersih']);
-
-                return {
-                  ...r,
-                  type: roomType,
-                  bedType: bedType,
-                  capacity: `${capPax} Orang`,
-                  capacityNumber: capPax,
-                  pricePerNight: price,
-                  facilities: facilities
-                };
-              });
-            }
-
-            // Inisialisasi breakfast katalog jika belum ada
-            if (!Array.isArray(parsed.breakfastMenuItems) || parsed.breakfastMenuItems.length === 0) {
-              parsed.breakfastMenuItems = [...initialBreakfastMenuItems];
-            }
-
-            if (!Array.isArray(parsed.breakfastOrders)) {
-              parsed.breakfastOrders = [];
-            }
-
-            if (!Array.isArray(parsed.chatChannels) || parsed.chatChannels.length === 0) {
-              parsed.chatChannels = [...initialChatChannels];
-            }
-
-            if (!Array.isArray(parsed.chatMessages)) {
-              parsed.chatMessages = [];
-            }
-
-            if (!Array.isArray(parsed.passwordResetRequests)) {
-              parsed.passwordResetRequests = [];
-            }
-
-            if (!parsed.appSettings || parsed.appSettings.address?.includes('Hankam') || parsed.appSettings.phone === '(021) 8094444') {
-              parsed.appSettings = { ...defaultAppSettings };
-            } else {
-              if (!parsed.appSettings.appLogo || parsed.appSettings.appLogo.length <= 15) {
-                parsed.appSettings.appLogo = OFFICIAL_APP_LOGO;
-              }
-            }
-
-            this.cache = parsed as CompleteStorageDatabase;
-            return this.cache;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Gagal membaca database dari localStorage, menggunakan seed awal:', e);
-    }
-
     const initDb = generateInitialDatabase(false);
     this.cache = initDb;
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initDb));
-      }
-    } catch (_) {}
     return initDb;
   }
 
@@ -876,27 +552,7 @@ export class DataStorageService {
 
     this.cache = updated;
 
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-        // Selalu simpan cadangan lokal mutakhir yang 100% selaras dengan state terkini
-        window.localStorage.setItem(LOCAL_STORAGE_BACKUP_KEY, JSON.stringify(updated));
-      }
-    } catch (e: any) {
-      console.warn('Gagal menyimpan database ke localStorage (Quota terlampaui), mencoba pemangkasan darurat:', e);
-      try {
-        const emergencyDb = {
-          ...updated,
-          auditLogs: updated.auditLogs.slice(0, 80),
-          chatMessages: updated.chatMessages.slice(-50)
-        };
-        window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(emergencyDb));
-      } catch (err2) {
-        console.error('LocalStorage quota masih terlampaui setelah pemangkasan darurat:', err2);
-      }
-    }
-
-    // Sinkronisasi otomatis ke Supabase Backend di cloud (lewati jika dipanggil saat proses pembacaan/hidrasi lokal)
+    // Sinkronisasi langsung detik itu juga (real-time) ke Database Supabase (tanpa penyimpanan cache lokal)
     const shouldSkipCloud = Boolean(options && typeof options === 'object' && options.skipCloudSync);
     if (!shouldSkipCloud) {
       this.triggerSupabaseSync(updated);
@@ -1971,20 +1627,24 @@ export class DataStorageService {
     return this.getDatabase().auditLogs;
   }
 
-  public addAuditLog(log: AuditLog): AuditLog {
+  public clearAuditLogs(): boolean {
     const db = this.getDatabase();
-    const finalLog: AuditLog = {
-      ...log,
-      id: log.id || `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
-    };
-    const updated = [finalLog, ...(db.auditLogs || []).filter(l => l.id !== finalLog.id && (!finalLog.verificationCode || l.verificationCode !== finalLog.verificationCode))];
-    this.saveDatabase({ ...db, auditLogs: updated });
-
-    // Pancarkan event agar state React di seluruh aplikasi tersinkronisasi instan
+    this.saveDatabase({ ...db, auditLogs: [] });
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('sim_haji_audit_log_added', { detail: finalLog }));
+      window.dispatchEvent(new CustomEvent('sim_haji_audit_logs_cleared', {}));
     }
-    return finalLog;
+    return true;
+  }
+
+  public truncateAuditLogs(keepCount: number = 50): number {
+    const db = this.getDatabase();
+    const currentLogs = db.auditLogs || [];
+    const truncated = currentLogs.slice(0, keepCount);
+    this.saveDatabase({ ...db, auditLogs: truncated });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sim_haji_audit_logs_truncated', { detail: { count: truncated.length } }));
+    }
+    return currentLogs.length - truncated.length;
   }
 
   public clearAuditLogs(): void {

@@ -57,6 +57,9 @@ export interface SupabaseSyncState {
   lastSyncTime: string | null;
   errorMessage: string | null;
   isConfigured: boolean;
+  isSyncing?: boolean;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
 }
 
 /**

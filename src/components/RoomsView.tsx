@@ -162,6 +162,7 @@ export function RoomsView() {
   const [myZoneOnly, setMyZoneOnly] = useState(false);
   const [globalDisplay, setGlobalDisplay] = useState<'COLLAPSE' | 'EXPAND'>('COLLAPSE');
   const [buildingOverrides, setBuildingOverrides] = useState<Record<string, boolean>>({});
+  const [activeBuildingName, setActiveBuildingName] = useState<string>('');
   const [bldgCategoryFilter, setBldgCategoryFilter] = useState<'ALL' | 'PENGINAPAN' | 'SERBAGUNA' | 'RUANG_PERTEMUAN'>('ALL');
   const [buildingFloorFilters, setBuildingFloorFilters] = useState<Record<string, number | 'ALL'>>({});
   const [meetingCategoryFilter, setMeetingCategoryFilter] = useState<'ALL' | 'SERBAGUNA' | 'AULA'>('ALL');
@@ -175,17 +176,15 @@ export function RoomsView() {
       if (targetBldg === 'Ruang Pertemuan') targetBldg = 'Ruang Pertemuan / Aula';
       if (targetBldg === 'Gedung Serbaguna') targetBldg = 'Gedung Serbaguna (SG)';
 
-      setBFilter('ALL');
-      // Otomatis buka kamar gedung yang dipilih (false = terbuka / tidak ter-collapse)
-      setBuildingOverrides(prev => ({
-        ...prev,
-        [targetBldg]: false
-      }));
+      if (targetBldg === 'Ruang Pertemuan / Aula' || targetBldg === 'Gedung Serbaguna (SG)') {
+        setBFilter(targetBldg);
+      } else {
+        setBFilter('ALL');
+        setActiveBuildingName(targetBldg);
+      }
 
-      // Scroll halus ke kartu gedung yang dituju
       const timer = setTimeout(() => {
-        const cleanId = `building-section-${targetBldg.replace(/[^a-zA-Z0-9]/g, '-')}`;
-        const el = document.getElementById(cleanId);
+        const el = document.getElementById('lodging-master-detail-section');
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -370,14 +369,38 @@ export function RoomsView() {
   // Grouping Kamar Penginapan per Gedung (Hanya gedung asrama/penginapan!)
   const grouped: Record<string, Room[]> = {};
   lodgingBuildings.forEach(b => {
-    if (bFilter === 'ALL' || bFilter.toLowerCase() === b.name.toLowerCase()) {
-      if (!myZoneOnly || isRoomInUserZone(b.name)) {
-        grouped[b.name] = [];
-      }
+    if (!myZoneOnly || isRoomInUserZone(b.name)) {
+      grouped[b.name] = [];
     }
   });
 
-  filteredRooms.forEach(r => {
+  // Kamar penginapan yang sesuai filter status/tipe/bed/pencarian (tanpa tersembunyi oleh bFilter gedung lain agar panel kiri tetap utuh)
+  const roomsForMasterDetail = useMemo(() => {
+    return lodgingRooms.filter(r => {
+      const effectiveBuilding = getRoomBuildingKey(r, meetingRooms);
+      if (myZoneOnly && !isRoomInUserZone(effectiveBuilding)) return false;
+      if (sFilter !== 'ALL' && r.status !== sFilter) return false;
+      if (roomTypeFilter !== 'ALL') {
+        if (roomTypeFilter === 'Ruang Pertemuan / Aula') return false;
+        if (r.type !== roomTypeFilter) return false;
+      }
+      if (bedTypeFilter !== 'ALL' && r.bedType !== bedTypeFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const matchNum = r.roomNumber.toLowerCase().includes(q);
+        const matchBld = r.building.toLowerCase().includes(q);
+        const matchTx = transactions.some(t =>
+          (t.roomId === r.id || t.roomNumber === r.roomNumber) &&
+          t.status !== 'DIBATALKAN' &&
+          t.guestName?.toLowerCase().includes(q)
+        );
+        if (!matchNum && !matchBld && !matchTx) return false;
+      }
+      return true;
+    });
+  }, [lodgingRooms, meetingRooms, myZoneOnly, sFilter, roomTypeFilter, bedTypeFilter, search, transactions]);
+
+  roomsForMasterDetail.forEach(r => {
     const bKey = getRoomBuildingKey(r, meetingRooms);
     if (!grouped[bKey]) grouped[bKey] = [];
     if (!grouped[bKey].some(existing => existing.id === r.id)) {
@@ -391,25 +414,23 @@ export function RoomsView() {
     return bName.toLowerCase().includes(search.toLowerCase());
   }).sort(compareBuildingOrder);
 
-  const isBuildingCollapsed = (bName: string): boolean => {
-    if (buildingOverrides[bName] !== undefined) {
-      return buildingOverrides[bName];
+  const selectedBuildingKey = useMemo(() => {
+    if (
+      bFilter !== 'ALL' &&
+      bFilter !== 'Gedung Serbaguna (SG)' &&
+      bFilter !== 'Gedung Serbaguna' &&
+      bFilter !== 'Ruang Pertemuan / Aula' &&
+      bFilter !== 'Ruang Pertemuan'
+    ) {
+      const match = buildingNames.find(b => b.toLowerCase() === bFilter.toLowerCase());
+      if (match) return match;
     }
-    return globalDisplay === 'COLLAPSE';
-  };
-
-  const toggleBuilding = (bName: string) => {
-    const current = isBuildingCollapsed(bName);
-    setBuildingOverrides(prev => ({
-      ...prev,
-      [bName]: !current,
-    }));
-  };
-
-  const handleGlobalDisplayChange = (mode: 'COLLAPSE' | 'EXPAND') => {
-    setGlobalDisplay(mode);
-    setBuildingOverrides({});
-  };
+    if (activeBuildingName) {
+      const match = buildingNames.find(b => b.toLowerCase() === activeBuildingName.toLowerCase());
+      if (match) return match;
+    }
+    return buildingNames[0] || '';
+  }, [bFilter, activeBuildingName, buildingNames]);
 
   const realTodayStr = getRealTodayDate();
   const realTomorrowStr = getRealDateWithOffset(1);
@@ -1644,31 +1665,14 @@ export function RoomsView() {
                 </button>
               </div>
 
-              {/* Toggle Ringkas / Buka Semua */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
-                <button
-                  type="button"
-                  onClick={() => handleGlobalDisplayChange('COLLAPSE')}
-                  className={`px-2.5 py-1 rounded font-bold transition cursor-pointer text-[11px] ${
-                    globalDisplay === 'COLLAPSE'
-                      ? 'bg-white text-slate-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <i className="fa-solid fa-compress mr-1"></i> Ringkas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGlobalDisplayChange('EXPAND')}
-                  className={`px-2.5 py-1 rounded font-bold transition cursor-pointer text-[11px] ${
-                    globalDisplay === 'EXPAND'
-                      ? 'bg-white text-emerald-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <i className="fa-solid fa-expand mr-1"></i> Buka Semua
-                </button>
-              </div>
+              {/* Info Gedung Aktif */}
+              {selectedBuildingKey && (
+                <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-700 font-bold">
+                  <i className="fa-solid fa-hotel text-emerald-700"></i>
+                  <span>Gedung Aktif:</span>
+                  <span className="text-emerald-800 font-black">{selectedBuildingKey}</span>
+                </div>
+              )}
             </div>
 
             {/* Bottom Row: Detailed Dropdown Filter Bar in a Clean Light Box */}
@@ -1682,7 +1686,19 @@ export function RoomsView() {
                   </label>
                   <select 
                     value={bFilter} 
-                    onChange={e => setBFilter(e.target.value)} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setBFilter(val);
+                      if (
+                        val !== 'ALL' &&
+                        val !== 'Gedung Serbaguna (SG)' &&
+                        val !== 'Gedung Serbaguna' &&
+                        val !== 'Ruang Pertemuan / Aula' &&
+                        val !== 'Ruang Pertemuan'
+                      ) {
+                        setActiveBuildingName(val);
+                      }
+                    }} 
                     className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
                   >
                     <option key="all" value="ALL">Semua Fasilitas Gedung</option>
@@ -1803,20 +1819,20 @@ export function RoomsView() {
           </div>
 
           <div className="space-y-8">
-            {/* BAGIAN 1: GEDUNG PENGINAPAN (KAMAR HUNIAN BERUNIT) */}
-            {(bFilter === 'ALL' || lodgingBuildings.some(b => b.name === bFilter)) && (
-              <div className="space-y-4">
+            {/* BAGIAN 1: GEDUNG PENGINAPAN (KAMAR HUNIAN BERUNIT) - DESAIN MASTER-DETAIL SEPERTI HAK AKSES */}
+            {(bFilter === 'ALL' || lodgingBuildings.some(b => b.name.toLowerCase() === bFilter.toLowerCase())) && (
+              <div id="lodging-master-detail-section" className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
                   <div>
                     <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center space-x-2">
                       <i className="fa-solid fa-hotel text-emerald-700"></i>
                       <span>Gedung Penginapan &amp; Kamar Hunian</span>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 tabular-nums">
                         {buildingNames.length} Gedung • {lodgingRooms.length} Kamar Tidur
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Sistem penyewaan unit kamar tidur terdaftar per lantai &amp; gedung (Default 3 kamar per gedung penginapan baru).
+                      Pilih gedung penginapan di sebelah kiri untuk menampilkan dan mengelola unit kamar hunian di sebelah kanan.
                     </p>
                   </div>
                   {canManageRooms && (
@@ -1826,7 +1842,7 @@ export function RoomsView() {
                         setBuildingToEdit(null);
                         setIsBuildingModalOpen(true);
                       }}
-                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center space-x-1.5 cursor-pointer self-start sm:self-auto"
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center space-x-1.5 cursor-pointer self-start sm:self-auto whitespace-nowrap shrink-0"
                     >
                       <i className="fa-solid fa-plus"></i>
                       <span>Tambah Gedung Penginapan</span>
@@ -1835,148 +1851,187 @@ export function RoomsView() {
                 </div>
 
                 {buildingNames.length === 0 ? (
-                  <div className="bg-white p-8 text-center rounded-xl border border-slate-200 text-slate-400">
+                  <div className="bg-white p-8 text-center rounded-2xl border border-slate-200 text-slate-400">
                     <i className="fa-solid fa-hotel text-3xl mb-2 text-slate-300"></i>
                     <p className="text-xs font-semibold">Tidak ada gedung penginapan yang sesuai dengan filter pencarian.</p>
                   </div>
                 ) : (
-                  buildingNames.map(bName => {
-                    const bRooms = grouped[bName] || [];
-                    const isCollapsed = isBuildingCollapsed(bName);
-                    const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
-                    const bCapacity = bObj?.totalRooms !== undefined && bObj.totalRooms !== null 
-                      ? bObj.totalRooms 
-                      : bRooms.length;
-                    const bDescription = (bObj?.description && bObj.description.trim())
-                      || (bObj?.capacityDesc && bObj.capacityDesc.trim())
-                      || OFFICIAL_TARIFFS[bName]?.desc
-                      || 'Fasilitas Kamar Hunian UPT Asrama Haji Jakarta';
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                    {/* Sisi Kiri: Daftar Gedung Penginapan (4 Kolom) */}
+                    <div className="lg:col-span-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs p-3.5 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
+                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                          Pilih Gedung Penginapan ({buildingNames.length})
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          Klik gedung untuk lihat kamar
+                        </span>
+                      </div>
 
-                    // Ekstrak daftar lantai unik yang ada di gedung ini
-                    const floorsInBuilding = Array.from(new Set(bRooms.map(r => r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1))).sort((a, b) => a - b);
-                    const currentFloorFilter = buildingFloorFilters[bName] || 'ALL';
+                      <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1.5 custom-scrollbar">
+                        {buildingNames.map(bName => {
+                          const bRooms = grouped[bName] || [];
+                          const bAllRooms = lodgingRooms.filter(r => getRoomBuildingKey(r, meetingRooms).toLowerCase() === bName.toLowerCase());
+                          const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                          const isSelected = selectedBuildingKey.toLowerCase() === bName.toLowerCase();
+                          const floorsCount = bObj?.floors || Array.from(new Set(bAllRooms.map(r => r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1))).length || 1;
+                          const kosongCount = bRooms.filter(r => r.status === 'KOSONG').length;
+                          const terisiCount = bRooms.filter(r => r.status === 'TERISI').length;
+                          const bookedCount = bRooms.filter(r => r.status === 'BOOKED').length;
+                          const maintCount = bRooms.filter(r => r.status === 'MAINTENANCE').length;
 
-                    // Filter kamar berdasarkan lantai yang dipilih
-                    const displayedRooms = currentFloorFilter === 'ALL'
-                      ? bRooms
-                      : bRooms.filter(r => (r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1) === currentFloorFilter);
+                          return (
+                            <div
+                              key={bName}
+                              onClick={() => {
+                                setActiveBuildingName(bName);
+                                if (bFilter !== 'ALL' && bFilter.toLowerCase() !== bName.toLowerCase()) {
+                                  setBFilter('ALL');
+                                }
+                              }}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer space-y-2 ${
+                                isSelected
+                                  ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-xs ring-2 ring-emerald-500/20'
+                                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center space-x-2.5 min-w-0">
+                                  <div className={`w-9 h-9 rounded-xl font-bold flex items-center justify-center text-xs shrink-0 ${
+                                    isSelected
+                                      ? 'bg-emerald-700 text-white shadow-2xs'
+                                      : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                                  }`}>
+                                    <i className={`fa-solid ${getBuildingIcon(bName, bObj?.category)}`}></i>
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h4 className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                                      {bName}
+                                    </h4>
+                                    <p className="text-[10px] text-slate-500 truncate tabular-nums">
+                                      {bRooms.length} Kamar Hunian • {floorsCount} Lantai
+                                    </p>
+                                  </div>
+                                </div>
 
-                    return (
-                      <div key={bName} id={`building-section-${bName.replace(/[^a-zA-Z0-9]/g, '-')}`} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm space-y-3 transition">
-                        {/* Building Header / Accordion Dropdown */}
-                        <div 
-                          onClick={() => toggleBuilding(bName)}
-                          className="bg-slate-100 px-5 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer hover:bg-slate-200/75 transition select-none"
-                          title="Klik untuk menyembunyikan / menampilkan kamar"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs flex items-center justify-center font-bold text-sm shrink-0">
-                              <i className={`fa-solid ${getBuildingIcon(bName, bObj?.category)}`}></i>
-                            </div>
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <h3 className="font-bold text-sm text-slate-900">{bName}</h3>
-                                {isCollapsed && (
-                                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] rounded font-semibold border border-amber-200">
-                                    Kamar Disembunyikan
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase shrink-0 ${
+                                  isSelected
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}>
+                                  {bObj?.code || 'ASRAMA'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-100 dark:border-slate-700/60 tabular-nums">
+                                <div className="flex items-center flex-wrap gap-1.5 text-slate-600 dark:text-slate-300 font-semibold">
+                                  <span className="text-emerald-700 dark:text-emerald-400 font-bold">{kosongCount} Kosong</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-rose-700 dark:text-rose-400 font-bold">{terisiCount} Terisi</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="text-blue-700 dark:text-blue-400 font-bold">{bookedCount} Booked</span>
+                                  {maintCount > 0 && (
+                                    <>
+                                      <span aria-hidden="true">·</span>
+                                      <span className="text-amber-700 dark:text-amber-400 font-bold">{maintCount} Maint</span>
+                                    </>
+                                  )}
+                                </div>
+
+                                {isSelected ? (
+                                  <span className="text-emerald-700 dark:text-emerald-400 font-bold flex items-center space-x-1 shrink-0">
+                                    <span>Aktif</span>
+                                    <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-medium shrink-0">
+                                    Pilih
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-slate-500">
-                                {bRooms.length} Kamar Hunian ({bObj?.floors || floorsInBuilding.length || 1} Lantai) | {bDescription}
-                              </p>
                             </div>
-                          </div>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-                          <div className="flex items-center space-x-3">
-                            <div className="flex items-center space-x-2 text-xs flex-wrap gap-y-1">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setBldgCategoryFilter('PENGINAPAN');
-                                  setActiveCatalogTab('BUILDINGS_CATALOG');
-                                  showToast(`Membuka katalog data master untuk ${bName}`, 'success');
-                                }}
-                                className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 hover:border-blue-300 text-slate-700 hover:text-blue-700 rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
-                                title="Kelola data master gedung ini di Katalog Gedung"
-                              >
-                                <i className="fa-solid fa-building-circle-check text-blue-600"></i>
-                                <span className="hidden md:inline">Katalog Data</span>
-                              </button>
+                    {/* Sisi Kanan: Daftar Kamar dari Gedung Terpilih (8 Kolom) */}
+                    <div className="lg:col-span-8 space-y-4">
+                      {selectedBuildingKey ? (() => {
+                        const bName = selectedBuildingKey;
+                        const bRooms = grouped[bName] || [];
+                        const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                        const bDescription = (bObj?.description && bObj.description.trim())
+                          || (bObj?.capacityDesc && bObj.capacityDesc.trim())
+                          || OFFICIAL_TARIFFS[bName]?.desc
+                          || 'Fasilitas Kamar Hunian UPT Asrama Haji Jakarta';
 
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedBuilding(bName);
-                                  setActiveTab('qualityControl');
-                                }}
-                                className="px-2.5 py-1 bg-white hover:bg-teal-50 border border-slate-300 hover:border-teal-300 text-slate-700 hover:text-teal-700 rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
-                                title="Buka status inspeksi QC untuk gedung ini di menu Pengecekan (QC)"
-                              >
-                                <i className="fa-solid fa-clipboard-check text-teal-600"></i>
-                                <span className="hidden md:inline">Status QC</span>
-                              </button>
+                        const floorsInBuilding = Array.from(
+                          new Set(bRooms.map(r => r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1))
+                        ).sort((a, b) => a - b);
+                        const currentFloorFilter = buildingFloorFilters[bName] || 'ALL';
 
-                              <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold">{bRooms.filter(r => r.status === 'KOSONG').length} Tersedia</span>
-                              <span className="px-2 py-1 bg-emerald-600 text-white rounded font-semibold">{bRooms.filter(r => r.status === 'TERISI').length} Terisi</span>
-                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded font-semibold">{bRooms.filter(r => r.status === 'BOOKED').length} Booked</span>
-                              <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded font-semibold">{bRooms.filter(r => r.status === 'MAINTENANCE').length} Maint</span>
-                              <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded font-semibold" title="Kamar yang memerlukan inspeksi QC">
-                                {bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI' || r.qcStatus === 'MENUNGGU_QC').length} Perlu QC
-                              </span>
-                            </div>
+                        const displayedRooms = currentFloorFilter === 'ALL'
+                          ? bRooms
+                          : bRooms.filter(r => (r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1) === currentFloorFilter);
 
-                            <button
-                              type="button"
-                              className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-300/60 transition"
-                              aria-label={isCollapsed ? 'Tampilkan Kamar' : 'Sembunyikan Kamar'}
-                            >
-                              <i className={`fa-solid fa-chevron-${isCollapsed ? 'down' : 'up'}`}></i>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Rooms Content */}
-                        {!isCollapsed && (
-                          <div className="space-y-3 p-3 sm:p-4">
-                            {/* Filter Lantai jika gedung memiliki lebih dari 1 lantai */}
-                            {floorsInBuilding.length > 1 && (
-                              <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5 flex-wrap">
-                                <div className="flex items-center space-x-1.5">
-                                  <span className="text-[11px] font-bold text-slate-500">Pilih Lantai:</span>
-                                  <div className="flex flex-wrap gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => setBuildingFloorFilters(prev => ({ ...prev, [bName]: 'ALL' }))}
-                                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                        currentFloorFilter === 'ALL'
-                                          ? 'bg-emerald-700 text-white shadow-2xs'
-                                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                      }`}
-                                    >
-                                      Semua Lantai ({bRooms.length})
-                                    </button>
-                                    {floorsInBuilding.map(fl => {
-                                      const countInFloor = bRooms.filter(r => (r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1) === fl).length;
-                                      return (
-                                        <button
-                                          key={fl}
-                                          type="button"
-                                          onClick={() => setBuildingFloorFilters(prev => ({ ...prev, [bName]: fl }))}
-                                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                            currentFloorFilter === fl
-                                              ? 'bg-emerald-700 text-white shadow-2xs'
-                                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                          }`}
-                                        >
-                                          Lantai {fl} ({countInFloor})
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
+                        return (
+                          <div
+                            id={`building-section-${bName.replace(/[^a-zA-Z0-9]/g, '-')}`}
+                            className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs p-4 sm:p-5 space-y-4"
+                          >
+                            {/* Header Gedung Terpilih (Senada dengan Header Akun Terpilih pada Hak Akses) */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-4">
+                              <div className="flex items-center space-x-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0">
+                                  <i className={`fa-solid ${getBuildingIcon(bName, bObj?.category)}`}></i>
                                 </div>
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="font-black text-base text-slate-900 dark:text-white">
+                                      {bName}
+                                    </h3>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                      {bObj?.code || 'PENGINAPAN'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 tabular-nums">
+                                      {bObj?.floors || floorsInBuilding.length || 1} Lantai • {bRooms.length} Kamar
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    {bDescription}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Tombol Aksi Cepat Gedung */}
+                              <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setBldgCategoryFilter('PENGINAPAN');
+                                    setActiveCatalogTab('BUILDINGS_CATALOG');
+                                    showToast(`Membuka katalog data master untuk ${bName}`, 'success');
+                                  }}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 dark:bg-slate-700 border border-slate-200 hover:border-blue-300 text-slate-700 dark:text-slate-200 hover:text-blue-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                                  title="Kelola data master gedung ini di Katalog Gedung"
+                                >
+                                  <i className="fa-solid fa-building-circle-check text-blue-600"></i>
+                                  <span>Katalog Data</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedBuilding(bName);
+                                    setActiveTab('qualityControl');
+                                  }}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-teal-50 dark:bg-slate-700 border border-slate-200 hover:border-teal-300 text-slate-700 dark:text-slate-200 hover:text-teal-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                                  title="Buka status inspeksi QC untuk gedung ini di menu Pengecekan (QC)"
+                                >
+                                  <i className="fa-solid fa-clipboard-check text-teal-600"></i>
+                                  <span>Status QC</span>
+                                </button>
 
                                 {canManageRooms && (
                                   <button
@@ -1986,15 +2041,70 @@ export function RoomsView() {
                                       setSelectedBuildingForNewRoom(bName);
                                       setIsRoomModalOpen(true);
                                     }}
-                                    className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
+                                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
                                   >
                                     <i className="fa-solid fa-plus text-[10px]"></i>
-                                    <span>Tambah Kamar ke {bName}</span>
+                                    <span>Tambah Kamar</span>
                                   </button>
                                 )}
                               </div>
-                            )}
+                            </div>
 
+                            {/* Bar Ringkasan Status & Filter Lantai Gedung Terpilih */}
+                            <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
+                                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded-lg font-bold">
+                                  {bRooms.filter(r => r.status === 'KOSONG').length} Tersedia
+                                </span>
+                                <span className="px-2 py-1 bg-emerald-600 text-white rounded-lg font-bold">
+                                  {bRooms.filter(r => r.status === 'TERISI').length} Terisi
+                                </span>
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-lg font-bold">
+                                  {bRooms.filter(r => r.status === 'BOOKED').length} Booked
+                                </span>
+                                <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded-lg font-bold">
+                                  {bRooms.filter(r => r.status === 'MAINTENANCE').length} Maint
+                                </span>
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-lg font-bold" title="Kamar yang memerlukan inspeksi QC">
+                                  {bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI' || r.qcStatus === 'MENUNGGU_QC').length} Perlu QC
+                                </span>
+                              </div>
+
+                              {/* Filter Lantai */}
+                              <div className="flex items-center flex-wrap gap-1">
+                                <span className="text-[11px] font-bold text-slate-500 mr-1">Lantai:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setBuildingFloorFilters(prev => ({ ...prev, [bName]: 'ALL' }))}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer tabular-nums whitespace-nowrap shrink-0 ${
+                                    currentFloorFilter === 'ALL'
+                                      ? 'bg-emerald-700 text-white shadow-2xs'
+                                      : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-300'
+                                  }`}
+                                >
+                                  Semua ({bRooms.length})
+                                </button>
+                                {floorsInBuilding.map(fl => {
+                                  const countInFloor = bRooms.filter(r => (r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1) === fl).length;
+                                  return (
+                                    <button
+                                      key={fl}
+                                      type="button"
+                                      onClick={() => setBuildingFloorFilters(prev => ({ ...prev, [bName]: fl }))}
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer tabular-nums whitespace-nowrap shrink-0 ${
+                                        currentFloorFilter === fl
+                                          ? 'bg-emerald-700 text-white shadow-2xs'
+                                          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-300'
+                                      }`}
+                                    >
+                                      Lt. {fl} ({countInFloor})
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Daftar Kamar Gedung Terpilih */}
                             {displayedRooms.length === 0 ? (
                               <div className="p-8 text-center bg-slate-50/70 border border-slate-100 rounded-xl space-y-2">
                                 <i className="fa-solid fa-bed text-3xl text-slate-300"></i>
@@ -2017,15 +2127,22 @@ export function RoomsView() {
                                 )}
                               </div>
                             ) : (
-                              <div className="grid gap-2.5 sm:gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
-                                {displayedRooms.map(r => getRoomCard(r))}
+                              <div className="max-h-[500px] overflow-y-auto pr-1.5 custom-scrollbar">
+                                <div className="grid gap-2.5 sm:gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                                  {displayedRooms.map(r => getRoomCard(r))}
+                                </div>
                               </div>
                             )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })
+                        );
+                      })() : (
+                        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400">
+                          <i className="fa-solid fa-hotel text-3xl mb-2 text-slate-300"></i>
+                          <p className="text-xs font-semibold">Pilih gedung penginapan di sebelah kiri untuk melihat daftar kamar.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             )}

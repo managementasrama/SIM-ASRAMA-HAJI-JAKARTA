@@ -3892,7 +3892,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const { 
     auditLogs = [], workSessions = [], currentUser, showToast, openModal, login,
     exportDatabaseBackup, importDatabaseBackup, resetDatabase, clearWorkSessions, clearAuditLogs,
-    rooms = [], transactions = [], maintenances = [], users = [],
+    buildings = [], rooms = [], transactions = [], maintenances = [], users = [],
     breakfastOrders = [], breakfastMenuItems = [], qcInspections = [],
     supabaseSyncState, manualSyncSupabase, pushAllToSupabase, setActiveTab, dataStorage,
     updateUser, appSettings, updateAppSettings
@@ -5898,226 +5898,187 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           )}
         </div>
       ) : activeSubView === 'DATABASE_MGMT' ? (
-        /* Pusat Manajemen Basis Data Lokal */
+        /* Pusat Manajemen Basis Data (Supabase Cloud Real-Time) */
         <div className="space-y-5 animate-in fade-in duration-200">
-          {/* Local Storage Engine Banner */}
+          {/* Unified Central Database Banner & Real-Time Sync Control */}
           <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-emerald-500/30 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-              <i className="fa-solid fa-database text-9xl text-emerald-400"></i>
+              <i className="fa-solid fa-cloud-bolt text-9xl text-emerald-400"></i>
             </div>
             
-            <div className="relative z-10 max-w-3xl space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex items-center space-x-2 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-bold">
-                  <i className="fa-solid fa-database"></i>
-                  <span>Pangkalan Data Lokal (Local Storage)</span>
+            <div className="relative z-10 space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="max-w-3xl space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center space-x-2 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-bold">
+                      <i className="fa-solid fa-database"></i>
+                      <span>Basis Data Pusat (Supabase Cloud Real-Time)</span>
+                    </div>
+
+                    <div className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                      supabaseSyncState?.isSyncing
+                        ? 'bg-sky-500/20 text-sky-200 border-sky-400/40 animate-pulse'
+                        : supabaseSyncState?.lastError
+                        ? 'bg-rose-500/20 text-rose-200 border-rose-400/40'
+                        : 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${
+                        supabaseSyncState?.isSyncing
+                          ? 'bg-sky-400'
+                          : supabaseSyncState?.lastError
+                          ? 'bg-rose-400'
+                          : 'bg-emerald-400 animate-ping'
+                      }`}></span>
+                      <span>
+                        {supabaseSyncState?.isSyncing
+                          ? 'Status Sync: Menyinkronkan Real-Time...'
+                          : supabaseSyncState?.lastError
+                          ? `Status Sync: ${supabaseSyncState.lastError}`
+                          : 'Status Sync: Terhubung & Sinkron Real-Time (Tanpa Cache Lokal)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <h3 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+                    Basis Data Terpusat SIM-Akomodasi UPT Asrama Haji Jakarta
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Sistem terhubung langsung secara <strong>real-time (detik itu juga)</strong> ke Basis Data Pusat Supabase Cloud tanpa penyimpanan cache lokal. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari database pusat, dan setiap perubahan langsung dikirimkan ke database saat itu juga.
+                  </p>
                 </div>
 
-                <div className="inline-flex items-center space-x-1.5 bg-white/10 text-slate-200 px-3 py-1 rounded-full text-xs font-mono">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>Penyimpanan Aman Browser (Offline-Ready)</span>
+                {/* Primary Sync Action Buttons (Hanya di menu Basis Data) */}
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsCloudSyncing(true);
+                      await manualSyncSupabase();
+                      setIsCloudSyncing(false);
+                    }}
+                    disabled={isCloudSyncing || supabaseSyncState?.isSyncing}
+                    className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    <i className={`fa-solid ${isCloudSyncing || supabaseSyncState?.isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
+                    <span>Tarik Data Terbaru dari Database</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsCloudSyncing(true);
+                      await pushAllToSupabase();
+                      setIsCloudSyncing(false);
+                    }}
+                    disabled={isCloudSyncing || supabaseSyncState?.isSyncing}
+                    className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    <i className="fa-solid fa-cloud-arrow-up text-emerald-300"></i>
+                    <span>Kirim Pembaruan ke Database</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSqlModal(true)}
+                    className="px-3.5 py-2.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/30 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <i className="fa-solid fa-code"></i>
+                    <span>Skrip SQL Supabase</span>
+                  </button>
                 </div>
               </div>
 
-              <h3 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-                Basis Data Lokal SIM-Akomodasi UPT Asrama Haji Jakarta
-              </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Seluruh data operasional meliputi data kamar, aula, reservasi tamu, penugasan teknisi, inspeksi kelayakan QC, antrean sarapan &amp; katering koperasi, katalog menu dapur, serta riwayat log aktivitas tersimpan secara otomatis dan persisten di basis data lokal. Anda dapat mencadangkan berkas JSON kapan saja untuk keamanan.
-              </p>
+              {/* Connection Metadata Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3 border-t border-white/10 text-xs">
+                <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
+                  <span className="text-slate-400 text-[11px]">Endpoint Database:</span>
+                  <span className="font-mono text-emerald-300 font-bold text-[11px]">iiopgzyxzvmnmkgnrzvc.supabase.co</span>
+                </div>
+                <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
+                  <span className="text-slate-400 text-[11px]">Mode Penyimpanan:</span>
+                  <span className="font-bold text-white text-[11px]">Direct Cloud Sync (Zero Local Cache)</span>
+                </div>
+                <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
+                  <span className="text-slate-400 text-[11px]">Sinkronisasi Terakhir:</span>
+                  <span className="font-mono text-emerald-300 font-bold text-[11px]">
+                    {supabaseSyncState?.lastSyncedAt
+                      ? `${new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB`
+                      : 'Real-Time Otomatis'}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Current Database Metrics */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-3">
               <div>
-                <h4 className="font-bold text-slate-800 text-sm flex items-center space-x-2">
+                <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center space-x-2">
                   <i className="fa-solid fa-chart-pie text-emerald-600"></i>
-                  <span>Metrik &amp; Ringkasan Rekord Basis Data Lokal</span>
+                  <span>Metrik &amp; Ringkasan Rekord Basis Data Pusat</span>
                 </h4>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Jumlah catatan aktif yang tersimpan dalam sistem basis data lokal saat ini.
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Jumlah catatan operasional aktif yang tersimpan secara real-time di dalam basis data pusat saat ini.
                 </p>
               </div>
 
               <div className="flex items-center space-x-2">
-                <span className="text-xs px-2.5 py-1 rounded-full font-bold border bg-emerald-100 text-emerald-800 border-emerald-300 flex items-center space-x-1.5">
+                <span className="text-xs px-2.5 py-1 rounded-full font-bold border bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 flex items-center space-x-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>Status Aktif &amp; Terintegrasi</span>
+                  <span>Sinkronisasi Langsung Aktif</span>
                 </span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Kamar &amp; Aula</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{rooms.length}</p>
-                <span className="text-[10px] text-slate-500">Unit terdaftar</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Gedung &amp; Kamar</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{buildings.length} / {rooms.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Gedung &amp; Unit Kamar</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Tamu &amp; Transaksi</span>
-                <p className="text-xl font-black mt-1 text-slate-900">{transactions.length}</p>
-                <span className="text-[10px] text-slate-500">Transaksi reservasi</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Tamu &amp; Transaksi</span>
+                <p className="text-xl font-black mt-1 text-slate-900 dark:text-white">{transactions.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Transaksi reservasi</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Maintenance</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{maintenances.length}</p>
-                <span className="text-[10px] text-slate-500">Tiket teknisi</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Maintenance</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{maintenances.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Tiket teknisi</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Inspeksi QC</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{qcInspections.length}</p>
-                <span className="text-[10px] text-slate-500">Laporan kelayakan</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Inspeksi QC</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{qcInspections.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Laporan kelayakan</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Petugas Terdaftar</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{users.length}</p>
-                <span className="text-[10px] text-slate-500">Akun sistem</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Petugas Terdaftar</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{users.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Akun sistem</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Katalog Menu Sarapan</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{breakfastMenuItems.length}</p>
-                <span className="text-[10px] text-slate-500">Item menu dapur</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Katalog Menu Sarapan</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{breakfastMenuItems.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Item menu dapur</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Pesanan Sarapan</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{breakfastOrders.length}</p>
-                <span className="text-[10px] text-slate-500">Pesanan tercatat</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Pesanan Sarapan</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{breakfastOrders.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Pesanan tercatat</span>
               </div>
 
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase">Log Aktivitas</span>
-                <p className="text-xl font-black text-slate-900 mt-1">{auditLogs.length}</p>
-                <span className="text-[10px] text-slate-500">Audit trail sistem</span>
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">Log Aktivitas</span>
+                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">{auditLogs.length}</p>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Audit trail sistem</span>
               </div>
-            </div>
-          </div>
-
-          {/* Integrasi Backend Supabase Cloud & Vercel Deployment */}
-          <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-emerald-100 dark:border-slate-700 bg-gradient-to-br from-white via-white to-emerald-50/20 dark:from-slate-800 dark:via-slate-800 dark:to-slate-800 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-100 dark:border-slate-700 pb-3">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-600 dark:bg-emerald-500 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                  <i className="fa-solid fa-cloud"></i>
-                </div>
-                <div>
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center space-x-2">
-                    <span>Integrasi Backend Supabase Cloud &amp; Deployment Vercel</span>
-                    <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded-full font-bold border border-emerald-200 dark:border-emerald-700">
-                      @supabase/supabase-js Aktif
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Penyimpanan terdistribusi cloud resmi untuk persistensi data online multi-perangkat dan kesiapan deploy Vercel.
-                  </p>
-                </div>
-              </div>
-
-              {/* Status Badge */}
-              <div className="flex items-center space-x-2">
-                <span className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                  supabaseSyncState.status === 'connected' 
-                    ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700' 
-                    : supabaseSyncState.status === 'syncing'
-                    ? 'bg-sky-100 dark:bg-sky-900/50 text-sky-800 dark:text-sky-300 border border-sky-200 dark:border-sky-700 animate-pulse'
-                    : 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${
-                    supabaseSyncState.status === 'connected' ? 'bg-emerald-500' : supabaseSyncState.status === 'syncing' ? 'bg-sky-500' : 'bg-amber-500'
-                  }`}></span>
-                  <span>
-                    {supabaseSyncState.status === 'connected' && 'Terkoneksi ke Supabase'}
-                    {supabaseSyncState.status === 'syncing' && 'Sedang Menyinkronkan...'}
-                    {supabaseSyncState.status === 'idle' && 'Siap Sinkronisasi'}
-                    {supabaseSyncState.status === 'error' && (supabaseSyncState.errorMessage || 'Koneksi Terputus')}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 dark:bg-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-600 space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">Project Endpoint URL:</span>
-                  <span className="font-mono text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded text-[10px] border border-emerald-200 dark:border-emerald-800">
-                    iiopgzyxzvmnmkgnrzvc.supabase.co
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">Klien SDK:</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-300">@supabase/supabase-js v2.97</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">Terakhir Sinkron:</span>
-                  <span className="font-mono text-slate-600 dark:text-slate-300">
-                    {supabaseSyncState.lastSyncTime ? new Date(supabaseSyncState.lastSyncTime).toLocaleTimeString('id-ID') : 'Otomatis di background'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 bg-slate-50 dark:bg-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-600 space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">Environment Variables:</span>
-                  <span className="text-emerald-700 dark:text-emerald-300 font-medium">VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">Target Hosting:</span>
-                  <span className="font-bold text-slate-800 dark:text-slate-100">Vercel (Production SPA)</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-300">
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">Skrip Tabel SQL:</span>
-                  <span className="text-blue-600 dark:text-blue-400 font-semibold cursor-pointer hover:underline" onClick={() => setShowSqlModal(true)}>
-                    Tersedia di supabase_schema.sql (Lihat)
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={async () => {
-                  setIsCloudSyncing(true);
-                  await manualSyncSupabase();
-                  setIsCloudSyncing(false);
-                }}
-                disabled={isCloudSyncing}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                <i className={`fa-solid ${isCloudSyncing ? 'fa-spinner fa-spin' : 'fa-arrows-rotate'}`}></i>
-                <span>Tarik Data Terbaru dari Cloud</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  setIsCloudSyncing(true);
-                  await pushAllToSupabase();
-                  setIsCloudSyncing(false);
-                }}
-                disabled={isCloudSyncing}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                <i className="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
-                <span>Kirim &amp; Sync Data Lokal ke Supabase</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowSqlModal(true)}
-                className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs rounded-lg transition flex items-center space-x-1.5 cursor-pointer"
-              >
-                <i className="fa-solid fa-database"></i>
-                <span>Skrip SQL Editor Supabase</span>
-              </button>
             </div>
           </div>
 

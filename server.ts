@@ -127,15 +127,31 @@ async function startServer() {
     res.json(newBuilding);
   });
 
-  // Production mode detection (Cloud Run, Docker, or build output)
-  const isProduction =
-    process.env.NODE_ENV === "production" ||
-    Boolean(process.env.K_SERVICE) ||
-    Boolean(process.env.PORT && process.env.PORT !== "3000") ||
-    process.env.npm_lifecycle_event === "start" ||
-    (!process.env.npm_lifecycle_event && fs.existsSync(path.join(process.cwd(), "dist", "index.html")));
+  const distPath = path.join(process.cwd(), "dist");
+  const distIndex = path.join(distPath, "index.html");
 
-  if (!isProduction) {
+  // Use production static serving only when explicitly running 'start' or NODE_ENV=production
+  // (Note: K_SERVICE is also set in Cloud Run dev containers, so do not use it to force production during 'npm run dev')
+  const isDevLifecycle = process.env.npm_lifecycle_event === "dev";
+  const isStartOrProd =
+    !isDevLifecycle &&
+    (process.env.NODE_ENV === "production" ||
+      process.env.npm_lifecycle_event === "start");
+
+  // If started in production mode but dist/index.html is missing, build it automatically
+  if (isStartOrProd && !fs.existsSync(distIndex)) {
+    try {
+      console.log("dist/index.html not found, running Vite build...");
+      const { build } = await import("vite");
+      await build();
+    } catch (err) {
+      console.error("Failed to auto-build dist:", err);
+    }
+  }
+
+  const shouldServeStatic = isStartOrProd && fs.existsSync(distIndex);
+
+  if (!shouldServeStatic) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -143,10 +159,13 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      if (fs.existsSync(distIndex)) {
+        res.sendFile(distIndex);
+      } else {
+        res.status(404).send("Application build not found. Please run npm run build.");
+      }
     });
   }
 

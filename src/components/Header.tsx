@@ -303,45 +303,53 @@ export function Header() {
                           </button>
                         </div>
 
-                        {/* 3b. Supabase Cloud */}
-                        <div className="p-3 bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-600/70 rounded-xl space-y-2 shadow-2xs">
-                          <div className="flex items-center justify-between">
+                        {/* 3b. Status Sync dengan Database (Supabase Cloud) */}
+                        <div className="p-3 bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-600/70 rounded-xl space-y-1.5 shadow-2xs">
+                          <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center space-x-2">
                               <div className="w-7 h-7 rounded-lg bg-sky-100 dark:bg-sky-900/80 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs shrink-0">
-                                <i className="fa-solid fa-cloud"></i>
+                                <i className="fa-solid fa-cloud-bolt"></i>
                               </div>
                               <div>
-                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Supabase Cloud</span>
-                                <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Penyimpanan &amp; Sinkronisasi Data</span>
+                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Sync Database</span>
+                                <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Supabase Cloud Real-Time</span>
                               </div>
                             </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 ${
-                              supabaseSyncState.status === 'connected' 
-                                ? 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700' 
-                                : supabaseSyncState.status === 'syncing' 
-                                ? 'bg-blue-100 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 animate-pulse' 
-                                : 'bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
+                              supabaseSyncState?.isSyncing
+                                ? 'bg-blue-100 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 animate-pulse'
+                                : supabaseSyncState?.lastError
+                                ? 'bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
+                                : 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${
-                                supabaseSyncState.status === 'connected' ? 'bg-emerald-600 dark:bg-emerald-400' :
-                                supabaseSyncState.status === 'syncing' ? 'bg-blue-600 dark:bg-blue-400' : 'bg-amber-600 dark:bg-amber-400'
+                                supabaseSyncState?.isSyncing
+                                  ? 'bg-blue-600 dark:bg-blue-400'
+                                  : supabaseSyncState?.lastError
+                                  ? 'bg-rose-600 dark:bg-rose-400'
+                                  : 'bg-emerald-600 dark:bg-emerald-400 animate-ping'
                               }`}></span>
                               <span>
-                                {supabaseSyncState.status === 'connected' ? 'Terkoneksi' :
-                                 supabaseSyncState.status === 'syncing' ? 'Menyinkronkan...' : 'Offline / Standby'}
+                                {supabaseSyncState?.isSyncing
+                                  ? 'Menyinkronkan...'
+                                  : supabaseSyncState?.lastError
+                                  ? 'Gangguan Koneksi'
+                                  : 'Terhubung Real-Time'}
                               </span>
                             </span>
                           </div>
-
-                          <button
-                            type="button"
-                            onClick={manualSyncSupabase}
-                            disabled={supabaseSyncState.status === 'syncing'}
-                            className="w-full py-2 px-3 bg-sky-50 dark:bg-slate-700 hover:bg-sky-100 dark:hover:bg-slate-600 text-sky-900 dark:text-sky-200 border border-sky-300 dark:border-sky-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs disabled:opacity-50"
-                          >
-                            <i className={`fa-solid ${supabaseSyncState.status === 'syncing' ? 'fa-arrows-rotate animate-spin text-sky-600' : 'fa-arrows-rotate text-sky-600 dark:text-sky-400'}`}></i>
-                            <span>{supabaseSyncState.status === 'syncing' ? 'Sedang Sinkronisasi Cloud...' : 'Sinkronisasi Data Supabase Sekarang'}</span>
-                          </button>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
+                            <span>Sinkronisasi instan otomatis</span>
+                            {supabaseSyncState?.lastSyncedAt && (
+                              <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                                {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit'
+                                })} WIB
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </>
                     )}

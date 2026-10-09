@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { 
   User, 
   Room, 
@@ -541,9 +541,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       checkedAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       modules: [],
       mismatchedModules: [],
-      message: 'Memvalidasi checksum cache lokal terhadap Database Pusat...'
+      message: 'Menyinkronkan data secara langsung (real-time) dengan Database Pusat...'
     };
   });
+
+  const isHydratedFromCloudRef = useRef<boolean>(false);
 
   const verifyDatabaseChecksum = async (silent: boolean = false, customDataset?: {
     buildings?: Building[];
@@ -560,15 +562,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       maintenances
     };
     if (!silent) {
-      setChecksumReport(prev => ({ ...prev, status: 'CHECKING', message: 'Memvalidasi checksum terhadap Database Pusat...' }));
+      setChecksumReport(prev => ({ ...prev, status: 'CHECKING', message: 'Memvalidasi sinkronisasi terhadap Database Pusat...' }));
     }
     const report = await validateDatabaseChecksumAgainstSupabase(dataset);
     setChecksumReport(report);
     if (!silent) {
       if (report.status === 'SYNCED') {
-        showToast(`Checksum Valid (${report.localChecksum}): Cache lokal identik dengan Database Pusat!`, 'success');
+        showToast(`Sinkronisasi Valid (${report.localChecksum}): Data identik dengan Database Pusat!`, 'success');
       } else if (report.status === 'MISMATCH') {
-        showToast(`Peringatan Checksum: Cache lokal (${report.localChecksum}) berbeda dari Database Pusat (${report.remoteChecksum})!`, 'warning');
+        showToast(`Menyinkronkan perbedaan data (${report.localChecksum} → ${report.remoteChecksum}) dengan Database Pusat...`, 'info');
       }
     }
     return report;
@@ -730,11 +732,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { nextRooms, hasChanges };
   };
 
-  // Sinkronisasi data awal saat aplikasi dibuka
+  // Sinkronisasi data awal saat aplikasi dibuka (langsung menarik dari Database Pusat)
   useEffect(() => {
     async function loadCloudDatabase() {
       try {
-        const cloudDb = await dataStorage.hydrateFromSupabase();
+        const cloudDb = await dataStorage.hydrateFromSupabase(true);
         if (cloudDb) {
           setUsers(cloudDb.users);
           setBuildings(cloudDb.buildings || []);
@@ -771,18 +773,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
             maintenances: cloudDb.maintenances || []
           });
         } else {
-          // Validasi state lokal jika offline atau Supabase belum terhubung
           setRooms(prev => {
             const { nextRooms, hasChanges } = validateAndSyncRoomStates(prev, transactions, maintenances);
-            if (hasChanges) dataStorage.saveRooms(nextRooms);
+            if (hasChanges) dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
             return nextRooms;
           });
         }
       } catch (err) {
         console.warn('Gagal memuat database dari Supabase:', err);
+      } finally {
+        isHydratedFromCloudRef.current = true;
       }
     }
     loadCloudDatabase();
+    const unsubscribe = dataStorage.onSyncEvent(() => {
+      setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+    });
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   // Sinkronisasi latar belakang otomatis saat berpindah tab (navigasi aplikasi maupun tab browser)
@@ -905,8 +914,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setRooms(nextRooms);
         setTransactions(cloudDb.transactions);
         setMaintenances(cloudDb.maintenances);
-        setAuditLogs(cloudDb.auditLogs);
-        setWorkSessions(cloudDb.workSessions);
+        setAuditLogs(prev => {
+          const cloudLogs = cloudDb.auditLogs || [];
+          const cloudIds = new Set(cloudLogs.map(l => l.id));
+          const unsyncedLocal = prev.filter(l => l && l.id && !cloudIds.has(l.id));
+          return [...unsyncedLocal, ...cloudLogs].slice(0, 250);
+        });
+        setWorkSessions(prev => {
+          const cloudSessions = cloudDb.workSessions || [];
+          const cloudIds = new Set(cloudSessions.map(s => s.id));
+          const activeLocal = prev.filter(s => s && s.id && s.status === 'AKTIF' && !cloudIds.has(s.id));
+          return [...activeLocal, ...cloudSessions];
+        });
         setQcInspections(cloudDb.qcInspections);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
@@ -1026,10 +1045,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAppSettings(db.appSettings || dataStorage.getAppSettings());
   };
 
-  // Sync state changes with dataStorage for durable persistence
+  // Kirim langsung setiap perubahan state ke Database Supabase (hanya setelah hidrasi awal selesai)
   useEffect(() => {
+    if (!isHydratedFromCloudRef.current) return;
     dataStorage.saveDatabase({
-      schemaVersion: 2,
+      schemaVersion: 4,
       appName: 'SIM-Akomodasi UPT Asrama Haji Jakarta',
       exportedAt: new Date().toISOString(),
       appSettings: dataStorage.getAppSettings(),
@@ -1392,6 +1412,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       showToast(`Melanjutkan sesi aktif, ${user.fullName} (${user.role})!`, "success");
       setActiveTab('dashboard');
+      // Segera tarik data terbaru dari database saat klik masuk (login)
+      pullFromCentralDatabase();
       return;
     }
 
@@ -1440,8 +1462,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     showToast(`Selamat datang, ${user.fullName} (${user.role})!`, "success");
 
-    // All roles land on Dashboard
+    // All roles land on Dashboard & langsung menarik data terbaru dari Database
     setActiveTab('dashboard');
+    pullFromCentralDatabase();
   };
 
   const logout = () => {
