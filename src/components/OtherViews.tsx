@@ -3922,9 +3922,23 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Tab within this view: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT'
+  const canAccessAdminTabs = Boolean(currentUser && isSuperAdmin(currentUser.role));
   const [activeSubView, setActiveSubView] = useState<'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT'>(
-    defaultSubView === 'ROLE_PERMISSIONS' ? 'ROLE_PERMISSIONS' : defaultSubView === 'AUDIT_TRAIL' || defaultSubView === 'PDF_DOWNLOAD_LOGS' ? 'AUDIT_TRAIL' : (defaultSubView || 'WORK_SESSIONS')
+    defaultSubView === 'ROLE_PERMISSIONS' && canAccessAdminTabs
+      ? 'ROLE_PERMISSIONS'
+      : defaultSubView === 'DATABASE_MGMT' && canAccessAdminTabs
+      ? 'DATABASE_MGMT'
+      : defaultSubView === 'AUDIT_TRAIL' || defaultSubView === 'PDF_DOWNLOAD_LOGS'
+      ? 'AUDIT_TRAIL'
+      : 'WORK_SESSIONS'
   );
+
+  // Pastikan jika beralih ke akun selain Admin / Super Admin, tab khusus Admin otomatis kembali ke WORK_SESSIONS
+  useEffect(() => {
+    if (!canAccessAdminTabs && (activeSubView === 'ROLE_PERMISSIONS' || activeSubView === 'DATABASE_MGMT')) {
+      setActiveSubView('WORK_SESSIONS');
+    }
+  }, [canAccessAdminTabs, activeSubView]);
 
   // Sub-halaman di dalam Log Aktivitas Sistem (AUDIT_TRAIL): 'ALL_LOGS' | 'PDF_LOGS' | 'VERIFY'
   const [auditSubTab, setAuditSubTab] = useState<'ALL_LOGS' | 'PDF_LOGS' | 'VERIFY'>(
@@ -4537,17 +4551,19 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             <i className="fa-solid fa-business-time"></i>
             <span>Rekap Sesi dan Jam</span>
           </button>
-          <button
-            onClick={() => setActiveSubView('ROLE_PERMISSIONS')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 shrink-0 ${
-              activeSubView === 'ROLE_PERMISSIONS' 
-                ? 'bg-white text-emerald-800 shadow-xs font-black' 
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <i className="fa-solid fa-shield-halved text-emerald-600"></i>
-            <span>Hak Akses & Otorisasi</span>
-          </button>
+          {currentUser && isSuperAdmin(currentUser.role) && (
+            <button
+              onClick={() => setActiveSubView('ROLE_PERMISSIONS')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 shrink-0 ${
+                activeSubView === 'ROLE_PERMISSIONS' 
+                  ? 'bg-white text-emerald-800 shadow-xs font-black' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <i className="fa-solid fa-shield-halved text-emerald-600"></i>
+              <span>Hak Akses &amp; Otorisasi</span>
+            </button>
+          )}
           <button
             onClick={() => setActiveSubView('AUDIT_TRAIL')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 shrink-0 ${
@@ -5199,7 +5215,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             )}
           </div>
         </div>
-      ) : activeSubView === 'ROLE_PERMISSIONS' ? (
+      ) : activeSubView === 'ROLE_PERMISSIONS' && currentUser && isSuperAdmin(currentUser.role) ? (
         <RolePermissionsSection
           currentUser={currentUser}
           users={users}

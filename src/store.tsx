@@ -109,7 +109,7 @@ export function getUserEffectivePermissions(user?: User | null): UserPermissions
     return {};
   }
   const role = user.role || '';
-  const isSuper = isSuperAdmin(role) || user.isOwner;
+  const isSuper = isSuperAdmin(role);
   const isKeuangan = isKeuanganRole(role, user.department);
   const isRecep = isRecepRole(role);
   const isQc = isQcRole(role);
@@ -138,9 +138,16 @@ export function getUserEffectivePermissions(user?: User | null): UserPermissions
     canExportReports: isSuper || isKeuangan || isRecep || isTek || isQc
   };
 
-  // If account has customized permissions saved by Admin, merge them with priority
+  // If account has customized permissions saved by Admin, merge them with priority,
+  // but strictly lock canManagePermissions, canManageUsers, and canConfigApp to Super Admin & Admin only
   if (user.permissions) {
-    return { ...defaults, ...user.permissions };
+    return {
+      ...defaults,
+      ...user.permissions,
+      canConfigApp: isSuper,
+      canManageUsers: isSuper,
+      canManagePermissions: isSuper
+    };
   }
   return defaults;
 }
@@ -1536,17 +1543,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast("Akses Ditolak: Hanya Administrator yang berwenang mengubah data akun petugas!", "error");
       return;
     }
-    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-    dataStorage.saveUser(updatedUser);
-    if (currentUser && currentUser.id === updatedUser.id) {
-      setCurrentUser(updatedUser);
+    const existingTarget = users.find(u => u.id === updatedUser.id);
+    // Cegah akun selain Admin / Super Admin mengubah role atau permissions dirinya sendiri
+    const safeUpdatedUser: User = !isSuperAdmin(currentUser?.role) && existingTarget
+      ? {
+          ...updatedUser,
+          role: existingTarget.role,
+          permissions: existingTarget.permissions
+        }
+      : updatedUser;
+
+    setUsers(prev => prev.map(u => u.id === safeUpdatedUser.id ? safeUpdatedUser : u));
+    dataStorage.saveUser(safeUpdatedUser);
+    if (currentUser && currentUser.id === safeUpdatedUser.id) {
+      setCurrentUser(safeUpdatedUser);
       try {
-        localStorage.setItem('sim_haji_current_user', JSON.stringify(updatedUser));
-        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(updatedUser));
+        localStorage.setItem('sim_haji_current_user', JSON.stringify(safeUpdatedUser));
+        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(safeUpdatedUser));
       } catch (_) {}
     }
-    logAudit("Ubah Akun", `Memperbarui akun: ${updatedUser.username} (${updatedUser.fullName}) - ${updatedUser.role}`);
-    showToast(`Data petugas ${updatedUser.fullName} berhasil diperbarui di sistem!`, "success");
+    logAudit("Ubah Akun", `Memperbarui akun: ${safeUpdatedUser.username} (${safeUpdatedUser.fullName}) - ${safeUpdatedUser.role}`);
+    showToast(`Data petugas ${safeUpdatedUser.fullName} berhasil diperbarui di sistem!`, "success");
   };
 
   const toggleUserStatus = (userId: string) => {

@@ -638,21 +638,18 @@ export function RolePermissionsSection({
 
   useBodyScrollLock(showConfigModal);
 
-  // Periksa apakah user saat ini punya wewenang mengedit akun
+  // Periksa apakah user saat ini punya wewenang mengedit hak akses akun (HANYA Super Admin & Admin)
   const canAdminManage = Boolean(
     currentUser && (
       isSuperAdmin(currentUser.role) || 
-      currentUser.role === 'Admin' ||
-      currentUser.isOwner ||
-      getUserEffectivePermissions(currentUser).canManagePermissions
+      currentUser.role === 'Admin'
     )
   );
 
   const canEditBranding = Boolean(
     currentUser && (
       isSuperAdmin(currentUser.role) || 
-      currentUser.role === 'Admin' ||
-      getUserEffectivePermissions(currentUser).canConfigApp
+      currentUser.role === 'Admin'
     )
   );
 

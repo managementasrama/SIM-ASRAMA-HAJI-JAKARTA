@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { createServer as createHttpServer } from "http";
 
 // Mock database file for backend demo
 const MOCK_DB_FILE = path.join(process.cwd(), "data.json");
@@ -66,6 +67,7 @@ function writeDb(data: DbData) {
 
 async function startServer() {
   const app = express();
+  const httpServer = createHttpServer(app); // Menggunakan HTTP server terikat
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: "50mb" }));
@@ -78,7 +80,7 @@ async function startServer() {
     const occupiedRooms = db.rooms.filter(r => r.isOccupied).length;
     const availableRooms = totalRooms - occupiedRooms;
     const occupancyRate = totalRooms === 0 ? 0 : (occupiedRooms / totalRooms) * 100;
-    
+
     res.json({
       totalBuildings,
       totalRooms,
@@ -130,15 +132,12 @@ async function startServer() {
   const distPath = path.join(process.cwd(), "dist");
   const distIndex = path.join(distPath, "index.html");
 
-  // Use production static serving only when explicitly running 'start' or NODE_ENV=production
-  // (Note: K_SERVICE is also set in Cloud Run dev containers, so do not use it to force production during 'npm run dev')
   const isDevLifecycle = process.env.npm_lifecycle_event === "dev";
   const isStartOrProd =
     !isDevLifecycle &&
     (process.env.NODE_ENV === "production" ||
       process.env.npm_lifecycle_event === "start");
 
-  // If started in production mode but dist/index.html is missing, build it automatically
   if (isStartOrProd && !fs.existsSync(distIndex)) {
     try {
       console.log("dist/index.html not found, running Vite build...");
@@ -154,7 +153,13 @@ async function startServer() {
   if (!shouldServeStatic) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: {
+          server: httpServer, // Menyalurkan WebSocket HMR ke Express Server
+          clientPort: 443,   // Memaksa port SSL HTTPS untuk Cloud Proxy
+        },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -169,7 +174,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

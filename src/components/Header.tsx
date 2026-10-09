@@ -239,120 +239,118 @@ export function Header() {
                       </div>
                     </div>
 
-                  {/* 2. MENU KHUSUS ADMIN & PETUGAS */}
+                  {/* 2. MENU PENGATURAN AKUN & STATUS DATABASE */}
                   <div className="p-3 overflow-y-auto custom-scrollbar space-y-2.5 flex-1 bg-slate-50/50 dark:bg-slate-900">
-                    {(isSuperAdmin(currentUser.role) || currentUser.role.includes('Admin')) && (
-                      <>
-                        {/* 2a. Konfigurasi Judul & Logo Web */}
-                        <div className="p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-600/70 rounded-xl space-y-2 shadow-2xs">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 flex items-center justify-center text-xs shrink-0">
-                                <i className="fa-solid fa-palette"></i>
-                              </div>
-                              <div>
-                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Konfigurasi Judul &amp; Logo Web</span>
-                                <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Identitas Instansi, Favicon &amp; Tampilan</span>
-                              </div>
+                    {/* 2a. Konfigurasi Judul & Logo Web (KHUSUS SUPER ADMIN & ADMIN) */}
+                    {isSuperAdmin(currentUser.role) && (
+                      <div className="p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-600/70 rounded-xl space-y-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 flex items-center justify-center text-xs shrink-0">
+                              <i className="fa-solid fa-palette"></i>
                             </div>
-                            <span className="text-[9px] bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded font-bold border border-amber-300 dark:border-amber-700">
-                              Admin
-                            </span>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Konfigurasi Judul &amp; Logo Web</span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Identitas Instansi, Favicon &amp; Tampilan</span>
+                            </div>
                           </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsSwitchOpen(false);
-                              openModal('modalAccountProfile', { section: 'BRANDING' });
-                            }}
-                            className="w-full py-1.5 px-3 bg-amber-50 dark:bg-slate-700 hover:bg-amber-100 dark:hover:bg-slate-600 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
-                          >
-                            <i className="fa-solid fa-pen-ruler text-amber-600 dark:text-amber-400"></i>
-                            <span>Buka Pengaturan Judul &amp; Logo</span>
-                          </button>
+                          <span className="text-[9px] bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded font-bold border border-amber-300 dark:border-amber-700">
+                            Admin
+                          </span>
                         </div>
 
-                        {/* 2b. Profil Akun */}
-                        <div className="p-3 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-600/70 rounded-xl space-y-2 shadow-2xs">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs shrink-0">
-                                <i className="fa-solid fa-user-gear"></i>
-                              </div>
-                              <div>
-                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Profil Akun</span>
-                                <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Kredensial Login &amp; Kontak Pribadi</span>
-                              </div>
-                            </div>
-                            <span className="text-[9px] bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-300 dark:border-emerald-700">
-                              Akun
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsSwitchOpen(false);
-                              openModal('modalAccountProfile', { section: 'PROFIL' });
-                            }}
-                            className="w-full py-1.5 px-3 bg-emerald-50 dark:bg-slate-700 hover:bg-emerald-100 dark:hover:bg-slate-600 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
-                          >
-                            <i className="fa-solid fa-user-pen text-emerald-600 dark:text-emerald-400"></i>
-                            <span>Buka Pengaturan Profil Akun</span>
-                          </button>
-                        </div>
-
-                        {/* 3b. Status Sync dengan Database (Supabase Cloud) */}
-                        <div className="p-3 bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-600/70 rounded-xl space-y-1.5 shadow-2xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-7 h-7 rounded-lg bg-sky-100 dark:bg-sky-900/80 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs shrink-0">
-                                <i className="fa-solid fa-cloud-bolt"></i>
-                              </div>
-                              <div>
-                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Sync Database</span>
-                                <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Supabase Cloud Real-Time</span>
-                              </div>
-                            </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
-                              supabaseSyncState?.isSyncing
-                                ? 'bg-blue-100 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 animate-pulse'
-                                : supabaseSyncState?.lastError
-                                ? 'bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
-                                : 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${
-                                supabaseSyncState?.isSyncing
-                                  ? 'bg-blue-600 dark:bg-blue-400'
-                                  : supabaseSyncState?.lastError
-                                  ? 'bg-rose-600 dark:bg-rose-400'
-                                  : 'bg-emerald-600 dark:bg-emerald-400 animate-ping'
-                              }`}></span>
-                              <span>
-                                {supabaseSyncState?.isSyncing
-                                  ? 'Menyinkronkan...'
-                                  : supabaseSyncState?.lastError
-                                  ? 'Gangguan Koneksi'
-                                  : 'Terhubung Real-Time'}
-                              </span>
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
-                            <span>Sinkronisasi instan otomatis</span>
-                            {supabaseSyncState?.lastSyncedAt && (
-                              <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                                {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit'
-                                })} WIB
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSwitchOpen(false);
+                            openModal('modalAccountProfile', { section: 'BRANDING' });
+                          }}
+                          className="w-full py-1.5 px-3 bg-amber-50 dark:bg-slate-700 hover:bg-amber-100 dark:hover:bg-slate-600 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
+                        >
+                          <i className="fa-solid fa-pen-ruler text-amber-600 dark:text-amber-400"></i>
+                          <span>Buka Pengaturan Judul &amp; Logo</span>
+                        </button>
+                      </div>
                     )}
+
+                    {/* 2b. Profil Akun (TERSEDIA UNTUK SEMUA AKUN PETUGAS & ADMIN) */}
+                    <div className="p-3 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-600/70 rounded-xl space-y-2 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs shrink-0">
+                            <i className="fa-solid fa-user-gear"></i>
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Profil Akun Saya</span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Kredensial Login, TTD Digital &amp; Kontak Pribadi</span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-300 dark:border-emerald-700">
+                          Akun
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSwitchOpen(false);
+                          openModal('modalAccountProfile', { section: 'PROFIL' });
+                        }}
+                        className="w-full py-1.5 px-3 bg-emerald-50 dark:bg-slate-700 hover:bg-emerald-100 dark:hover:bg-slate-600 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
+                      >
+                        <i className="fa-solid fa-user-pen text-emerald-600 dark:text-emerald-400"></i>
+                        <span>Buka Pengaturan Profil Akun</span>
+                      </button>
+                    </div>
+
+                    {/* 3b. Status Sync dengan Database (Supabase Cloud) */}
+                    <div className="p-3 bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-600/70 rounded-xl space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-7 h-7 rounded-lg bg-sky-100 dark:bg-sky-900/80 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs shrink-0">
+                            <i className="fa-solid fa-cloud-bolt"></i>
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Sync Database</span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Supabase Cloud Real-Time</span>
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
+                          supabaseSyncState?.isSyncing
+                            ? 'bg-blue-100 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 animate-pulse'
+                            : supabaseSyncState?.lastError
+                            ? 'bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
+                            : 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            supabaseSyncState?.isSyncing
+                              ? 'bg-blue-600 dark:bg-blue-400'
+                              : supabaseSyncState?.lastError
+                              ? 'bg-rose-600 dark:bg-rose-400'
+                              : 'bg-emerald-600 dark:bg-emerald-400 animate-ping'
+                          }`}></span>
+                          <span>
+                            {supabaseSyncState?.isSyncing
+                              ? 'Menyinkronkan...'
+                              : supabaseSyncState?.lastError
+                              ? 'Gangguan Koneksi'
+                              : 'Terhubung Real-Time'}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
+                        <span>Sinkronisasi instan otomatis</span>
+                        {supabaseSyncState?.lastSyncedAt && (
+                          <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                            {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit'
+                            })} WIB
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     {/* Mobile & Tablet Bottom Close Action Bar */}
                     <div className="lg:hidden p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0">
                       <button
