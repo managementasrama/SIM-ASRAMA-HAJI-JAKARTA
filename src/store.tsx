@@ -38,7 +38,12 @@ import {
   deleteBuildingInSupabaseDirect,
   deleteRoomInSupabaseDirect,
   deleteMeetingRoomInSupabaseDirect,
-  updateBuildingInSupabaseDirect
+  updateBuildingInSupabaseDirect,
+  deleteTransactionInSupabaseDirect,
+  deleteMaintenanceInSupabaseDirect,
+  deleteQcInspectionInSupabaseDirect,
+  deleteBreakfastOrderInSupabaseDirect,
+  deleteBreakfastMenuItemInSupabaseDirect
 } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
@@ -237,8 +242,8 @@ interface AppContextType {
   activateCheckin: (roomId: string, targetTxId?: string) => void;
   cancelBooking: (roomId: string, txId?: string, reason?: string) => void;
   batchCancelGroup: (txIdsOrGroupId: string[] | string, reason?: string) => boolean;
-  deleteTransaction: (txId: string) => boolean;
-  batchDeleteGroup: (groupId: string) => boolean;
+  deleteTransaction: (txId: string) => boolean | Promise<boolean>;
+  batchDeleteGroup: (groupId: string) => boolean | Promise<boolean>;
   extendTransaction: (
     txId: string, 
     additionalDuration: number, 
@@ -261,25 +266,25 @@ interface AppContextType {
   batchCheckoutGroup: (txIdsOrGroupId: string[] | string) => boolean;
   
   addMaintenance: (maint: Maintenance) => void;
-  deleteMaintenance: (maintId: string) => boolean;
+  deleteMaintenance: (maintId: string) => boolean | Promise<boolean>;
   assignTechnicianToMaintenance: (maintId: string, technicianId: string, technicianName: string, managerNotes?: string) => boolean;
   markMaintenanceRepaired: (maintId: string, technicianNotes: string) => boolean;
   updateMaintenanceStatus: (maintId: string, newStatus: 'MENUNGGU_PENUGASAN' | 'PROSES' | 'MENUNGGU_QC' | 'SELESAI', technicianNotes?: string) => boolean;
   finishMaintenance: (roomId: string) => boolean;
 
   addQcInspection: (inspection: QcInspection) => void;
-  deleteQcInspection: (qcId: string) => boolean;
+  deleteQcInspection: (qcId: string) => boolean | Promise<boolean>;
   
   // Breakfast Orders & Menu Catalog Database Management
   breakfastMenuItems: BreakfastMenuItem[];
   breakfastOrders: BreakfastOrder[];
   addBreakfastOrder: (order: BreakfastOrder) => void;
   updateBreakfastOrder: (order: BreakfastOrder) => void;
-  deleteBreakfastOrder: (orderId: string) => void;
+  deleteBreakfastOrder: (orderId: string) => void | Promise<void>;
   updateBreakfastOrderStatusState: (orderId: string, status: BreakfastOrder['status']) => void;
   addBreakfastMenuItem: (item: BreakfastMenuItem) => void;
   updateBreakfastMenuItem: (item: BreakfastMenuItem) => void;
-  deleteBreakfastMenuItem: (itemId: string) => void;
+  deleteBreakfastMenuItem: (itemId: string) => void | Promise<void>;
 
   logAudit: (action: string, details: string, durationMinutes?: number) => void;
   addAuditLog: (log: AuditLog) => AuditLog;
@@ -3129,7 +3134,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const deleteTransaction = (txId: string): boolean => {
+  const deleteTransaction = async (txId: string): Promise<boolean> => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && !isRecepRole(currentUser?.role))) {
       showToast('Akses Ditolak: Hanya Super Admin, Admin, atau Resepsionis yang berwenang menghapus transaksi!', 'error');
       return false;
@@ -3145,10 +3150,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastOrders(dataStorage.getBreakfastOrders());
     showToast(res.message, 'info');
     logAudit('HAPUS_TRANSAKSI', `Menghapus transaksi secara permanen: ${target?.guestName || txId} (${txId})`);
+    try {
+      await deleteTransactionInSupabaseDirect(txId);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push hapus transaksi ke Supabase:', e);
+    }
     return true;
   };
 
-  const batchDeleteGroup = (groupId: string): boolean => {
+  const batchDeleteGroup = async (groupId: string): Promise<boolean> => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && !isRecepRole(currentUser?.role))) {
       showToast('Akses Ditolak: Hanya Super Admin, Admin, atau Resepsionis yang berwenang menghapus data rombongan!', 'error');
       return false;
@@ -3166,6 +3177,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastOrders(dataStorage.getBreakfastOrders());
     showToast(`Berhasil menghapus ${ids.length} transaksi rombongan '${grpName}' secara permanen.`, 'info');
     logAudit('HAPUS_ROMBONGAN', `Menghapus seluruh transaksi rombongan: ${grpName} (${ids.length} kamar)`);
+    try {
+      await Promise.all(ids.map(id => deleteTransactionInSupabaseDirect(id)));
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push batch hapus transaksi ke Supabase:', e);
+    }
     return true;
   };
 
@@ -4013,22 +4030,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteMaintenance = (maintId: string): boolean => {
+  const deleteMaintenance = async (maintId: string): Promise<boolean> => {
     if (!currentUser) return false;
     dataStorage.deleteMaintenance(maintId);
     setMaintenances(dataStorage.getMaintenances());
     setRooms(dataStorage.getRooms());
     showToast('Tiket pemeliharaan berhasil dihapus.', 'info');
     logAudit('HAPUS_MAINTENANCE', `Menghapus tiket pemeliharaan ID ${maintId}`);
+    try {
+      await deleteMaintenanceInSupabaseDirect(maintId);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push hapus maintenance ke Supabase:', e);
+    }
     return true;
   };
 
-  const deleteQcInspection = (qcId: string): boolean => {
+  const deleteQcInspection = async (qcId: string): Promise<boolean> => {
     if (!currentUser) return false;
     dataStorage.deleteQcInspection(qcId);
     setQcInspections(dataStorage.getQcInspections());
     showToast('Laporan inspeksi QC berhasil dihapus.', 'info');
     logAudit('HAPUS_QC', `Menghapus laporan inspeksi QC ID ${qcId}`);
+    try {
+      await deleteQcInspectionInSupabaseDirect(qcId);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push hapus qc ke Supabase:', e);
+    }
     return true;
   };
 
@@ -4589,7 +4618,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Ubah Pesanan Sarapan', `Memperbarui pesanan sarapan kamar ${order.roomNumber}: ${order.menuName}`);
   };
 
-  const deleteBreakfastOrder = (orderId: string) => {
+  const deleteBreakfastOrder = async (orderId: string): Promise<void> => {
     const target = breakfastOrders.find(o => o.id === orderId);
     const cleanTxId = orderId.replace('BO-TX-', '').split('-')[0];
     
@@ -4635,6 +4664,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const roomLabel = matchedRoom ? `kamar ${matchedRoom}` : (target?.roomNumber ? `kamar ${target.roomNumber}` : 'pesanan');
     showToast(`Pesanan sarapan ${roomLabel} berhasil dihapus permanen dan disinkronkan ke kamar.`, 'info');
     logAudit('Hapus Pesanan Sarapan', `Menghapus pesanan sarapan ID ${orderId} (${roomLabel})`);
+
+    try {
+      await deleteBreakfastOrderInSupabaseDirect(orderId);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push hapus order ke Supabase:', e);
+    }
   };
 
   const updateBreakfastOrderStatusState = (orderId: string, status: BreakfastOrder['status']) => {
@@ -4741,12 +4777,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Ubah Menu Sarapan', `Katalog menu diubah: ${item.name}`);
   };
 
-  const deleteBreakfastMenuItem = (itemId: string) => {
+  const deleteBreakfastMenuItem = async (itemId: string): Promise<void> => {
     const target = breakfastMenuItems.find(m => m.id === itemId);
     dataStorage.deleteBreakfastMenuItem(itemId);
     setBreakfastMenuItems(prev => prev.filter(m => m.id !== itemId));
     showToast(`Menu sarapan "${target?.name || itemId}" dihapus dari katalog.`, 'info');
     logAudit('Hapus Menu Sarapan', `Menghapus menu sarapan ID ${itemId}`);
+    try {
+      await deleteBreakfastMenuItemInSupabaseDirect(itemId);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push hapus menu item ke Supabase:', e);
+    }
   };
 
   const sendMaintenanceEmail = (params: any): EmailNotificationItem => {

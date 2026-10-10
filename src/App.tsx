@@ -7,7 +7,6 @@ import { RoomsView } from './components/RoomsView';
 import { ReportsView, MaintenanceReportsView, AuditLogView, BreakfastOrdersView } from './components/OtherViews';
 import { QualityControlView } from './components/QualityControlView';
 import { UserManagementView } from './components/UserManagementView';
-import { VerifyPdfView } from './components/VerifyPdfView';
 import { Modals } from './components/Modals';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
 
