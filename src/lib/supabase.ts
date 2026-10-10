@@ -1830,10 +1830,12 @@ export async function updateMaintenanceInSupabaseDirect(item: Maintenance): Prom
   }
 }
 
+export { useRealtimeSync } from '../hooks/useRealtimeSync';
+
 /**
  * 6. Fungsi UPDATE langsung ke tabel buildings di Supabase
  */
-export async function updateBuildingInSupabaseDirect(b: Building): Promise<{ success: boolean; error?: string }> {
+export async function updateBuildingInSupabaseDirect(b: Building, previousName?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const payload = {
       id: b.id,
@@ -1850,6 +1852,35 @@ export async function updateBuildingInSupabaseDirect(b: Building): Promise<{ suc
     if (error) {
       return { success: false, error: error.message };
     }
+
+    // Jika nama gedung berubah, perbarui juga field building pada semua kamar di tabel rooms Supabase
+    if (previousName && previousName.trim() !== b.name.trim()) {
+      try {
+        await supabase
+          .from('rooms')
+          .update({ building: b.name.trim() })
+          .ilike('building', previousName.trim());
+      } catch (e) {
+        console.warn('Gagal update nama gedung di tabel rooms Supabase:', e);
+      }
+    }
+
+    // Perbarui juga data di app_database_sync agar konsisten seketika
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const p = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(p.buildings)) {
+          p.buildings = p.buildings.map(item => item.id === b.id ? { ...item, ...b } : item);
+          if (previousName && previousName.trim() !== b.name.trim() && Array.isArray(p.rooms)) {
+            const oldLower = previousName.trim().toLowerCase();
+            p.rooms = p.rooms.map(r => (r.building || '').trim().toLowerCase() === oldLower ? { ...r, building: b.name.trim() } : r);
+          }
+          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: p, updated_at: new Date().toISOString() });
+        }
+      }
+    } catch (_) {}
+
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error' };

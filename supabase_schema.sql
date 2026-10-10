@@ -658,3 +658,36 @@ ON CONFLICT (id) DO UPDATE SET
     status = EXCLUDED.status;
 
 -- Selesai! Skrip SQL telah diperbarui dan siap dijalankan langsung di SQL Editor Supabase.
+
+-- =========================================================================================
+-- AKTIFKAN REPLIKASI SUPABASE REALTIME UNTUK PENYINKRONAN INSTAN
+-- Jalankan perintah ini di SQL Editor Dashboard Supabase agar supabase.channel() di sisi klien
+-- dapat menerima event INSERT, UPDATE, DELETE secara langsung antar-pengguna/perangkat.
+-- =========================================================================================
+DO $$
+BEGIN
+  -- Pastikan publikasi supabase_realtime ada
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    CREATE PUBLICATION supabase_realtime;
+  END IF;
+END $$;
+
+-- Tambahkan tabel ke publikasi real-time Supabase (idempotent)
+ALTER PUBLICATION supabase_realtime ADD TABLE 
+    public.buildings, 
+    public.rooms, 
+    public.meeting_rooms, 
+    public.transactions, 
+    public.maintenances, 
+    public.qc_inspections, 
+    public.users, 
+    public.app_settings, 
+    public.room_capacity_rates, 
+    public.breakfast_orders, 
+    public.breakfast_menu_items, 
+    public.chat_messages, 
+    public.chat_channels, 
+    public.work_sessions, 
+    public.audit_logs,
+    public.app_database_sync;
+

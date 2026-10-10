@@ -72,6 +72,14 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
 
+  // Disable aggressive caching on Vercel and server proxies for all API endpoints
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+  });
+
   // =========================================================================
   // REAL-TIME MULTI-USER HUB (WORK SESSIONS, LIVE PRESENCE & 2-WAY CHAT)
   // =========================================================================
@@ -138,8 +146,9 @@ async function startServer() {
   // Server-Sent Events (SSE) Stream for instant real-time updates
   app.get("/api/realtime/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Cache-Control", "no-cache, no-transform, no-store");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
     sseClients.add(res);
@@ -365,6 +374,7 @@ async function startServer() {
 
   const distPath = path.join(process.cwd(), "dist");
   const distIndex = path.join(distPath, "index.html");
+  const rootIndex = path.join(process.cwd(), "index.html");
 
   const isDevLifecycle = process.env.npm_lifecycle_event === "dev";
   const isStartOrProd =
@@ -398,15 +408,33 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.use(express.static(distPath, { index: false }));
+    app.get("*", (req, res, next) => {
       if (fs.existsSync(distIndex)) {
-        res.sendFile(distIndex);
+        res.sendFile(distIndex, (err) => {
+          if (err && !res.headersSent) {
+            if (fs.existsSync(rootIndex)) {
+              res.sendFile(rootIndex);
+            } else {
+              next(err);
+            }
+          }
+        });
+      } else if (fs.existsSync(rootIndex)) {
+        res.sendFile(rootIndex);
       } else {
-        res.status(404).send("Application build not found. Please run npm run build.");
+        res.status(404).send("Application index.html not found. Please run npm run build.");
       }
     });
   }
+
+  // Global Express error handler to prevent crashing on missing files
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("Express unhandled error:", err?.message || err);
+    if (!res.headersSent) {
+      res.status(err?.status || 500).json({ error: "Server Error", message: err?.message || "Internal Server Error" });
+    }
+  });
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

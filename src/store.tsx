@@ -34,7 +34,11 @@ import {
   computeDatasetChecksums, 
   DatabaseChecksumReport,
   clearAuditLogsInSupabaseDirect,
-  clearWorkSessionsInSupabaseDirect
+  clearWorkSessionsInSupabaseDirect,
+  deleteBuildingInSupabaseDirect,
+  deleteRoomInSupabaseDirect,
+  deleteMeetingRoomInSupabaseDirect,
+  updateBuildingInSupabaseDirect
 } from './lib/supabase';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
@@ -289,15 +293,15 @@ interface AppContextType {
   // Master Buildings & Meeting Rooms Database Catalog
   buildings: Building[];
   meetingRooms: MeetingRoom[];
-  addBuilding: (building: Building) => void;
-  updateBuilding: (building: Building) => void;
-  deleteBuilding: (buildingId: string) => boolean;
-  addMeetingRoom: (mr: MeetingRoom) => void;
-  updateMeetingRoom: (mr: MeetingRoom) => void;
-  deleteMeetingRoom: (mrId: string) => boolean;
-  addRoom: (room: Room) => void;
-  updateRoom: (room: Room) => void;
-  deleteRoom: (roomId: string) => boolean;
+  addBuilding: (building: Building) => void | Promise<void>;
+  updateBuilding: (building: Building) => void | Promise<void>;
+  deleteBuilding: (buildingId: string) => boolean | Promise<boolean>;
+  addMeetingRoom: (mr: MeetingRoom) => void | Promise<void>;
+  updateMeetingRoom: (mr: MeetingRoom) => void | Promise<void>;
+  deleteMeetingRoom: (mrId: string) => boolean | Promise<boolean>;
+  addRoom: (room: Room) => void | Promise<void>;
+  updateRoom: (room: Room) => void | Promise<void>;
+  deleteRoom: (roomId: string) => boolean | Promise<boolean>;
 
   // Master Katalog Tipe & Kapasitas Kamar (3 Tipe: Ekonomi, Standar, Superior; Double s/d 8 Bed)
   roomCapacityRates: RoomCapacityRate[];
@@ -617,11 +621,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public' },
-        (payload) => {
+        (payload: any) => {
+          // Tangani mutasi langsung pada tabel buildings & rooms secara instan di UI
+          if (payload.table === 'buildings') {
+            if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setBuildings(prev => prev.filter(b => b.id !== payload.old.id));
+            } else if (payload.eventType === 'INSERT' && payload.new) {
+              const row = payload.new;
+              const mappedBld: Building = {
+                id: row.id,
+                name: row.name,
+                code: row.code || '',
+                floors: Number(row.floors) || 1,
+                totalRooms: Number(row.total_rooms) || 0,
+                capacityDesc: row.capacity_desc || '',
+                category: row.category || 'PENGINAPAN',
+                description: row.description || '',
+                status: row.status || 'AKTIF'
+              };
+              setBuildings(prev => {
+                if (prev.some(b => b.id === mappedBld.id)) return prev;
+                return [...prev, mappedBld];
+              });
+            } else if (payload.eventType === 'UPDATE' && payload.new) {
+              const row = payload.new;
+              setBuildings(prev => prev.map(b => b.id === row.id ? {
+                ...b,
+                name: row.name ?? b.name,
+                code: row.code ?? b.code,
+                floors: row.floors !== undefined ? Number(row.floors) : b.floors,
+                totalRooms: row.total_rooms !== undefined ? Number(row.total_rooms) : b.totalRooms,
+                capacityDesc: row.capacity_desc ?? b.capacityDesc,
+                category: row.category ?? b.category,
+                description: row.description ?? b.description,
+                status: row.status ?? b.status
+              } : b));
+            }
+          } else if (payload.table === 'rooms') {
+            if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setRooms(prev => prev.filter(r => r.id !== payload.old.id));
+            }
+          }
           triggerBackgroundSync(`Realtime ${payload.eventType || 'change'} ${payload.table || ''}`);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Supabase Realtime] Listener terhubung ke skema public.');
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -4090,12 +4138,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ==========================================
   // METODE DATABASE MASTER GEDUNG (BUILDING CRUD)
   // ==========================================
-  const addBuilding = (building: Building) => {
+  const addBuilding = async (building: Building) => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin')) {
       showToast('Akses Ditolak: Hanya Super Admin atau Admin yang berwenang menambah gedung baru!', 'error');
       return;
     }
-    dataStorage.saveBuilding(building);
+    const saved = dataStorage.saveBuilding(building);
     setBuildings(dataStorage.getBuildings());
     setRooms(dataStorage.getRooms());
     setMeetingRooms(dataStorage.getMeetingRooms());
@@ -4104,6 +4152,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast(`Gedung "${building.name}" berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Gedung', `Menambahkan gedung baru: ${building.name} (${building.code}) - ${building.totalRooms} Kamar`);
+    try {
+      await updateBuildingInSupabaseDirect(saved);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push building baru ke Supabase:', e);
+    }
   };
 
   const updateBuilding = async (building: Building) => {
@@ -4114,6 +4168,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const existingBld = buildings.find(b => b.id === building.id);
       const previousName = existingBld?.name;
+      
+      // Eksekusi langsung update ke tabel Supabase (dan relasi rooms jika nama berubah)
+      const directRes = await updateBuildingInSupabaseDirect(building, previousName);
+      if (!directRes.success) {
+        console.warn('Direct update building ke Supabase warning:', directRes.error);
+      }
+
       const savedBuilding = dataStorage.saveBuilding(building, previousName);
       const updatedBuildingsList = dataStorage.getBuildings();
       const updatedRoomsList = dataStorage.getRooms();
@@ -4127,7 +4188,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (previousName && selectedBuilding && selectedBuilding.trim().toLowerCase() === previousName.trim().toLowerCase()) {
         setSelectedBuilding(savedBuilding.name);
       }
-      const liveCount = updatedRoomsList.filter(r => r.building.trim().toLowerCase() === savedBuilding.name.trim().toLowerCase()).length;
       
       const pushRes = await dataStorage.pushAllToSupabase();
       if (!pushRes.success) {
@@ -4141,7 +4201,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteBuilding = (buildingId: string): boolean => {
+  const deleteBuilding = async (buildingId: string): Promise<boolean> => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin')) {
       showToast('Akses Ditolak: Hanya Super Admin atau Admin yang berwenang menghapus gedung!', 'error');
       return false;
@@ -4160,6 +4220,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast(res.message, 'info');
     logAudit('Hapus Gedung', `Menghapus gedung: ${bld?.name || buildingId}`);
+
+    // Eksekusi penghapusan langsung ke tabel Supabase tanpa jeda
+    try {
+      await deleteBuildingInSupabaseDirect(buildingId, bld?.name);
+      await dataStorage.pushAllToSupabase();
+    } catch (err) {
+      console.warn('Gagal sinkronisasi penghapusan gedung ke Supabase:', err);
+    }
     return true;
   };
 
@@ -4206,7 +4274,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteMeetingRoom = (mrId: string): boolean => {
+  const deleteMeetingRoom = async (mrId: string): Promise<boolean> => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin')) {
       showToast('Akses Ditolak: Hanya Super Admin atau Admin yang berwenang menghapus ruang pertemuan!', 'error');
       return false;
@@ -4224,6 +4292,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMaintenances(dataStorage.getMaintenances());
     showToast(res.message, 'info');
     logAudit('Hapus Ruang Pertemuan', `Menghapus ruang pertemuan: ${mr?.name || mrId}`);
+
+    try {
+      await deleteMeetingRoomInSupabaseDirect(mrId);
+      await dataStorage.pushAllToSupabase();
+    } catch (err) {
+      console.warn('Gagal sinkronisasi penghapusan ruang pertemuan ke Supabase:', err);
+    }
     return true;
   };
 
@@ -4272,7 +4347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const deleteRoom = (roomId: string): boolean => {
+  const deleteRoom = async (roomId: string): Promise<boolean> => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin')) {
       showToast('Akses Ditolak: Hanya Super Admin atau Admin yang berwenang menghapus unit kamar!', 'error');
       return false;
@@ -4291,6 +4366,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast(res.message, 'info');
     logAudit('Hapus Kamar', `Menghapus kamar: ${room?.roomNumber || roomId} (${room?.building || ''})`);
+
+    try {
+      await deleteRoomInSupabaseDirect(roomId);
+      await dataStorage.pushAllToSupabase();
+    } catch (err) {
+      console.warn('Gagal sinkronisasi penghapusan kamar ke Supabase:', err);
+    }
     return true;
   };
 

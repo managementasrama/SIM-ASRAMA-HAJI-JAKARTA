@@ -1050,7 +1050,7 @@ export class DataStorageService {
       users,
       meetingRooms
     });
-    updateBuildingInSupabaseDirect(buildingWithId).then(res => {
+    updateBuildingInSupabaseDirect(buildingWithId, previousBuildingName).then(res => {
       if (!res.success) console.warn('Gagal update building ke Supabase:', res.error);
       else this.hydrateFromSupabase(true).catch(() => {});
     }).catch(err => console.warn('Supabase update building error:', err));
