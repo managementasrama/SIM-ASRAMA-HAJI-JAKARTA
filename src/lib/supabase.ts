@@ -29,19 +29,194 @@ function sanitizeSupabaseUrl(url?: string): string {
   return url.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 }
 
+// Deteksi penyimpanan kustom di browser (jika pengguna mengganti database lewat UI)
+const customStoredUrl = typeof window !== 'undefined' ? localStorage.getItem('CUSTOM_SUPABASE_URL') : null;
+const customStoredKey = typeof window !== 'undefined' ? localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY') : null;
+
 // Deteksi environment variable aman untuk Vite & Vercel
 const rawEnvUrl = 
   (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_SUPABASE_URL) ||
   (typeof process !== 'undefined' && (process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL)) ||
-  'https://iiopgzyxzvmnmkgnrzvc.supabase.co';
+  '';
 
 const rawEnvKey = 
   (typeof import.meta !== 'undefined' && ((import.meta as any)?.env?.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY)) ||
   (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)) ||
-  'sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80';
+  '';
 
-export const SUPABASE_URL = sanitizeSupabaseUrl(rawEnvUrl);
-export const SUPABASE_ANON_KEY = (rawEnvKey || '').trim();
+const defaultFallbackUrl = 'https://iiopgzyxzvmnmkgnrzvc.supabase.co';
+const defaultFallbackKey = 'sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80';
+
+export const SUPABASE_URL = sanitizeSupabaseUrl(customStoredUrl || rawEnvUrl || defaultFallbackUrl);
+export const SUPABASE_ANON_KEY = (customStoredKey || rawEnvKey || defaultFallbackKey || '').trim();
+
+/**
+ * Mendapatkan informasi sumber konfigurasi Supabase yang sedang aktif
+ */
+export function getSupabaseSourceInfo(): {
+  url: string;
+  source: 'custom_storage' | 'environment_variable' | 'default_hardcoded';
+  host: string;
+  isCustom: boolean;
+  hasEnv: boolean;
+} {
+  let source: 'custom_storage' | 'environment_variable' | 'default_hardcoded' = 'default_hardcoded';
+  if (customStoredUrl && customStoredKey) {
+    source = 'custom_storage';
+  } else if (rawEnvUrl && rawEnvKey) {
+    source = 'environment_variable';
+  }
+
+  let host = SUPABASE_URL;
+  try {
+    const parsed = new URL(SUPABASE_URL);
+    host = parsed.host;
+  } catch {
+    host = SUPABASE_URL.replace(/^https?:\/\//, '').split('/')[0];
+  }
+
+  return {
+    url: SUPABASE_URL,
+    source,
+    host,
+    isCustom: Boolean(customStoredUrl && customStoredKey),
+    hasEnv: Boolean(rawEnvUrl && rawEnvKey)
+  };
+}
+
+/**
+ * Simpan kredensial Supabase kustom ke localStorage dan reload browser
+ */
+export function saveCustomSupabaseCredentials(url: string, key: string): void {
+  if (typeof window !== 'undefined') {
+    const cleanUrl = sanitizeSupabaseUrl(url);
+    localStorage.setItem('CUSTOM_SUPABASE_URL', cleanUrl);
+    localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', key.trim());
+  }
+}
+
+/**
+ * Hapus kredensial Supabase kustom dan kembalikan ke .env / bawaan
+ */
+export function removeCustomSupabaseCredentials(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('CUSTOM_SUPABASE_URL');
+    localStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
+  }
+}
+
+/**
+ * Uji konektivitas ke database Supabase kustom sebelum disimpan
+ */
+export async function testCustomSupabaseConnection(testUrl: string, testKey: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const cleanUrl = sanitizeSupabaseUrl(testUrl);
+    if (!cleanUrl || !testKey) {
+      return { success: false, message: 'URL dan Anon Key Supabase wajib diisi.' };
+    }
+    const tempClient = createClient(cleanUrl, testKey.trim());
+    const { error } = await tempClient.from('app_database_sync').select('id').limit(1);
+    if (error) {
+      if (error.code === '42P01') {
+        return { 
+          success: true, 
+          message: 'Terkoneksi ke Supabase! (Catatan: Tabel database belum dibuat. Silakan jalankan script SQL yang disediakan di SQL Editor Supabase).' 
+        };
+      }
+      return { success: false, message: `Koneksi gagal: ${error.message} (Kode: ${error.code})` };
+    }
+    return { success: true, message: 'Berhasil terhubung ke database Supabase baru secara realtime!' };
+  } catch (err: any) {
+    return { success: false, message: `Gagal menghubungi Supabase: ${err?.message || 'Network error'}` };
+  }
+}
+
+/**
+ * Migrasikan / Push seluruh payload database aktif ke database Supabase baru
+ */
+export async function pushAllToTargetSupabase(targetUrl: string, targetKey: string, dbPayload: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cleanUrl = sanitizeSupabaseUrl(targetUrl);
+    if (!cleanUrl || !targetKey) {
+      return { success: false, error: 'URL atau Key tidak valid' };
+    }
+    const targetClient = createClient(cleanUrl, targetKey.trim());
+    
+    // 1. Simpan atomic snapshot ke app_database_sync
+    const payloadRecord = {
+      id: 'root_snapshot',
+      database_payload: dbPayload,
+      updated_at: new Date().toISOString()
+    };
+    await targetClient.from('app_database_sync').upsert(payloadRecord, { onConflict: 'id' });
+
+    // 2. Simpan buildings
+    if (dbPayload.buildings && dbPayload.buildings.length > 0) {
+      try {
+        const bRows = dbPayload.buildings.map(b => ({
+          id: b.id,
+          name: b.name,
+          code: b.code || '',
+          floors: b.floors || 1,
+          total_rooms: b.totalRooms || 0,
+          description: b.description || '',
+          is_active: b.status !== 'NONAKTIF',
+          updated_at: new Date().toISOString()
+        }));
+        await targetClient.from('buildings').upsert(bRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert buildings ke target:', err);
+      }
+    }
+
+    // 3. Simpan rooms
+    if (dbPayload.rooms && dbPayload.rooms.length > 0) {
+      try {
+        const rRows = dbPayload.rooms.map(r => ({
+          id: r.id,
+          room_number: r.roomNumber,
+          building: r.building,
+          floor: r.floor || 1,
+          type: r.type || 'Standard',
+          capacity: r.capacity || 2,
+          price_per_night: r.pricePerNight || 0,
+          status: r.status || 'KOSONG',
+          active_tx_id: r.activeTxId || null,
+          active_maint_id: r.activeMaintId || null,
+          qc_status: r.qcStatus || 'LOLOS_QC',
+          updated_at: new Date().toISOString()
+        }));
+        await targetClient.from('rooms').upsert(rRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert rooms ke target:', err);
+      }
+    }
+
+    // 4. Simpan users
+    if (dbPayload.users && dbPayload.users.length > 0) {
+      try {
+        const uRows = dbPayload.users.map(u => ({
+          id: u.id,
+          username: u.username,
+          name: u.fullName || u.username,
+          email: u.email || `${u.username}@asramahaji.id`,
+          role: u.role,
+          department: u.department || 'Operasional',
+          status: u.status || 'Aktif',
+          password_hash: u.password || '',
+          updated_at: new Date().toISOString()
+        }));
+        await targetClient.from('users').upsert(uRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert users ke target:', err);
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Gagal migrasi ke target database' };
+  }
+}
 
 /**
  * Klien resmi Supabase (@supabase/supabase-js)

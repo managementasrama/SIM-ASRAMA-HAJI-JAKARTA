@@ -8,6 +8,8 @@ import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { VerifyPdfView } from './VerifyPdfView';
 import { RolePermissionsSection } from './RolePermissionsSection';
+import { ConfigureSupabaseModal } from './ConfigureSupabaseModal';
+import { getSupabaseSourceInfo } from '../lib/supabase';
 import { getDirectChannelId } from '../chatData';
 
 export function ReportsView() {
@@ -3902,6 +3904,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const safeWorkSessions = workSessions || [];
   const fileImportRef = React.useRef<HTMLInputElement>(null);
   const [showSqlModal, setShowSqlModal] = useState(false);
+  const [showConfigDatabaseModal, setShowConfigDatabaseModal] = useState(false);
   const [showClearAuditModal, setShowClearAuditModal] = useState(false);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
@@ -6203,6 +6206,15 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
                   <button
                     type="button"
+                    onClick={() => setShowConfigDatabaseModal(true)}
+                    className="px-3.5 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                  >
+                    <i className="fa-solid fa-server"></i>
+                    <span>Ganti / Konfigurasi Database Supabase</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setShowSqlModal(true)}
                     className="px-3.5 py-2.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/30 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
                   >
@@ -6216,7 +6228,9 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3 border-t border-white/10 text-xs">
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Endpoint Database:</span>
-                  <span className="font-mono text-emerald-300 font-bold text-[11px]">iiopgzyxzvmnmkgnrzvc.supabase.co</span>
+                  <span className="font-mono text-emerald-300 font-bold text-[11px] truncate max-w-[200px]" title={getSupabaseSourceInfo().url}>
+                    {getSupabaseSourceInfo().host}
+                  </span>
                 </div>
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Mode Penyimpanan:</span>
@@ -6522,6 +6536,12 @@ END $$;`;
               </div>
             </div>
           )}
+
+          {/* Modal Konfigurasi & Ganti Database Supabase */}
+          <ConfigureSupabaseModal
+            isOpen={showConfigDatabaseModal}
+            onClose={() => setShowConfigDatabaseModal(false)}
+          />
 
           {/* Backup, Restore & Reset Action Tools */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
