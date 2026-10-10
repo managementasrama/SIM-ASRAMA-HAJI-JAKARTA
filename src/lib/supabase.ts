@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { CompleteStorageDatabase } from '../services/dataStorage';
 import { initialRoomCapacityRates, initialUsers, initialBreakfastMenuItems } from '../data';
+import { initialChatChannels } from '../chatData';
 import { deduplicateRoomCapacityRates, normalizeBuildingName, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber } from './utils';
 import type { 
   Building, 
@@ -487,9 +488,52 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       ? deduplicateRoomCapacityRates(syncPayload.roomCapacityRates)
       : (relRates.length > 0 ? relRates : initialRoomCapacityRates);
 
-    const mergedWorkSessions = Array.isArray(syncPayload?.workSessions)
-      ? syncPayload.workSessions
-      : (!sessionsRes.error ? relSessions : []);
+    // Gabungkan workSessions dari syncPayload dan tabel relasional work_sessions secara aman (mendukung banyak akun aktif bersamaan)
+    const sessionMap = new Map<string, WorkSession>();
+    for (const s of [...relSessions, ...(syncPayload?.workSessions || [])]) {
+      if (!s || !s.id) continue;
+      const existing = sessionMap.get(s.id);
+      if (!existing) {
+        sessionMap.set(s.id, s);
+      } else {
+        // Jika salah satu sudah SELESAI (sudah checkout), pertahankan status SELESAI
+        if (existing.status === 'SELESAI' && s.status !== 'SELESAI') {
+          continue;
+        } else if (s.status === 'SELESAI' && existing.status !== 'SELESAI') {
+          sessionMap.set(s.id, s);
+        } else {
+          // Keduanya AKTIF atau keduanya SELESAI: ambil durasi yang lebih mutakhir
+          sessionMap.set(s.id, (s.durationSeconds || 0) >= (existing.durationSeconds || 0) ? { ...existing, ...s } : { ...s, ...existing });
+        }
+      }
+    }
+    const mergedWorkSessions = Array.from(sessionMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+
+    // Gabungkan chatChannels agar grup divisi default selalu tersedia bersama grup kustom & chat pribadi (DIRECT)
+    const channelMap = new Map<string, ChatChannel>();
+    for (const ch of initialChatChannels) {
+      channelMap.set(ch.id, { ...ch });
+    }
+    for (const ch of (syncPayload?.chatChannels || [])) {
+      if (!ch || !ch.id) continue;
+      const existing = channelMap.get(ch.id);
+      channelMap.set(ch.id, existing ? { ...existing, ...ch } : ch);
+    }
+    const mergedChatChannels = Array.from(channelMap.values());
+
+    // Deduplikasi pesan chat berdasarkan id dan urutkan secara kronologis
+    const msgMap = new Map<string, ChatMessage>();
+    for (const m of (syncPayload?.chatMessages || [])) {
+      if (!m || !m.id) continue;
+      const existing = msgMap.get(m.id);
+      if (!existing) {
+        msgMap.set(m.id, m);
+      } else {
+        const readSet = new Set([...(existing.readBy || []), ...(m.readBy || [])]);
+        msgMap.set(m.id, { ...existing, ...m, readBy: Array.from(readSet) });
+      }
+    }
+    const mergedChatMessages = Array.from(msgMap.values());
 
     // Pemetaan akurat pengaturan aplikasi (snake_case dari Supabase ke camelCase aplikasi)
     let finalAppSettings = syncPayload?.appSettings;
@@ -524,8 +568,8 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       qcInspections: mergedQc,
       workSessions: mergedWorkSessions,
       auditLogs: mergedAudit,
-      chatChannels: syncPayload?.chatChannels || [],
-      chatMessages: syncPayload?.chatMessages || [],
+      chatChannels: mergedChatChannels,
+      chatMessages: mergedChatMessages,
       breakfastMenuItems: relMenu.length > 0 ? relMenu : (syncPayload?.breakfastMenuItems || []),
       breakfastOrders: mergedOrders,
       roomCapacityRates: relRates,
@@ -540,7 +584,7 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
 }
 
 /**
- * Simpan seluruh database ke Supabase
+ * Simpan seluruh database ke Supabase dengan penggabungan aman untuk sesi kerja & chat multi-akun
  */
 export async function syncFullDatabaseToSupabase(db: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
   try {
@@ -548,12 +592,78 @@ export async function syncFullDatabaseToSupabase(db: CompleteStorageDatabase): P
       return { success: false, error: 'Kredensial Supabase tidak ditemukan' };
     }
 
+    // Ambil snapshot saat ini di cloud agar sesi kerja & pesan chat dari akun/perangkat lain tidak tertimpa
+    let payloadToSave: CompleteStorageDatabase = db;
+    try {
+      const { data: existingSync } = await supabase
+        .from('app_database_sync')
+        .select('database_payload')
+        .eq('id', 'main_production_db')
+        .maybeSingle();
+
+      if (existingSync?.database_payload) {
+        const remote = existingSync.database_payload as CompleteStorageDatabase;
+
+        // 1. Gabungkan workSessions lintas akun
+        const wsMap = new Map<string, WorkSession>();
+        for (const s of (remote.workSessions || [])) {
+          if (s && s.id) wsMap.set(s.id, s);
+        }
+        for (const s of (db.workSessions || [])) {
+          if (!s || !s.id) continue;
+          const prev = wsMap.get(s.id);
+          if (!prev) {
+            wsMap.set(s.id, s);
+          } else if (prev.status === 'SELESAI' && s.status !== 'SELESAI') {
+            wsMap.set(s.id, prev);
+          } else if (s.status === 'SELESAI' && prev.status !== 'SELESAI') {
+            wsMap.set(s.id, s);
+          } else {
+            wsMap.set(s.id, (s.durationSeconds || 0) >= (prev.durationSeconds || 0) ? { ...prev, ...s } : { ...s, ...prev });
+          }
+        }
+
+        // 2. Gabungkan chatChannels lintas akun
+        const chMap = new Map<string, ChatChannel>();
+        for (const ch of initialChatChannels) chMap.set(ch.id, { ...ch });
+        for (const ch of (remote.chatChannels || [])) {
+          if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+        }
+        for (const ch of (db.chatChannels || [])) {
+          if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+        }
+
+        // 3. Gabungkan chatMessages lintas akun
+        const msgMap = new Map<string, ChatMessage>();
+        for (const m of (remote.chatMessages || [])) {
+          if (m && m.id) msgMap.set(m.id, m);
+        }
+        for (const m of (db.chatMessages || [])) {
+          if (!m || !m.id) continue;
+          const prev = msgMap.get(m.id);
+          if (!prev) {
+            msgMap.set(m.id, m);
+          } else {
+            const readSet = new Set([...(prev.readBy || []), ...(m.readBy || [])]);
+            msgMap.set(m.id, { ...prev, ...m, readBy: Array.from(readSet) });
+          }
+        }
+
+        payloadToSave = {
+          ...db,
+          workSessions: Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || '')),
+          chatChannels: Array.from(chMap.values()),
+          chatMessages: Array.from(msgMap.values()),
+        };
+      }
+    } catch (_) {}
+
     // 1. Simpan snapshot terpadu ke app_database_sync (cepat, atomic, dan menjamin relasi utuh)
     const { error: syncError } = await supabase
       .from('app_database_sync')
       .upsert({
         id: 'main_production_db',
-        database_payload: db,
+        database_payload: payloadToSave,
         updated_at: new Date().toISOString()
       }, { onConflict: 'id' });
 
@@ -562,7 +672,7 @@ export async function syncFullDatabaseToSupabase(db: CompleteStorageDatabase): P
     }
 
     // 2. Simpan juga ke tabel-tabel individual jika tabel sudah dibuat
-    await syncIndividualTables(db).catch(err => {
+    await syncIndividualTables(payloadToSave).catch(err => {
       console.warn('Sync individual tables info/warning:', err?.message);
     });
 
@@ -1026,37 +1136,21 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
     }
   }
 
-  // Simpan Work Sessions (Rekap Sesi & Jam Kerja Shift)
-  if (Array.isArray(db.workSessions)) {
-    if (db.workSessions.length > 0) {
-      const sessionPayloads = db.workSessions.map(s => ({
-        id: s.id,
-        user_id: s.userId,
-        user_name: s.userName,
-        user_role: s.userRole,
-        login_time: s.loginTime,
-        logout_time: s.logoutTime || null,
-        duration_seconds: s.durationSeconds || 0,
-        duration_formatted: s.durationFormatted || '0 Jam 0 Menit 0 Detik',
-        status: s.status || 'AKTIF',
-        notes: s.notes || null
-      }));
-      await supabase.from('work_sessions').upsert(sessionPayloads, { onConflict: 'id' });
-      try {
-        const activeIds = db.workSessions.map(s => s.id).filter(Boolean);
-        const { data: existingRows } = await supabase.from('work_sessions').select('id');
-        if (existingRows && existingRows.length > 0) {
-          const toDelete = existingRows.map(r => r.id).filter(id => !activeIds.includes(id));
-          if (toDelete.length > 0) {
-            await supabase.from('work_sessions').delete().in('id', toDelete);
-          }
-        }
-      } catch (_) {}
-    } else {
-      try {
-        await supabase.from('work_sessions').delete().neq('id', '___NEVER___');
-      } catch (_) {}
-    }
+  // Simpan Work Sessions (Rekap Sesi & Jam Kerja Shift - Non-Destructive untuk Multi-Akun)
+  if (Array.isArray(db.workSessions) && db.workSessions.length > 0) {
+    const sessionPayloads = db.workSessions.map(s => ({
+      id: s.id,
+      user_id: s.userId,
+      user_name: s.userName,
+      user_role: s.userRole,
+      login_time: s.loginTime,
+      logout_time: s.logoutTime || null,
+      duration_seconds: s.durationSeconds || 0,
+      duration_formatted: s.durationFormatted || '0 Jam 0 Menit 0 Detik',
+      status: s.status || 'AKTIF',
+      notes: s.notes || null
+    }));
+    await supabase.from('work_sessions').upsert(sessionPayloads, { onConflict: 'id' });
   }
 
   // Simpan Permohonan Reset Password (password_reset_requests)
@@ -2093,3 +2187,119 @@ export async function clearWorkSessionsInSupabaseDirect(): Promise<{ success: bo
     return { success: false, error: err?.message || 'Network error' };
   }
 }
+
+/**
+ * 20. Fungsi UPSERT langsung satu sesi kerja ke Supabase (work_sessions + app_database_sync)
+ */
+export async function upsertWorkSessionInSupabaseDirect(session: WorkSession): Promise<{ success: boolean; error?: string }> {
+  try {
+    const rowPayload = {
+      id: session.id,
+      user_id: session.userId,
+      user_name: session.userName,
+      user_role: session.userRole,
+      login_time: session.loginTime,
+      logout_time: session.logoutTime || null,
+      duration_seconds: session.durationSeconds || 0,
+      duration_formatted: session.durationFormatted || '0 Jam 0 Menit 0 Detik',
+      status: session.status || 'AKTIF',
+      notes: session.notes || null
+    };
+    await supabase.from('work_sessions').upsert(rowPayload, { onConflict: 'id' });
+
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const payload = syncData.database_payload as CompleteStorageDatabase;
+        const list = Array.isArray(payload.workSessions) ? [...payload.workSessions] : [];
+        const idx = list.findIndex(s => s.id === session.id);
+        if (idx >= 0) {
+          list[idx] = { ...list[idx], ...session };
+        } else {
+          list.unshift(session);
+        }
+        payload.workSessions = list;
+        await supabase.from('app_database_sync').upsert({
+          id: 'main_production_db',
+          database_payload: payload,
+          updated_at: new Date().toISOString()
+        });
+      }
+    } catch (_) {}
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 21. Fungsi UPSERT langsung pesan chat & channel ke Supabase (app_database_sync)
+ */
+export async function upsertChatMessageInSupabaseDirect(msg: ChatMessage, channel?: ChatChannel): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+    if (syncData?.database_payload) {
+      const payload = syncData.database_payload as CompleteStorageDatabase;
+      const messages = Array.isArray(payload.chatMessages) ? [...payload.chatMessages] : [];
+      if (!messages.some(m => m.id === msg.id)) {
+        messages.push(msg);
+      }
+      payload.chatMessages = messages;
+
+      const channels = Array.isArray(payload.chatChannels) ? [...payload.chatChannels] : [...initialChatChannels];
+      const chIdx = channels.findIndex(c => c.id === msg.channelId);
+      if (chIdx >= 0) {
+        channels[chIdx] = {
+          ...channels[chIdx],
+          ...(channel || {}),
+          lastMessage: msg.message,
+          lastMessageTime: msg.timeFormatted,
+          lastSenderName: msg.senderName
+        };
+      } else if (channel) {
+        channels.unshift({
+          ...channel,
+          lastMessage: msg.message,
+          lastMessageTime: msg.timeFormatted,
+          lastSenderName: msg.senderName
+        });
+      }
+      payload.chatChannels = channels;
+
+      await supabase.from('app_database_sync').upsert({
+        id: 'main_production_db',
+        database_payload: payload,
+        updated_at: new Date().toISOString()
+      });
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+
+/**
+ * 22. Fungsi bersihkan pesan chat di Supabase (per channel atau seluruhnya)
+ */
+export async function clearChatMessagesInSupabaseDirect(channelId?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+    if (syncData?.database_payload) {
+      const payload = syncData.database_payload as CompleteStorageDatabase;
+      if (channelId) {
+        payload.chatMessages = (payload.chatMessages || []).filter(m => m.channelId !== channelId);
+      } else {
+        payload.chatMessages = [];
+      }
+      await supabase.from('app_database_sync').upsert({
+        id: 'main_production_db',
+        database_payload: payload,
+        updated_at: new Date().toISOString()
+      });
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error' };
+  }
+}
+

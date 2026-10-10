@@ -20,10 +20,11 @@ import {
   UserPermissions
 } from './types';
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
-import { initialChatChannels, initialChatMessages } from './chatData';
+import { initialChatChannels, initialChatMessages, getDirectChannelId, resolveDirectPartner, isUserParticipantInChannel } from './chatData';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
-import { dataStorage, DataStorageService, StorageNamespace, AppSettings } from './services/dataStorage';
+import { dataStorage, DataStorageService, StorageNamespace, AppSettings, CompleteStorageDatabase } from './services/dataStorage';
+import { realtimeService, OnlinePresenceInfo } from './services/realtimeService';
 import { 
   supabase, 
   SUPABASE_URL, 
@@ -162,7 +163,10 @@ interface AppContextType {
   workSessions: WorkSession[];
   qcInspections: QcInspection[];
   activeSessionId: string | null;
+  onlinePresences: OnlinePresenceInfo[];
   clearWorkSessions: () => void;
+  forceEndWorkSession: (sessionId: string) => void;
+  startManualWorkSession: (user: User, notes?: string) => void;
   activeTab: string;
   toasts: { id: string, msg: string, type: string }[];
   modalState: { [key: string]: any };
@@ -198,11 +202,14 @@ interface AppContextType {
   chatSoundEnabled: boolean;
   chatNotificationToast: { message: ChatMessage; channelName: string; channelId: string } | null;
   unreadTotalCount: number;
+  typingByChannel: Record<string, { userId: string; userName: string; timestamp: number }>;
   openChat: (channelId?: string) => void;
+  openDirectChatWithUser: (targetUser: User) => void;
   closeChat: () => void;
   setActiveChatChannelId: (channelId: string | null) => void;
   toggleChatSound: () => void;
-  sendChatMessage: (channelId: string, text: string, priority?: 'NORMAL' | 'PENTING' | 'URGENT', isInstruction?: boolean) => void;
+  sendChatMessage: (channelId: string, text: string, priority?: 'NORMAL' | 'PENTING' | 'URGENT', isInstruction?: boolean, replyTo?: { id: string; senderName: string; message: string }) => void;
+  notifyChatTyping: (channelId: string) => void;
   markChannelAsRead: (channelId: string) => void;
   dismissChatNotification: () => void;
   simulateIncomingChatMessage: (channelId?: string) => void;
@@ -404,7 +411,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => dataStorage.getAuditLogs());
   const [workSessions, setWorkSessions] = useState<WorkSession[]>(() => dataStorage.getWorkSessions());
   const [qcInspections, setQcInspections] = useState<QcInspection[]>(() => dataStorage.getQcInspections());
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('sim_haji_active_session_id') || null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const [onlinePresences, setOnlinePresences] = useState<OnlinePresenceInfo[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
   const [toasts, setToasts] = useState<{ id: string, msg: string, type: string }[]>([]);
@@ -417,6 +431,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activeChatChannelId, setActiveChatChannelId] = useState<string | null>(null);
   const [chatSoundEnabled, setChatSoundEnabled] = useState<boolean>(true);
   const [chatNotificationToast, setChatNotificationToast] = useState<{ message: ChatMessage; channelName: string; channelId: string } | null>(null);
+  const [typingByChannel, setTypingByChannel] = useState<Record<string, { userId: string; userName: string; timestamp: number }>>({});
+
+  useEffect(() => {
+    try {
+      if (activeSessionId) {
+        sessionStorage.setItem('sim_haji_active_session_id', activeSessionId);
+      } else {
+        sessionStorage.removeItem('sim_haji_active_session_id');
+      }
+    } catch (_) {}
+  }, [activeSessionId]);
 
   // Permohonan Reset Password States
   const [passwordResetRequests, setPasswordResetRequests] = useState<PasswordResetRequest[]>(() => dataStorage.getPasswordResetRequests());
@@ -739,6 +764,95 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { nextRooms, hasChanges };
   };
 
+  // Helper untuk menggabungkan workSessions, chatChannels, dan chatMessages dari cloud tanpa menimpa sesi/pesan baru
+  const mergeAndApplyCloudRealtimeData = (cloudDb: CompleteStorageDatabase) => {
+    // 1. Merge WorkSessions
+    setWorkSessions(prev => {
+      const wsMap = new Map<string, WorkSession>();
+      for (const s of (cloudDb.workSessions || [])) {
+        if (s && s.id) wsMap.set(s.id, s);
+      }
+      for (const s of prev) {
+        if (!s || !s.id) continue;
+        const remoteS = wsMap.get(s.id);
+        if (!remoteS) {
+          if (s.status === 'AKTIF') wsMap.set(s.id, s);
+        } else if (s.status === 'SELESAI' && remoteS.status !== 'SELESAI') {
+          wsMap.set(s.id, s);
+        } else if (remoteS.status === 'SELESAI' && s.status !== 'SELESAI') {
+          wsMap.set(s.id, remoteS);
+        } else if ((s.durationSeconds || 0) > (remoteS.durationSeconds || 0)) {
+          wsMap.set(s.id, { ...remoteS, ...s });
+        }
+      }
+      return Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+    });
+
+    // 2. Merge ChatChannels
+    let mergedChannelsList: ChatChannel[] = [];
+    setChatChannels(prev => {
+      const chMap = new Map<string, ChatChannel>();
+      for (const ch of initialChatChannels) chMap.set(ch.id, { ...ch });
+      for (const ch of prev) {
+        if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+      }
+      for (const ch of (cloudDb.chatChannels || [])) {
+        if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+      }
+      mergedChannelsList = Array.from(chMap.values());
+      return mergedChannelsList;
+    });
+
+    // 3. Merge ChatMessages & trigger notification if a brand new incoming message arrived
+    setChatMessages(prev => {
+      const prevIds = new Set(prev.map(m => m.id));
+      const msgMap = new Map<string, ChatMessage>();
+      for (const m of prev) {
+        if (m && m.id) msgMap.set(m.id, m);
+      }
+      let newestIncoming: ChatMessage | null = null;
+      for (const m of (cloudDb.chatMessages || [])) {
+        if (!m || !m.id) continue;
+        const existing = msgMap.get(m.id);
+        if (!existing) {
+          msgMap.set(m.id, m);
+          if (currentUser && m.senderId !== currentUser.id && !prevIds.has(m.id) && !(m.readBy || []).includes(currentUser.id)) {
+            newestIncoming = m;
+          }
+        } else {
+          const readSet = new Set([...(existing.readBy || []), ...(m.readBy || [])]);
+          msgMap.set(m.id, { ...existing, ...m, readBy: Array.from(readSet) });
+        }
+      }
+
+      if (newestIncoming && currentUser && isHydratedFromCloudRef.current) {
+        const targetCh = mergedChannelsList.find(c => c.id === newestIncoming!.channelId);
+        if (targetCh && isUserParticipantInChannel(currentUser, targetCh)) {
+          if (isChatOpen && activeChatChannelId === newestIncoming.channelId) {
+            // Auto mark as read if user is currently viewing this channel
+            const updatedMsg = msgMap.get(newestIncoming.id)!;
+            msgMap.set(newestIncoming.id, {
+              ...updatedMsg,
+              readBy: Array.from(new Set([...(updatedMsg.readBy || []), currentUser.id]))
+            });
+          } else {
+            if (chatSoundEnabled) playNotificationSound();
+            const displayChannelName = targetCh.type === 'DIRECT'
+              ? (resolveDirectPartner(targetCh, currentUser.id, cloudDb.users || users)?.fullName || newestIncoming.senderName)
+              : targetCh.name;
+            setChatNotificationToast({
+              message: newestIncoming,
+              channelName: displayChannelName,
+              channelId: targetCh.id
+            });
+          }
+        }
+      }
+
+      return Array.from(msgMap.values());
+    });
+  };
+
   // Sinkronisasi data awal saat aplikasi dibuka (langsung menarik dari Database Pusat)
   useEffect(() => {
     async function loadCloudDatabase() {
@@ -757,7 +871,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setTransactions(cloudDb.transactions);
           setMaintenances(cloudDb.maintenances);
           setAuditLogs(cloudDb.auditLogs);
-          setWorkSessions(cloudDb.workSessions);
+          mergeAndApplyCloudRealtimeData(cloudDb);
           setQcInspections(cloudDb.qcInspections);
           setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
           setBreakfastOrders(cloudDb.breakfastOrders || []);
@@ -801,7 +915,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Sinkronisasi latar belakang otomatis saat berpindah tab (navigasi aplikasi maupun tab browser)
+  // Sinkronisasi latar belakang otomatis saat berpindah tab / polling berkala
   const triggerBackgroundSync = async (reason?: string) => {
     try {
       setChecksumReport(prev => ({
@@ -814,68 +928,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (dataStorage.hasPendingSync()) {
         await dataStorage.flushPendingSync();
         setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+      }
+
+      // Tarik pembaruan dari Database Pusat agar sesi kerja aktif, chat operasional, dan kamar selalu sinkron real-time
+      const cloudDb = await dataStorage.hydrateFromSupabase(true);
+      if (cloudDb) {
+        setUsers(cloudDb.users);
+        setBuildings(cloudDb.buildings || []);
+        setMeetingRooms(cloudDb.meetingRooms || []);
+        const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+          cloudDb.rooms || [],
+          cloudDb.transactions || [],
+          cloudDb.maintenances || []
+        );
+        setRooms(nextRooms);
+        setTransactions(cloudDb.transactions);
+        setMaintenances(cloudDb.maintenances);
+        setAuditLogs(cloudDb.auditLogs);
+        mergeAndApplyCloudRealtimeData(cloudDb);
+        setQcInspections(cloudDb.qcInspections);
+        setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
+        setBreakfastOrders(cloudDb.breakfastOrders || []);
+        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+          setRoomCapacityRates(cloudDb.roomCapacityRates);
+        }
+        if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
+          setPasswordResetRequests(cloudDb.passwordResetRequests);
+        }
+        if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
+        if (hasChanges) {
+          dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
+        }
+        setSupabaseSyncState(dataStorage.getSupabaseSyncState());
         await verifyDatabaseChecksum(true, {
-          buildings: dataStorage.getBuildings(),
-          rooms: dataStorage.getRooms(),
-          meetingRooms: dataStorage.getMeetingRooms(),
-          transactions: dataStorage.getTransactions(),
-          maintenances: dataStorage.getMaintenances()
+          buildings: cloudDb.buildings || [],
+          rooms: nextRooms,
+          meetingRooms: cloudDb.meetingRooms || [],
+          transactions: cloudDb.transactions || [],
+          maintenances: cloudDb.maintenances || []
         });
         return;
       }
 
-      // Periksa checksum terhadap Database Pusat (Supabase)
-      const currentCheck = await validateDatabaseChecksumAgainstSupabase({
-        buildings: dataStorage.getBuildings(),
-        rooms: dataStorage.getRooms(),
-        meetingRooms: dataStorage.getMeetingRooms(),
-        transactions: dataStorage.getTransactions(),
-        maintenances: dataStorage.getMaintenances()
-      });
-
-      if (currentCheck.status === 'MISMATCH') {
-        // Tarik pembaruan dari Database Pusat secara otomatis di latar belakang agar antar-tab / Vercel & AI Studio selalu selaras
-        const cloudDb = await dataStorage.hydrateFromSupabase(true);
-        if (cloudDb) {
-          setUsers(cloudDb.users);
-          setBuildings(cloudDb.buildings || []);
-          setMeetingRooms(cloudDb.meetingRooms || []);
-          const { nextRooms, hasChanges } = validateAndSyncRoomStates(
-            cloudDb.rooms || [],
-            cloudDb.transactions || [],
-            cloudDb.maintenances || []
-          );
-          setRooms(nextRooms);
-          setTransactions(cloudDb.transactions);
-          setMaintenances(cloudDb.maintenances);
-          setAuditLogs(cloudDb.auditLogs);
-          setWorkSessions(cloudDb.workSessions);
-          setQcInspections(cloudDb.qcInspections);
-          setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
-          setBreakfastOrders(cloudDb.breakfastOrders || []);
-          if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
-            setRoomCapacityRates(cloudDb.roomCapacityRates);
-          }
-          if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
-            setPasswordResetRequests(cloudDb.passwordResetRequests);
-          }
-          if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
-          if (hasChanges) {
-            dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
-          }
-          setSupabaseSyncState(dataStorage.getSupabaseSyncState());
-          await verifyDatabaseChecksum(true, {
-            buildings: cloudDb.buildings || [],
-            rooms: nextRooms,
-            meetingRooms: cloudDb.meetingRooms || [],
-            transactions: cloudDb.transactions || [],
-            maintenances: cloudDb.maintenances || []
-          });
-          return;
-        }
-      }
-
-      setChecksumReport(currentCheck);
       setSupabaseSyncState(dataStorage.getSupabaseSyncState());
     } catch (err) {
       console.warn('Background sync warning:', err);
@@ -927,12 +1021,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const unsyncedLocal = prev.filter(l => l && l.id && !cloudIds.has(l.id));
           return [...unsyncedLocal, ...cloudLogs].slice(0, 250);
         });
-        setWorkSessions(prev => {
-          const cloudSessions = cloudDb.workSessions || [];
-          const cloudIds = new Set(cloudSessions.map(s => s.id));
-          const activeLocal = prev.filter(s => s && s.id && s.status === 'AKTIF' && !cloudIds.has(s.id));
-          return [...activeLocal, ...cloudSessions];
-        });
+        mergeAndApplyCloudRealtimeData(cloudDb);
         setQcInspections(cloudDb.qcInspections);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
@@ -980,7 +1069,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTransactions(cloudDb.transactions || []);
         setMaintenances(cloudDb.maintenances || []);
         setAuditLogs(cloudDb.auditLogs || []);
-        setWorkSessions(cloudDb.workSessions || []);
+        mergeAndApplyCloudRealtimeData(cloudDb);
         setQcInspections(cloudDb.qcInspections || []);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
@@ -1087,41 +1176,447 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [chatNotificationToast]);
 
+  // Refs for real-time event handlers to avoid stale closures
+  const currentUserRef = useRef<User | null>(currentUser);
+  const isChatOpenRef = useRef<boolean>(isChatOpen);
+  const activeChatChannelIdRef = useRef<string | null>(activeChatChannelId);
+  const chatSoundEnabledRef = useRef<boolean>(chatSoundEnabled);
+  const usersRef = useRef<User[]>(users);
+
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+  useEffect(() => { isChatOpenRef.current = isChatOpen; }, [isChatOpen]);
+  useEffect(() => { activeChatChannelIdRef.current = activeChatChannelId; }, [activeChatChannelId]);
+  useEffect(() => { chatSoundEnabledRef.current = chatSoundEnabled; }, [chatSoundEnabled]);
+  useEffect(() => { usersRef.current = users; }, [users]);
+
+  // Langganan Real-Time Engine (SSE + Supabase Broadcast/Presence + BroadcastChannel)
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe((event) => {
+      const me = currentUserRef.current;
+
+      if (event.type === 'init' && event.payload) {
+        if (Array.isArray(event.payload.presences)) {
+          setOnlinePresences(realtimeService.getActivePresences());
+        }
+        if (Array.isArray(event.payload.workSessions) && event.payload.workSessions.length > 0) {
+          setWorkSessions(prev => {
+            const wsMap = new Map<string, WorkSession>();
+            for (const s of event.payload.workSessions) {
+              if (s && s.id) wsMap.set(s.id, s);
+            }
+            for (const s of prev) {
+              if (!s || !s.id) continue;
+              const existing = wsMap.get(s.id);
+              if (!existing) {
+                wsMap.set(s.id, s);
+              } else if (s.status === 'SELESAI' && existing.status !== 'SELESAI') {
+                wsMap.set(s.id, s);
+              } else if (existing.status === 'SELESAI' && s.status !== 'SELESAI') {
+                wsMap.set(s.id, existing);
+              } else if ((s.durationSeconds || 0) > (existing.durationSeconds || 0)) {
+                wsMap.set(s.id, { ...existing, ...s });
+              }
+            }
+            return Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+          });
+        }
+        if (Array.isArray(event.payload.chatChannels) && event.payload.chatChannels.length > 0) {
+          setChatChannels(prev => {
+            const chMap = new Map<string, ChatChannel>();
+            for (const ch of initialChatChannels) chMap.set(ch.id, { ...ch });
+            for (const ch of prev) {
+              if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+            }
+            for (const ch of event.payload.chatChannels) {
+              if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+            }
+            return Array.from(chMap.values());
+          });
+        }
+        if (Array.isArray(event.payload.chatMessages) && event.payload.chatMessages.length > 0) {
+          setChatMessages(prev => {
+            const msgMap = new Map<string, ChatMessage>();
+            for (const m of prev) {
+              if (m && m.id) msgMap.set(m.id, m);
+            }
+            for (const m of event.payload.chatMessages) {
+              if (m && m.id && !msgMap.has(m.id)) {
+                msgMap.set(m.id, m);
+              }
+            }
+            return Array.from(msgMap.values());
+          });
+        }
+      } else if (
+        event.type === 'presence:sync' ||
+        event.type === 'presence:heartbeat' ||
+        event.type === 'presence:leave'
+      ) {
+        setOnlinePresences(realtimeService.getActivePresences());
+      } else if (event.type === 'session:upsert' && event.payload?.id) {
+        const incomingSession = event.payload as WorkSession & { closeOtherUserSessions?: boolean };
+        setWorkSessions(prev => {
+          const exists = prev.some(s => s.id === incomingSession.id);
+          let next = exists
+            ? prev.map(s => (s.id === incomingSession.id ? { ...s, ...incomingSession } : s))
+            : [incomingSession, ...prev];
+
+          if (incomingSession.closeOtherUserSessions && incomingSession.userId) {
+            next = next.map(s => {
+              if (s.userId === incomingSession.userId && s.id !== incomingSession.id && s.status === 'AKTIF') {
+                return {
+                  ...s,
+                  status: 'SELESAI' as const,
+                  logoutTime: incomingSession.loginTime || getRealLocalDateTimeStr(new Date()),
+                };
+              }
+              return s;
+            });
+          }
+          return next;
+        });
+      } else if (event.type === 'session:clear') {
+        setWorkSessions([]);
+      } else if (event.type === 'chat:message' && event.payload?.message?.id) {
+        const incomingMsg = event.payload.message as ChatMessage;
+        const incomingCh = event.payload.channel as ChatChannel | undefined;
+
+        let resolvedChannel: ChatChannel | undefined = incomingCh;
+
+        setChatChannels(prev => {
+          const exists = prev.some(c => c.id === incomingMsg.channelId);
+          if (exists) {
+            return prev.map(c => {
+              if (c.id === incomingMsg.channelId) {
+                const updated = {
+                  ...c,
+                  ...(incomingCh || {}),
+                  lastMessage: incomingMsg.message,
+                  lastMessageTime: incomingMsg.timeFormatted,
+                  lastSenderName: incomingMsg.senderName,
+                };
+                resolvedChannel = updated;
+                return updated;
+              }
+              return c;
+            });
+          } else if (incomingCh) {
+            const created: ChatChannel = {
+              ...incomingCh,
+              lastMessage: incomingMsg.message,
+              lastMessageTime: incomingMsg.timeFormatted,
+              lastSenderName: incomingMsg.senderName,
+            };
+            resolvedChannel = created;
+            return [created, ...prev];
+          } else if (incomingMsg.channelId.startsWith('dm___') || incomingMsg.channelId.startsWith('dm-')) {
+            const parts = incomingMsg.channelId.startsWith('dm___')
+              ? incomingMsg.channelId.split('___').slice(1)
+              : [incomingMsg.senderId, me?.id || ''].filter(Boolean);
+            const fallbackDm: ChatChannel = {
+              id: incomingMsg.channelId,
+              name: incomingMsg.senderName,
+              type: 'DIRECT',
+              scope: 'DIRECT',
+              participantIds: parts,
+              description: `Obrolan Pribadi dengan ${incomingMsg.senderName}`,
+              icon: 'fa-user',
+              lastMessage: incomingMsg.message,
+              lastMessageTime: incomingMsg.timeFormatted,
+              lastSenderName: incomingMsg.senderName,
+            };
+            resolvedChannel = fallbackDm;
+            return [fallbackDm, ...prev];
+          }
+          return prev;
+        });
+
+        setChatMessages(prev => {
+          const alreadyExists = prev.some(m => m.id === incomingMsg.id);
+          if (alreadyExists) return prev;
+
+          const isViewingThisChannel =
+            Boolean(me) &&
+            isChatOpenRef.current &&
+            activeChatChannelIdRef.current === incomingMsg.channelId;
+
+          const msgToStore: ChatMessage = isViewingThisChannel && me && !incomingMsg.readBy.includes(me.id)
+            ? { ...incomingMsg, readBy: [...incomingMsg.readBy, me.id] }
+            : incomingMsg;
+
+          if (isViewingThisChannel && me) {
+            realtimeService.broadcastChatRead(incomingMsg.channelId, me.id);
+          } else if (me && incomingMsg.senderId !== me.id) {
+            const targetChannelObj = resolvedChannel || {
+              id: incomingMsg.channelId,
+              name: incomingMsg.senderName,
+              type: (incomingMsg.channelId.startsWith('dm') ? 'DIRECT' : 'GROUP') as 'DIRECT' | 'GROUP',
+              scope: 'ALL_MANAGERS_GROUP' as const,
+              participantIds: [incomingMsg.senderId, me.id],
+            };
+            if (isUserParticipantInChannel(me, targetChannelObj)) {
+              if (chatSoundEnabledRef.current) {
+                playNotificationSound();
+              }
+              const displayTitle =
+                targetChannelObj.type === 'DIRECT'
+                  ? resolveDirectPartner(targetChannelObj, me.id, usersRef.current)?.fullName || incomingMsg.senderName
+                  : targetChannelObj.name;
+
+              setChatNotificationToast({
+                message: incomingMsg,
+                channelName: displayTitle,
+                channelId: incomingMsg.channelId,
+              });
+            }
+          }
+
+          return [...prev, msgToStore];
+        });
+      } else if (event.type === 'chat:read' && event.payload?.channelId && event.payload?.userId) {
+        const { channelId, userId } = event.payload;
+        setChatMessages(prev =>
+          prev.map(m => {
+            if (m.channelId === channelId && !m.readBy.includes(userId)) {
+              return { ...m, readBy: [...m.readBy, userId] };
+            }
+            return m;
+          })
+        );
+      } else if (event.type === 'chat:channel' && event.payload?.id) {
+        const ch = event.payload as ChatChannel;
+        setChatChannels(prev => {
+          const exists = prev.some(c => c.id === ch.id);
+          if (exists) {
+            return prev.map(c => (c.id === ch.id ? { ...c, ...ch } : c));
+          }
+          return [ch, ...prev];
+        });
+      } else if (event.type === 'chat:clear') {
+        const cid = event.payload?.channelId;
+        if (cid) {
+          setChatMessages(prev => prev.filter(m => m.channelId !== cid));
+        } else {
+          setChatMessages([]);
+        }
+      } else if (event.type === 'chat:typing' && event.payload?.channelId && event.payload?.userId) {
+        if (me && event.payload.userId !== me.id) {
+          const { channelId, userId, userName } = event.payload;
+          setTypingByChannel(prev => ({
+            ...prev,
+            [channelId]: { userId, userName, timestamp: Date.now() },
+          }));
+          setTimeout(() => {
+            setTypingByChannel(prev => {
+              const curr = prev[channelId];
+              if (curr && Date.now() - curr.timestamp >= 3000) {
+                const copy = { ...prev };
+                delete copy[channelId];
+                return copy;
+              }
+              return prev;
+            });
+          }, 3200);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Pastikan setiap akun yang sedang login memiliki sesi kerja AKTIF dan mengirim detak jantung (Heartbeat) real-time
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // 1. Cek apakah akun ini sudah punya sesi AKTIF di workSessions
+    let myActiveSession = workSessions.find(
+      s => s.userId === currentUser.id && s.status === 'AKTIF' && !s.logoutTime
+    );
+
+    if (!myActiveSession) {
+      const now = new Date();
+      const loginTimeStr = getRealLocalDateTimeStr(now);
+      const newSessionId = activeSessionId || `SESI-${Date.now().toString().slice(-4)}-${currentUser.id.slice(-2).toUpperCase()}`;
+      const createdSession: WorkSession = {
+        id: newSessionId,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        userRole: currentUser.role,
+        loginTime: loginTimeStr,
+        logoutTime: null,
+        durationSeconds: 1,
+        durationFormatted: '0 Jam 0 Menit 1 Detik (Sedang Berjalan)',
+        status: 'AKTIF',
+        department: currentUser.department || 'Operasional',
+        assignedBuilding: currentUser.assignedBuilding || 'Semua Gedung',
+        lastHeartbeat: new Date().toISOString(),
+        notes: `Sesi aktif petugas (${currentUser.role} - ${currentUser.department || 'Operasional'})`
+      };
+      myActiveSession = createdSession;
+      setActiveSessionId(newSessionId);
+      setWorkSessions(prev => {
+        if (prev.some(s => s.userId === currentUser.id && s.status === 'AKTIF')) return prev;
+        return [createdSession, ...prev];
+      });
+      dataStorage.saveWorkSession(createdSession);
+      realtimeService.broadcastWorkSession(createdSession, false);
+    } else if (activeSessionId !== myActiveSession.id) {
+      setActiveSessionId(myActiveSession.id);
+    }
+
+    // 2. Kirim presence heartbeat segera
+    realtimeService.sendHeartbeat({
+      userId: currentUser.id,
+      userName: currentUser.fullName,
+      userRole: currentUser.role,
+      department: currentUser.department || 'Operasional',
+      assignedBuilding: currentUser.assignedBuilding || 'Semua Gedung',
+      sessionId: myActiveSession.id,
+      loginTime: myActiveSession.loginTime,
+      activeTab,
+    });
+    setOnlinePresences(realtimeService.getActivePresences());
+
+    // 3. Interval detak jantung setiap 8 detik untuk memperbarui durasi sesi aktif & status online lintas akun
+    const hbInterval = setInterval(() => {
+      const curr = currentUserRef.current;
+      if (!curr) return;
+
+      setWorkSessions(prev => {
+        let updatedTarget: WorkSession | null = null;
+        const next = prev.map(s => {
+          if (s.userId === curr.id && s.status === 'AKTIF' && !s.logoutTime) {
+            const startMs = parseLocalTimeString(s.loginTime).getTime();
+            const diffSec = Math.max(1, Math.floor((Date.now() - startMs) / 1000));
+            const updated: WorkSession = {
+              ...s,
+              userName: curr.fullName,
+              userRole: curr.role,
+              department: curr.department || s.department || 'Operasional',
+              assignedBuilding: curr.assignedBuilding || s.assignedBuilding || 'Semua Gedung',
+              durationSeconds: diffSec,
+              durationFormatted: `${formatHMS(diffSec)} (Sedang Berjalan)`,
+              lastHeartbeat: new Date().toISOString(),
+            };
+            updatedTarget = updated;
+            return updated;
+          }
+          return s;
+        });
+
+        if (updatedTarget) {
+          realtimeService.sendHeartbeat({
+            userId: curr.id,
+            userName: curr.fullName,
+            userRole: curr.role,
+            department: curr.department || 'Operasional',
+            assignedBuilding: curr.assignedBuilding || 'Semua Gedung',
+            sessionId: (updatedTarget as WorkSession).id,
+            loginTime: (updatedTarget as WorkSession).loginTime,
+            activeTab,
+          });
+          realtimeService.broadcastWorkSession(updatedTarget, false);
+          setOnlinePresences(realtimeService.getActivePresences());
+        }
+        return next;
+      });
+    }, 8000);
+
+    return () => {
+      clearInterval(hbInterval);
+    };
+  }, [currentUser?.id, activeTab]);
+
   // Dynamic calculation of unread messages for current user
   const unreadTotalCount = currentUser
     ? chatMessages.filter(m => {
         if (m.senderId === currentUser.id) return false;
         if (m.readBy.includes(currentUser.id)) return false;
         const channel = chatChannels.find(c => c.id === m.channelId);
-        if (!channel) return false;
-        return isSuperAdmin(currentUser.role) || channel.participantIds.includes(currentUser.id);
+        if (!channel) {
+          return m.channelId.startsWith('dm') ? m.channelId.includes(currentUser.id) : true;
+        }
+        return isUserParticipantInChannel(currentUser, channel);
       }).length
     : 0;
 
   const markChannelAsRead = (channelId: string) => {
     if (!currentUser) return;
+    let hasUnread = false;
     setChatMessages(prev => prev.map(m => {
       if (m.channelId === channelId && !m.readBy.includes(currentUser.id)) {
+        hasUnread = true;
         return { ...m, readBy: [...m.readBy, currentUser.id] };
       }
       return m;
     }));
+    if (hasUnread) {
+      realtimeService.broadcastChatRead(channelId, currentUser.id);
+    }
+  };
+
+  const openDirectChatWithUser = (targetUser: User) => {
+    if (!currentUser || !targetUser) return;
+    const canonicalId = getDirectChannelId(currentUser.id, targetUser.id);
+
+    // Cek apakah sudah ada channel DIRECT untuk pasangan kedua user ini (baik format baru maupun lama)
+    const existingChannel = chatChannels.find(c => {
+      if (c.id === canonicalId) return true;
+      if (c.type === 'DIRECT' && Array.isArray(c.participantIds)) {
+        return c.participantIds.includes(currentUser.id) && c.participantIds.includes(targetUser.id);
+      }
+      return false;
+    });
+
+    const targetChannelId = existingChannel ? existingChannel.id : canonicalId;
+
+    if (!existingChannel) {
+      const newDirectChannel: ChatChannel = {
+        id: canonicalId,
+        name: `${currentUser.fullName} & ${targetUser.fullName}`,
+        type: 'DIRECT',
+        scope: 'DIRECT',
+        participantIds: [currentUser.id, targetUser.id],
+        description: `Komunikasi Pribadi 2 Arah: ${currentUser.fullName} (${currentUser.role}) ↔ ${targetUser.fullName} (${targetUser.role})`,
+        icon: 'fa-user-shield',
+        lastMessage: 'Ruang obrolan pribadi siap digunakan.',
+        lastMessageTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        lastSenderName: currentUser.fullName
+      };
+      dataStorage.saveChatChannel(newDirectChannel);
+      setChatChannels(prev => [newDirectChannel, ...prev.filter(c => c.id !== canonicalId)]);
+      realtimeService.broadcastChatChannel(newDirectChannel);
+    }
+
+    setIsChatOpen(true);
+    setActiveChatChannelId(targetChannelId);
+    markChannelAsRead(targetChannelId);
   };
 
   const openChat = (channelId?: string) => {
     setIsChatOpen(true);
     if (channelId) {
       const exists = chatChannels.some(c => c.id === channelId);
-      if (!exists && channelId.startsWith('dm-')) {
-        const parts = channelId.split('-');
-        const otherId = parts.find(p => p !== 'dm' && p !== currentUser?.id);
-        const otherUser = users.find(u => u.id === otherId);
+      if (!exists && (channelId.startsWith('dm___') || channelId.startsWith('dm-'))) {
+        let otherUser: User | undefined;
+        if (channelId.startsWith('dm___')) {
+          const parts = channelId.split('___').slice(1);
+          const otherId = parts.find(id => id !== currentUser?.id) || parts[0];
+          otherUser = users.find(u => u.id === otherId);
+        } else {
+          const body = channelId.slice(3);
+          otherUser = users.find(u => u.id !== currentUser?.id && body.includes(u.id));
+        }
+
         if (otherUser && currentUser) {
+          const canonicalId = getDirectChannelId(currentUser.id, otherUser.id);
           const newDirectChannel: ChatChannel = {
-            id: channelId,
-            name: otherUser.fullName,
+            id: canonicalId,
+            name: `${currentUser.fullName} & ${otherUser.fullName}`,
             type: 'DIRECT',
-            scope: 'DIRECT' as any,
+            scope: 'DIRECT',
             participantIds: [currentUser.id, otherUser.id],
             description: `Obrolan Pribadi dengan ${otherUser.fullName} (${otherUser.role})`,
             icon: 'fa-user',
@@ -1129,7 +1624,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             lastMessageTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
             lastSenderName: 'Sistem'
           };
-          setChatChannels(prev => [newDirectChannel, ...prev]);
+          dataStorage.saveChatChannel(newDirectChannel);
+          setChatChannels(prev => [newDirectChannel, ...prev.filter(c => c.id !== canonicalId)]);
+          realtimeService.broadcastChatChannel(newDirectChannel);
+          setActiveChatChannelId(canonicalId);
+          markChannelAsRead(canonicalId);
+          return;
         }
       }
       setActiveChatChannelId(channelId);
@@ -1167,7 +1667,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setChatNotificationToast(null);
   };
 
-  const sendChatMessage = (channelId: string, text: string, priority: 'NORMAL' | 'PENTING' | 'URGENT' = 'NORMAL', isInstruction: boolean = false) => {
+  const notifyChatTyping = (channelId: string) => {
+    if (!currentUser || !channelId) return;
+    realtimeService.broadcastChatTyping(channelId, currentUser.id, currentUser.fullName);
+  };
+
+  const sendChatMessage = (
+    channelId: string,
+    text: string,
+    priority: 'NORMAL' | 'PENTING' | 'URGENT' = 'NORMAL',
+    isInstruction: boolean = false,
+    replyTo?: { id: string; senderName: string; message: string }
+  ) => {
     if (!currentUser || !text.trim()) return;
 
     const now = new Date();
@@ -1186,13 +1697,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       timeFormatted,
       priority,
       isInstruction,
-      readBy: [currentUser.id]
+      readBy: [currentUser.id],
+      ...(replyTo
+        ? {
+            replyToId: replyTo.id,
+            replyToSender: replyTo.senderName,
+            replyToText: replyTo.message,
+          }
+        : {}),
     };
 
-    dataStorage.saveChatMessage(newMsg);
-    setChatMessages(dataStorage.getChatMessages());
-    setChatChannels(dataStorage.getDatabase().chatChannels || []);
-    syncFullDatabaseToSupabase(dataStorage.getDatabase()).catch(err => console.warn('Gagal sync chat ke Supabase:', err));
+    const existingChannel = chatChannels.find(c => c.id === channelId);
+    const updatedChannel: ChatChannel | undefined = existingChannel
+      ? {
+          ...existingChannel,
+          lastMessage: newMsg.message,
+          lastMessageTime: timeFormatted,
+          lastSenderName: currentUser.fullName,
+        }
+      : undefined;
+
+    // 1. Update local state & storage immediately (optimistic 0ms)
+    dataStorage.saveChatMessage(newMsg, updatedChannel);
+    setChatMessages(prev => (prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]));
+    if (updatedChannel) {
+      setChatChannels(prev => prev.map(c => (c.id === channelId ? updatedChannel : c)));
+    }
+
+    // 2. Broadcast real-time to all active accounts (SSE + Supabase Broadcast + BroadcastChannel)
+    realtimeService.broadcastChatMessage(newMsg, updatedChannel);
 
     if (isInstruction || priority === 'URGENT') {
       logAudit(
@@ -1221,57 +1754,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     if (!targetChannel || !sender) {
-      if (currentUser.role === 'Manager Resepsionis') {
-        targetChannel = chatChannels.find(c => c.id === 'dm-u2-u5') || chatChannels[0];
-        sender = users.find(u => u.id === 'u5'); // Ir. Hendra Kusuma (Manager QC)
-        text = 'Bu Siti, kamar A-105 dan A-106 baru selesai diverifikasi dan LOLOS QC. Siap untuk check-in jemaah sore ini!';
-        priority = 'PENTING';
-      } else if (currentUser.role === 'Manager QC') {
-        targetChannel = chatChannels.find(c => c.id === 'dm-u5-u8') || chatChannels[0];
-        sender = users.find(u => u.id === 'u8'); // H. Joko Susilo, ST (Manager Teknisi)
-        text = 'Pak Hendra, perbaikan keran wastafel dan shower di C-104 sudah tuntas diganti part baru. Mohon tim QC verifikasi kelayakannya.';
-        priority = 'NORMAL';
-      } else if (currentUser.role === 'Manager Teknisi') {
-        targetChannel = chatChannels.find(c => c.id === 'dm-u5-u8') || chatChannels[0];
-        sender = users.find(u => u.id === 'u5'); // Ir. Hendra Kusuma (Manager QC)
-        text = 'Pak Joko, ada temuan rembesan AC di Gedung Mina kamar 208 saat inspeksi. Mohon segera kirim teknisi untuk penanganan darurat ya!';
-        priority = 'URGENT';
-        isInstruction = true;
-      } else if (currentUser.role === 'Manager Koperasi') {
-        targetChannel = chatChannels.find(c => c.id === 'dm-u2-u11') || chatChannels[0];
-        sender = users.find(u => u.role === 'Manager Resepsionis' || u.id === 'u-mgr-resepsionis') || users.find(u => u.role.includes('Resepsionis')) || users[0];
-        text = 'Bu Rina, rombongan jemaah Kloter 03 sebanyak 120 orang tiba malam ini. Mohon disiapkan sarapan pagi box jam 05.30 WIB.';
-        priority = 'PENTING';
-      } else if (currentUser.role.includes('Teknisi')) {
-        targetChannel = chatChannels.find(c => c.id === `dm-u8-${currentUser.id}` || c.id === 'group-teknisi') || chatChannels[0];
-        sender = users.find(u => u.id === 'u8'); // Manager Teknisi
-        text = `Instruksi Segera: Lakukan pengecekan darurat fasilitas pompa air Gedung Arafah. Pastikan seluruh debit air lancar!`;
-        priority = 'URGENT';
-        isInstruction = true;
-      } else if (currentUser.role.includes('Resepsionis')) {
-        targetChannel = chatChannels.find(c => c.id === `dm-u2-${currentUser.id}` || c.id === 'group-recep') || chatChannels[0];
-        sender = users.find(u => u.id === 'u2'); // Manager Resepsionis
-        text = `Arahan Manager: Pastikan formulir data jemaah lansia dan kunci kamar cadangan sudah disiapkan rapi di meja lobi ya.`;
-        priority = 'PENTING';
-        isInstruction = true;
-      } else if (currentUser.role.includes('QC') || currentUser.role.includes('Quality')) {
-        targetChannel = chatChannels.find(c => c.id === `dm-u5-${currentUser.id}` || c.id === 'group-qc') || chatChannels[0];
-        sender = users.find(u => u.id === 'u5'); // Manager QC
-        text = `Instruksi Manager: Tolong prioritaskan uji sanitasi dan kelayakan linen di lantai 2 Gedung Muzdalifah sebelum pukul 17.00.`;
-        priority = 'PENTING';
-        isInstruction = true;
-      } else if (currentUser.role.includes('Koperasi')) {
-        targetChannel = chatChannels.find(c => c.id === 'group-koperasi' || c.id === 'dm-u11-u12') || chatChannels[0];
-        sender = users.find(u => u.id === 'u11'); // Manager Koperasi
-        text = `Siti, koordinasikan tim dapur untuk pengemasan box sarapan higienis jemaah kloter baru.`;
-        priority = 'NORMAL';
-        isInstruction = true;
-      } else {
-        targetChannel = chatChannels.find(c => c.id === 'channel-all-managers') || chatChannels[0];
-        sender = users.find(u => u.id === 'u2') || users[1];
-        text = 'Lapor Pak Pimpinan, seluruh koordinasi operasional antar divisi hari ini berjalan optimal dan tertib.';
-        priority = 'NORMAL';
-      }
+      targetChannel = chatChannels.find(c => c.id === 'channel-all-managers') || chatChannels[0];
+      sender = users.find(u => u.id !== currentUser.id) || users[0];
+      text = 'Koordinasi operasional Asrama Haji terpantau lancar dan terkendali.';
     }
 
     if (!sender) {
@@ -1300,8 +1785,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       readBy: [sender.id]
     };
 
+    dataStorage.saveChatMessage(incomingMsg, targetChannel);
     setChatMessages(prev => [...prev, incomingMsg]);
-
     setChatChannels(prev => prev.map(c => {
       if (c.id === targetChannel!.id) {
         return {
@@ -1313,6 +1798,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       return c;
     }));
+    realtimeService.broadcastChatMessage(incomingMsg, targetChannel);
 
     if (chatSoundEnabled) {
       playNotificationSound();
@@ -1370,9 +1856,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const handleLogAdded = (event: any) => {
       const newLog = event?.detail as AuditLog;
       if (newLog) {
-        setAuditLogs(prev => [newLog, ...prev.filter(l => l.id !== newLog.id && (!newLog.verificationCode || l.verificationCode !== newLog.verificationCode))]);
+        setAuditLogs(prev => [newLog, ...prev.filter(l => l.id !== newLog.id && (!newLog.verificationCode || l.verificationCode !== savedCode(newLog)))]);
       }
     };
+    const savedCode = (l: AuditLog) => l.verificationCode || '___NONE___';
     window.addEventListener('sim_haji_audit_log_added', handleLogAdded);
     return () => window.removeEventListener('sim_haji_audit_log_added', handleLogAdded);
   }, []);
@@ -1402,6 +1889,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCurrentUser(user);
     const now = new Date();
     const loginTimeStr = getRealLocalDateTimeStr(now);
+    const nowMs = now.getTime();
 
     // Periksa apakah pengguna ini sudah memiliki sesi AKTIF yang belum ditutup
     const existingActive = workSessions.find(
@@ -1412,22 +1900,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Lanjutkan sesi aktif yang sudah ada tanpa membuat duplikat sesi baru
       setActiveSessionId(existingActive.id);
       const parsedStart = parseLocalTimeString(existingActive.loginTime).getTime();
+      const diffSec = Math.max(1, Math.floor((nowMs - parsedStart) / 1000));
+      const updatedExisting: WorkSession = {
+        ...existingActive,
+        userName: user.fullName,
+        userRole: user.role,
+        department: user.department || 'Operasional',
+        assignedBuilding: user.assignedBuilding || 'Semua Gedung',
+        durationSeconds: diffSec,
+        durationFormatted: `${formatHMS(diffSec)} (Sedang Berjalan)`,
+        lastHeartbeat: now.toISOString(),
+      };
       setLoginTime(parsedStart);
+      dataStorage.saveWorkSession(updatedExisting);
+      setWorkSessions(prev => prev.map(s => (s.id === updatedExisting.id ? updatedExisting : s)));
+      realtimeService.broadcastWorkSession(updatedExisting, false);
+      realtimeService.sendHeartbeat({
+        userId: user.id,
+        userName: user.fullName,
+        userRole: user.role,
+        department: user.department || 'Operasional',
+        assignedBuilding: user.assignedBuilding || 'Semua Gedung',
+        sessionId: updatedExisting.id,
+        loginTime: updatedExisting.loginTime,
+        activeTab: 'dashboard',
+      });
       logAudit(
         "Login System", 
         `Petugas ${user.fullName} (${user.role}) melanjutkan sesi kerja aktif (${existingActive.id})`
       );
       showToast(`Melanjutkan sesi aktif, ${user.fullName} (${user.role})!`, "success");
       setActiveTab('dashboard');
-      // Segera tarik data terbaru dari database saat klik masuk (login)
       pullFromCentralDatabase();
       return;
     }
 
-    const nowMs = now.getTime();
     setLoginTime(nowMs);
 
-    const newSessionId = `SESI-${Date.now().toString().slice(-4)}`;
+    const newSessionId = `SESI-${Date.now().toString().slice(-4)}-${user.id.slice(-2).toUpperCase()}`;
     setActiveSessionId(newSessionId);
 
     const newSession: WorkSession = {
@@ -1437,14 +1947,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       userRole: user.role,
       loginTime: loginTimeStr,
       logoutTime: null,
-      durationSeconds: 0,
-      durationFormatted: '0 Jam 0 Menit 0 Detik (Sedang Berjalan)',
+      durationSeconds: 1,
+      durationFormatted: '0 Jam 0 Menit 1 Detik (Sedang Berjalan)',
       status: 'AKTIF',
+      department: user.department || 'Operasional',
+      assignedBuilding: user.assignedBuilding || 'Semua Gedung',
+      lastHeartbeat: now.toISOString(),
       notes: `Sesi login petugas (${user.role} - ${user.department || 'Operasional'})`
     };
 
+    // Simpan langsung ke dataStorage & Supabase serta broadcast real-time agar seluruh akun lain langsung melihat petugas ini aktif
+    dataStorage.saveWorkSession(newSession);
     setWorkSessions(prev => {
-      // Tutup sesi aktif lain yang mungkin tertinggal dari akun yang sama
       const sanitized = prev.map(s => {
         if (s.userId === user.id && s.status === 'AKTIF') {
           const sTime = parseLocalTimeString(s.loginTime).getTime();
@@ -1461,6 +1975,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       return [newSession, ...sanitized];
     });
+    realtimeService.broadcastWorkSession(newSession, true);
+    realtimeService.sendHeartbeat({
+      userId: user.id,
+      userName: user.fullName,
+      userRole: user.role,
+      department: user.department || 'Operasional',
+      assignedBuilding: user.assignedBuilding || 'Semua Gedung',
+      sessionId: newSession.id,
+      loginTime: newSession.loginTime,
+      activeTab: 'dashboard',
+    });
 
     logAudit(
       "Login System", 
@@ -1469,7 +1994,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     showToast(`Selamat datang, ${user.fullName} (${user.role})!`, "success");
 
-    // All roles land on Dashboard & langsung menarik data terbaru dari Database
     setActiveTab('dashboard');
     pullFromCentralDatabase();
   };
@@ -1489,16 +2013,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const sFormatted = formatHMS(sDur);
           totalSeconds = sDur;
           durationStr = sFormatted;
-          return {
+          const finishedSession: WorkSession = {
             ...s,
             logoutTime: logoutTimeStr,
             durationSeconds: sDur,
             durationFormatted: sFormatted,
             status: 'SELESAI' as const
           };
+          dataStorage.saveWorkSession(finishedSession);
+          realtimeService.broadcastWorkSession(finishedSession, false);
+          return finishedSession;
         }
         return s;
       }));
+
+      realtimeService.sendLeave(currentUser.id, false);
+      setOnlinePresences(realtimeService.getActivePresences());
 
       const totalMins = Math.floor(totalSeconds / 60);
       logAudit(
@@ -1514,8 +2044,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem('sim_haji_current_user');
       sessionStorage.removeItem('sim_haji_current_user');
       localStorage.removeItem('sim_haji_active_session_id');
+      sessionStorage.removeItem('sim_haji_active_session_id');
     } catch (_) {}
     showToast("Anda telah keluar dari sistem (Check-Out Shift).", "info");
+  };
+
+  const forceEndWorkSession = (sessionId: string) => {
+    const target = workSessions.find(s => s.id === sessionId);
+    if (!target || target.status !== 'AKTIF') return;
+
+    const now = new Date();
+    const logoutTimeStr = getRealLocalDateTimeStr(now);
+    const sTime = parseLocalTimeString(target.loginTime).getTime();
+    const sDur = Math.max(1, Math.floor((now.getTime() - sTime) / 1000));
+    const sFormatted = formatHMS(sDur);
+
+    const endedSession: WorkSession = {
+      ...target,
+      logoutTime: logoutTimeStr,
+      durationSeconds: sDur,
+      durationFormatted: sFormatted,
+      status: 'SELESAI',
+      notes: target.notes ? `${target.notes} • Check-out oleh ${currentUser?.fullName || 'Admin'}` : `Check-out oleh ${currentUser?.fullName || 'Admin'}`
+    };
+
+    dataStorage.saveWorkSession(endedSession);
+    setWorkSessions(prev => prev.map(s => (s.id === sessionId ? endedSession : s)));
+    realtimeService.broadcastWorkSession(endedSession, false);
+    realtimeService.sendLeave(target.userId, true);
+    setOnlinePresences(realtimeService.getActivePresences());
+
+    logAudit(
+      "Check-Out Shift Petugas",
+      `Sesi tugas ${target.userName} (${target.userRole}) [${target.id}] diakhiri pada ${logoutTimeStr} dengan durasi ${sFormatted}.`,
+      Math.floor(sDur / 60)
+    );
+    showToast(`Sesi kerja ${target.userName} berhasil diakhiri (${sFormatted}).`, "info");
+  };
+
+  const startManualWorkSession = (targetUser: User, customNotes?: string) => {
+    if (!targetUser) return;
+    const existingActive = workSessions.find(s => s.userId === targetUser.id && s.status === 'AKTIF' && !s.logoutTime);
+    if (existingActive) {
+      showToast(`${targetUser.fullName} sudah memiliki sesi aktif (${existingActive.id}).`, "info");
+      return;
+    }
+
+    const now = new Date();
+    const loginTimeStr = getRealLocalDateTimeStr(now);
+    const newSessionId = `SESI-${Date.now().toString().slice(-4)}-${targetUser.id.slice(-2).toUpperCase()}`;
+
+    const newSession: WorkSession = {
+      id: newSessionId,
+      userId: targetUser.id,
+      userName: targetUser.fullName,
+      userRole: targetUser.role,
+      loginTime: loginTimeStr,
+      logoutTime: null,
+      durationSeconds: 1,
+      durationFormatted: '0 Jam 0 Menit 1 Detik (Sedang Berjalan)',
+      status: 'AKTIF',
+      department: targetUser.department || 'Operasional',
+      assignedBuilding: targetUser.assignedBuilding || 'Semua Gedung',
+      lastHeartbeat: now.toISOString(),
+      notes: customNotes || `Shift tugas aktif (${targetUser.role} - ${targetUser.department || 'Operasional'})`
+    };
+
+    dataStorage.saveWorkSession(newSession);
+    setWorkSessions(prev => [newSession, ...prev]);
+    realtimeService.broadcastWorkSession(newSession, true);
+    logAudit(
+      "Aktifkan Shift Petugas",
+      `Sesi kerja baru (${newSession.id}) diaktifkan untuk ${targetUser.fullName} (${targetUser.role}) pada ${loginTimeStr}.`
+    );
+    showToast(`Sesi tugas ${targetUser.fullName} (${targetUser.role}) kini AKTIF secara real-time!`, "success");
   };
 
   const clearWorkSessions = () => {
@@ -1523,6 +2125,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setWorkSessions([]);
     setActiveSessionId(null);
     setLoginTime(null);
+    realtimeService.broadcastClearWorkSessions();
     logAudit("Reset Sesi Kerja", "Daftar rekap riwayat sesi & jam kerja petugas telah dibersihkan.");
     showToast("Rekap sesi dan jam kerja berhasil direset!", "success");
   };
@@ -3798,9 +4401,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ==========================================
   const clearChatHistory = (channelId?: string) => {
     dataStorage.clearChatMessages(channelId);
+    realtimeService.broadcastChatClear(channelId);
     if (channelId) {
       setChatMessages(prev => prev.filter(m => m.channelId !== channelId));
-      showToast('Riwayat pesan pada saluran ini berhasil dibersihkan dari database.', 'info');
+      showToast('Riwayat pesan pada saluran ini berhasil dibersihkan secara real-time.', 'info');
     } else {
       setChatMessages([]);
       showToast('Seluruh riwayat obrolan berhasil dibersihkan dari database.', 'info');
@@ -3810,8 +4414,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addChatChannel = (channel: ChatChannel) => {
     dataStorage.saveChatChannel(channel);
-    setChatChannels(prev => [...prev.filter(c => c.id !== channel.id), channel]);
-    showToast(`Saluran komunikasi "${channel.name}" berhasil dibuat!`, 'success');
+    setChatChannels(prev => [channel, ...prev.filter(c => c.id !== channel.id)]);
+    realtimeService.broadcastChatChannel(channel);
+    showToast(`Saluran komunikasi "${channel.name}" berhasil dibuat & disinkronkan!`, 'success');
     logAudit('Tambah Saluran Chat', `Membuat saluran chat: ${channel.name}`);
   };
 
@@ -3823,6 +4428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dataStorage.deleteChatChannel(channelId);
     setChatChannels(prev => prev.filter(c => c.id !== channelId));
     setChatMessages(prev => prev.filter(m => m.channelId !== channelId));
+    realtimeService.broadcastChatClear(channelId);
     showToast('Saluran komunikasi berhasil dihapus dari database.', 'info');
     logAudit('Hapus Saluran Chat', `Menghapus saluran chat ID ${channelId}`);
     return true;
@@ -4085,19 +4691,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      currentUser, users, rooms, transactions, maintenances, auditLogs, workSessions, qcInspections, activeSessionId, activeTab, toasts, modalState,
+      currentUser, users, rooms, transactions, maintenances, auditLogs, workSessions, qcInspections, activeSessionId, onlinePresences, activeTab, toasts, modalState,
       storageNamespace, switchStorageNamespace, isNetworkOnline, isDarkMode, toggleDarkMode, updateCurrentAccount, appSettings, updateAppSettings,
       buildings, meetingRooms, addBuilding, updateBuilding, deleteBuilding, addMeetingRoom, updateMeetingRoom, deleteMeetingRoom, addRoom, updateRoom, deleteRoom,
       roomCapacityRates, addRoomCapacityRate, updateRoomCapacityRate, deleteRoomCapacityRate, resetRoomCapacityRates, applyRateToAllRooms,
       breakfastMenuItems, breakfastOrders, addBreakfastOrder, updateBreakfastOrder, deleteBreakfastOrder, updateBreakfastOrderStatusState,
       addBreakfastMenuItem, updateBreakfastMenuItem, deleteBreakfastMenuItem,
       emailNotifications, sendMaintenanceEmail, markEmailAsRead, clearEmailHistory,
-      chatChannels, chatMessages, isChatOpen, activeChatChannelId, chatSoundEnabled, chatNotificationToast, unreadTotalCount,
-      openChat, closeChat, setActiveChatChannelId: handleSetActiveChatChannelId, toggleChatSound, sendChatMessage,
+      chatChannels, chatMessages, isChatOpen, activeChatChannelId, chatSoundEnabled, chatNotificationToast, unreadTotalCount, typingByChannel,
+      openChat, openDirectChatWithUser, closeChat, setActiveChatChannelId: handleSetActiveChatChannelId, toggleChatSound, sendChatMessage, notifyChatTyping,
       markChannelAsRead, dismissChatNotification, simulateIncomingChatMessage,
       clearChatHistory, addChatChannel, deleteChatChannel,
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
-      login, logout, clearWorkSessions, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
+      login, logout, clearWorkSessions, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase

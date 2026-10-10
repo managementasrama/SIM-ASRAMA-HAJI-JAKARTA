@@ -8,6 +8,7 @@ import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { VerifyPdfView } from './VerifyPdfView';
 import { RolePermissionsSection } from './RolePermissionsSection';
+import { getDirectChannelId } from '../chatData';
 
 export function ReportsView() {
   const { currentUser, transactions, rooms, openModal, showToast, roomCapacityRates = [], meetingRooms = [], breakfastMenuItems = [], deleteTransaction, batchDeleteGroup } = useAppContext();
@@ -3895,7 +3896,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     buildings = [], rooms = [], transactions = [], maintenances = [], users = [],
     breakfastOrders = [], breakfastMenuItems = [], qcInspections = [],
     supabaseSyncState, manualSyncSupabase, pushAllToSupabase, setActiveTab, dataStorage,
-    updateUser, appSettings, updateAppSettings
+    updateUser, appSettings, updateAppSettings,
+    onlinePresences = [], openChat, forceEndWorkSession
   } = useAppContext();
   const safeWorkSessions = workSessions || [];
   const fileImportRef = React.useRef<HTMLInputElement>(null);
@@ -4078,9 +4080,85 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     return filteredSessions.reduce((acc, s) => acc + s.durationSeconds, 0);
   }, [filteredSessions]);
 
-  const activeOfficersCount = useMemo(() => {
-    return safeWorkSessions.filter(s => s.status === 'AKTIF').length;
-  }, [safeWorkSessions]);
+  // Real-Time Active Officers List (merges active workSessions + live onlinePresences across all concurrent accounts)
+  const activeOfficersList = useMemo(() => {
+    const byUser = new Map<string, {
+      sessionId: string;
+      userId: string;
+      userName: string;
+      userRole: string;
+      department?: string;
+      assignedBuilding?: string;
+      loginTime: string;
+      durationSeconds: number;
+      lastHeartbeat?: string;
+      deviceInfo?: string;
+      isCurrentUser: boolean;
+      hasLivePresence: boolean;
+    }>();
+
+    const nowMs = Date.now();
+
+    // 1. Add all active work sessions with live ticking duration
+    sessionsWithLiveDuration
+      .filter(s => s.status === 'AKTIF' && !s.logoutTime)
+      .forEach(s => {
+        const matchedUser = users.find(u => u.id === s.userId || u.fullName === s.userName);
+        const uid = s.userId || matchedUser?.id || s.userName;
+        const livePresence = onlinePresences.find(
+          p => p.userId === uid && (!p.lastSeen || nowMs - p.lastSeen < 60000)
+        );
+        const existing = byUser.get(uid);
+        if (!existing || (s.loginTime || '') > (existing.loginTime || '')) {
+          byUser.set(uid, {
+            sessionId: s.id,
+            userId: uid,
+            userName: s.userName || matchedUser?.fullName || 'Petugas',
+            userRole: s.userRole || matchedUser?.role || 'Petugas',
+            department: s.department || matchedUser?.department || livePresence?.department,
+            assignedBuilding: s.assignedBuilding || matchedUser?.assignedBuilding || livePresence?.assignedBuilding,
+            loginTime: s.loginTime,
+            durationSeconds: s.durationSeconds,
+            lastHeartbeat: s.lastHeartbeat || livePresence?.loginTime,
+            deviceInfo: s.deviceInfo || livePresence?.deviceInfo,
+            isCurrentUser: Boolean(currentUser && (uid === currentUser.id || s.userName === currentUser.fullName)),
+            hasLivePresence: Boolean(livePresence || (currentUser && uid === currentUser.id))
+          });
+        }
+      });
+
+    // 2. Also include any account broadcasting live presence in real-time even if session record is still syncing
+    onlinePresences.forEach(p => {
+      if (!p.userId || (p.lastSeen && nowMs - p.lastSeen > 60000)) return;
+      if (!byUser.has(p.userId)) {
+        const matchedUser = users.find(u => u.id === p.userId);
+        const loginStr = p.loginTime || `${realToday} 08:00:00`;
+        const loginDate = parseLocalTimeString(loginStr);
+        const diffSeconds = Math.max(0, Math.floor((nowMs - loginDate.getTime()) / 1000));
+        byUser.set(p.userId, {
+          sessionId: p.sessionId || `LIVE-${p.userId}`,
+          userId: p.userId,
+          userName: p.userName || matchedUser?.fullName || 'Petugas',
+          userRole: p.userRole || matchedUser?.role || 'Petugas',
+          department: p.department || matchedUser?.department,
+          assignedBuilding: p.assignedBuilding || matchedUser?.assignedBuilding,
+          loginTime: loginStr,
+          durationSeconds: diffSeconds,
+          lastHeartbeat: 'Live Real-Time',
+          deviceInfo: p.deviceInfo,
+          isCurrentUser: Boolean(currentUser && p.userId === currentUser.id),
+          hasLivePresence: true
+        });
+      }
+    });
+
+    return Array.from(byUser.values()).sort((a, b) => {
+      if (a.isCurrentUser !== b.isCurrentUser) return a.isCurrentUser ? -1 : 1;
+      return b.durationSeconds - a.durationSeconds;
+    });
+  }, [sessionsWithLiveDuration, onlinePresences, users, currentUser, ticker, realToday]);
+
+  const activeOfficersCount = activeOfficersList.length;
 
   const averageDurationSeconds = useMemo(() => {
     if (filteredSessions.length === 0) return 0;
@@ -4676,6 +4754,136 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 <p className="text-[10px] text-slate-400">Durasi rata-rata sesi</p>
               </div>
             </div>
+          </div>
+
+          {/* REAL-TIME MULTI-ACCOUNT ACTIVE OFFICERS MONITOR */}
+          <div className="bg-gradient-to-r from-emerald-950 via-hajj-900 to-slate-900 text-white p-4 rounded-2xl shadow-md border border-emerald-500/30 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center text-sm shrink-0">
+                  <i className="fa-solid fa-satellite-dish animate-pulse"></i>
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-xs sm:text-sm font-black tracking-tight text-white">
+                      Monitor Real-Time Petugas Sedang Aktif Bertugas
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500 text-slate-950 flex items-center space-x-1 shadow-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping"></span>
+                      <span>{activeOfficersList.length} Akun Online</span>
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-200/80">
+                    Menampilkan seluruh akun yang sedang login &amp; bertugas secara bersamaan dari berbagai perangkat secara real-time
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => openChat('channel-all-managers')}
+                  className="px-3 py-1.5 bg-gold-500 hover:bg-gold-400 text-slate-950 font-extrabold rounded-xl text-xs transition flex items-center space-x-1.5 shadow-xs cursor-pointer"
+                >
+                  <i className="fa-solid fa-comments text-xs"></i>
+                  <span>Forum Koordinasi Grup</span>
+                </button>
+              </div>
+            </div>
+
+            {activeOfficersList.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-300">
+                Belum ada sesi petugas yang tercatat aktif saat ini.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {activeOfficersList.map(officer => {
+                  const inTime = officer.loginTime.split(' ')[1] || officer.loginTime;
+                  return (
+                    <div
+                      key={officer.userId}
+                      className={`p-3 rounded-xl border transition flex flex-col justify-between gap-2.5 ${
+                        officer.isCurrentUser
+                          ? 'bg-emerald-900/50 border-emerald-400/50 shadow-sm'
+                          : 'bg-white/10 hover:bg-white/15 border-white/15'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <div className="relative shrink-0">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center shadow">
+                              {officer.userName.substring(0, 2).toUpperCase()}
+                            </div>
+                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 ring-2 ring-slate-900 animate-pulse" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center space-x-1.5">
+                              <p className="font-bold text-xs text-white truncate">{officer.userName}</p>
+                              {officer.isCurrentUser && (
+                                <span className="px-1.5 py-0.1 bg-gold-500 text-slate-950 font-black rounded text-[9px] shrink-0">
+                                  ANDA
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-emerald-200 truncate">
+                              {officer.userRole}
+                              {officer.department ? ` • ${officer.department}` : ''}
+                              {officer.assignedBuilding ? ` (${officer.assignedBuilding})` : ''}
+                            </p>
+                            <p className="text-[10px] text-slate-300 font-mono mt-0.5">
+                              Masuk: {inTime} WIB
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-mono font-black text-xs">
+                            <i className="fa-solid fa-stopwatch text-[10px]"></i>
+                            <span>{formatHMS(officer.durationSeconds)}</span>
+                          </span>
+                          <span className="block text-[9px] text-emerald-300/90 font-semibold mt-0.5">
+                            ● Aktif Real-Time
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[10px]">
+                        <span className="text-slate-300 truncate font-mono text-[9px]">
+                          ID: #{officer.sessionId}
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          {!officer.isCurrentUser && currentUser && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const dmId = getDirectChannelId(currentUser.id, officer.userId);
+                                openChat(dmId);
+                                showToast(`Membuka chat pribadi dengan ${officer.userName}`, 'info');
+                              }}
+                              className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg transition flex items-center space-x-1 cursor-pointer shadow-2xs"
+                              title={`Kirim pesan pribadi ke ${officer.userName}`}
+                            >
+                              <i className="fa-solid fa-comment-dots text-[10px]"></i>
+                              <span>Chat Pribadi</span>
+                            </button>
+                          )}
+                          {canAccessAdminTabs && !officer.isCurrentUser && !officer.sessionId.startsWith('LIVE-') && (
+                            <button
+                              type="button"
+                              onClick={() => forceEndWorkSession(officer.sessionId)}
+                              className="px-2 py-1 bg-red-500/20 hover:bg-red-500/40 text-red-200 border border-red-400/30 font-bold rounded-lg transition cursor-pointer"
+                              title="Akhiri sesi kerja petugas ini"
+                            >
+                              Akhiri Sesi
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Compact Single-Bar Filter & View Controls */}

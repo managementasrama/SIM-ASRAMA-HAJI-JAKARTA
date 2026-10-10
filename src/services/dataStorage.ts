@@ -57,6 +57,9 @@ import {
   deleteBreakfastMenuItemInSupabaseDirect,
   clearAuditLogsInSupabaseDirect,
   clearWorkSessionsInSupabaseDirect,
+  upsertWorkSessionInSupabaseDirect,
+  upsertChatMessageInSupabaseDirect,
+  clearChatMessagesInSupabaseDirect,
   type SupabaseSyncState 
 } from '../lib/supabase';
 
@@ -267,7 +270,55 @@ export class DataStorageService {
       this.syncStatus = 'syncing';
       const cloudDb = await fetchFullDatabaseFromSupabase();
       if (cloudDb) {
-        // SUPABASE ADALAH SINGLE SOURCE OF TRUTH (TANPA CACHE LOKAL):
+        // Pertahankan sesi aktif & pesan chat yang baru saja dibuat di memori lokal namun belum masuk snapshot cloud
+        if (this.cache) {
+          const wsMap = new Map<string, WorkSession>();
+          for (const s of (cloudDb.workSessions || [])) {
+            if (s && s.id) wsMap.set(s.id, s);
+          }
+          for (const s of (this.cache.workSessions || [])) {
+            if (!s || !s.id) continue;
+            const remoteS = wsMap.get(s.id);
+            if (!remoteS) {
+              // Hanya pertahankan jika sesi masih baru/aktif
+              if (s.status === 'AKTIF') wsMap.set(s.id, s);
+            } else if (s.status === 'SELESAI' && remoteS.status !== 'SELESAI') {
+              wsMap.set(s.id, s);
+            } else if (remoteS.status === 'SELESAI' && s.status !== 'SELESAI') {
+              wsMap.set(s.id, remoteS);
+            } else if ((s.durationSeconds || 0) > (remoteS.durationSeconds || 0)) {
+              wsMap.set(s.id, { ...remoteS, ...s });
+            }
+          }
+          cloudDb.workSessions = Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+
+          const chMap = new Map<string, ChatChannel>();
+          for (const ch of initialChatChannels) chMap.set(ch.id, { ...ch });
+          for (const ch of (this.cache.chatChannels || [])) {
+            if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+          }
+          for (const ch of (cloudDb.chatChannels || [])) {
+            if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+          }
+          cloudDb.chatChannels = Array.from(chMap.values());
+
+          const msgMap = new Map<string, ChatMessage>();
+          for (const m of (this.cache.chatMessages || [])) {
+            if (m && m.id) msgMap.set(m.id, m);
+          }
+          for (const m of (cloudDb.chatMessages || [])) {
+            if (!m || !m.id) continue;
+            const prev = msgMap.get(m.id);
+            if (!prev) {
+              msgMap.set(m.id, m);
+            } else {
+              const readSet = new Set([...(prev.readBy || []), ...(m.readBy || [])]);
+              msgMap.set(m.id, { ...prev, ...m, readBy: Array.from(readSet) });
+            }
+          }
+          cloudDb.chatMessages = Array.from(msgMap.values());
+        }
+
         this.cache = cloudDb;
         this.lastSyncTime = new Date().toISOString();
         this.syncStatus = 'connected';
@@ -1683,6 +1734,7 @@ export class DataStorageService {
     }
 
     this.saveDatabase({ ...db, workSessions: updated });
+    upsertWorkSessionInSupabaseDirect(session).catch(err => console.warn('Supabase upsert work session err:', err));
     return session;
   }
 
@@ -1766,30 +1818,49 @@ export class DataStorageService {
     return all;
   }
 
-  public saveChatMessage(msg: ChatMessage): ChatMessage {
+  public saveChatMessage(msg: ChatMessage, channelObj?: ChatChannel): ChatMessage {
     const db = this.getDatabase();
     const messages = db.chatMessages || [];
-    const updatedMessages = [...messages, msg];
+    const exists = messages.some(m => m.id === msg.id);
+    const updatedMessages = exists
+      ? messages.map(m => (m.id === msg.id ? { ...m, ...msg } : m))
+      : [...messages, msg];
 
     // Perbarui status last message pada channel
     const channels = db.chatChannels || [];
-    const updatedChannels = channels.map(c => {
-      if (c.id === msg.channelId) {
-        return {
-          ...c,
-          lastMessage: msg.message,
-          lastMessageTime: msg.timeFormatted,
-          lastSenderName: msg.senderName
-        };
-      }
-      return c;
-    });
+    const chExists = channels.some(c => c.id === msg.channelId);
+    const updatedChannels = chExists
+      ? channels.map(c => {
+          if (c.id === msg.channelId) {
+            return {
+              ...c,
+              ...(channelObj || {}),
+              lastMessage: msg.message,
+              lastMessageTime: msg.timeFormatted,
+              lastSenderName: msg.senderName
+            };
+          }
+          return c;
+        })
+      : channelObj
+      ? [
+          {
+            ...channelObj,
+            lastMessage: msg.message,
+            lastMessageTime: msg.timeFormatted,
+            lastSenderName: msg.senderName
+          },
+          ...channels
+        ]
+      : channels;
 
     this.saveDatabase({ 
       ...db, 
       chatMessages: updatedMessages, 
       chatChannels: updatedChannels 
     });
+    const targetCh = updatedChannels.find(c => c.id === msg.channelId) || channelObj;
+    upsertChatMessageInSupabaseDirect(msg, targetCh).catch(err => console.warn('Supabase upsert chat msg err:', err));
     return msg;
   }
 
@@ -1797,10 +1868,13 @@ export class DataStorageService {
     const db = this.getDatabase();
     if (channelId) {
       const remaining = (db.chatMessages || []).filter(m => m.channelId !== channelId);
+      this.cache = { ...db, chatMessages: remaining };
       this.saveDatabase({ ...db, chatMessages: remaining });
     } else {
+      this.cache = { ...db, chatMessages: [] };
       this.saveDatabase({ ...db, chatMessages: [] });
     }
+    clearChatMessagesInSupabaseDirect(channelId).catch(err => console.warn('Supabase clear chat err:', err));
   }
 
   // ==========================================

@@ -381,6 +381,10 @@ export interface WorkSession {
   durationFormatted: string; // e.g. "8 Jam 15 Menit 30 Detik"
   status: 'AKTIF' | 'SELESAI';
   notes?: string;
+  department?: string;
+  assignedBuilding?: string;
+  lastHeartbeat?: string;
+  deviceInfo?: string;
 }
 
 export interface DailyWorkRecord {
@@ -398,7 +402,7 @@ export interface DailyWorkRecord {
   sessions: WorkSession[];
 }
 
-export type ChatScope = 'MANAGER_TO_MANAGER' | 'MANAGER_TO_SUBORDINATE' | 'DIVISION_GROUP' | 'ALL_MANAGERS_GROUP';
+export type ChatScope = 'MANAGER_TO_MANAGER' | 'MANAGER_TO_SUBORDINATE' | 'DIVISION_GROUP' | 'ALL_MANAGERS_GROUP' | 'DIRECT';
 
 export interface ChatMessage {
   id: string;
@@ -413,6 +417,9 @@ export interface ChatMessage {
   priority?: 'NORMAL' | 'PENTING' | 'URGENT';
   isInstruction?: boolean;
   readBy: string[];
+  replyToId?: string;
+  replyToSender?: string;
+  replyToText?: string;
 }
 
 export interface ChatChannel {
