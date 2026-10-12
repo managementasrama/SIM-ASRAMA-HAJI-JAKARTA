@@ -85,24 +85,67 @@ export function getSupabaseSourceInfo(): {
 }
 
 /**
- * Simpan kredensial Supabase kustom ke localStorage dan reload browser
+ * Simpan kredensial Supabase kustom ke localStorage, sync ke server (supabase_config.json)
+ * dan siarkan ke seluruh tab / perangkat lain.
  */
-export function saveCustomSupabaseCredentials(url: string, key: string): void {
+export async function saveCustomSupabaseCredentials(url: string, key: string): Promise<boolean> {
+  const cleanUrl = sanitizeSupabaseUrl(url);
+  const cleanKey = key.trim();
+
   if (typeof window !== 'undefined') {
-    const cleanUrl = sanitizeSupabaseUrl(url);
     localStorage.setItem('CUSTOM_SUPABASE_URL', cleanUrl);
-    localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', key.trim());
+    localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cleanKey);
+
+    // Siarkan ke tab lain di browser yang sama
+    try {
+      if ('BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('sim_haji_realtime_bus_v2');
+        bc.postMessage({
+          type: 'config:supabase',
+          payload: { url: cleanUrl, anonKey: cleanKey },
+          timestamp: Date.now(),
+        });
+      }
+    } catch (_) {}
+  }
+
+  // Sinkronkan ke server backend agar server & seluruh perangkat lain memakai database ini
+  try {
+    const res = await fetch('/api/supabase-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: cleanUrl, anonKey: cleanKey }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Gagal persist kredensial ke server:', err);
+    return false;
   }
 }
 
 /**
  * Hapus kredensial Supabase kustom dan kembalikan ke .env / bawaan
  */
-export function removeCustomSupabaseCredentials(): void {
+export async function removeCustomSupabaseCredentials(): Promise<void> {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('CUSTOM_SUPABASE_URL');
     localStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
+
+    try {
+      if ('BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('sim_haji_realtime_bus_v2');
+        bc.postMessage({
+          type: 'config:reset',
+          payload: {},
+          timestamp: Date.now(),
+        });
+      }
+    } catch (_) {}
   }
+
+  try {
+    await fetch('/api/supabase-config', { method: 'DELETE' });
+  } catch (_) {}
 }
 
 /**
@@ -209,6 +252,51 @@ export async function pushAllToTargetSupabase(targetUrl: string, targetKey: stri
         await targetClient.from('users').upsert(uRows, { onConflict: 'id' });
       } catch (err) {
         console.warn('Gagal upsert users ke target:', err);
+      }
+    }
+
+    // 5. Simpan meeting_rooms
+    if (dbPayload.meetingRooms && dbPayload.meetingRooms.length > 0) {
+      try {
+        const mrRows = dbPayload.meetingRooms.map(m => ({
+          id: m.id,
+          name: m.name,
+          code: m.code || '',
+          category: m.category || 'SERBAGUNA',
+          building: m.building || 'Kompleks Ruang Pertemuan',
+          capacity: m.capacity || '',
+          capacity_number: m.capacityNumber || 50,
+          facilities: m.facilities || [],
+          daily_rate: m.dailyRate || 0,
+          session_rate: m.sessionRate || 0,
+          description: m.description || '',
+          status: m.status || 'TERSEDIA',
+          qc_status: m.qcStatus || 'LOLOS_QC',
+          active_tx_id: m.activeTxId || null,
+          active_maint_id: m.activeMaintId || null,
+          updated_at: new Date().toISOString()
+        }));
+        await targetClient.from('meeting_rooms').upsert(mrRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert meeting_rooms ke target:', err);
+      }
+    }
+
+    // 6. Simpan room_capacity_rates
+    if (dbPayload.roomCapacityRates && dbPayload.roomCapacityRates.length > 0) {
+      try {
+        const rcrRows = dbPayload.roomCapacityRates.map(rc => ({
+          id: rc.id,
+          room_type: rc.roomType,
+          bed_type: rc.bedType,
+          capacity_pax: rc.capacityPax,
+          price_per_night: rc.pricePerNight,
+          description: rc.description || '',
+          updated_at: new Date().toISOString()
+        }));
+        await targetClient.from('room_capacity_rates').upsert(rcrRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert room_capacity_rates ke target:', err);
       }
     }
 

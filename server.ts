@@ -81,6 +81,87 @@ async function startServer() {
     }
   }, 15000);
 
+  // =========================================================================
+  // SUPABASE ACTIVE CONFIGURATION PERSISTENCE & MULTI-DEVICE SYNC
+  // =========================================================================
+  const configFilePath = path.join(process.cwd(), "supabase_config.json");
+  let activeSupabaseConfig = {
+    url: process.env.VITE_SUPABASE_URL || "https://iiopgzyxzvmnmkgnrzvc.supabase.co",
+    anonKey: process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80",
+    updatedAt: new Date().toISOString(),
+    isCustom: false,
+  };
+
+  try {
+    if (fs.existsSync(configFilePath)) {
+      const fileRaw = fs.readFileSync(configFilePath, "utf-8");
+      const parsed = JSON.parse(fileRaw);
+      if (parsed?.url && parsed?.anonKey) {
+        activeSupabaseConfig = {
+          url: parsed.url,
+          anonKey: parsed.anonKey,
+          updatedAt: parsed.updatedAt || new Date().toISOString(),
+          isCustom: true,
+        };
+        process.env.VITE_SUPABASE_URL = parsed.url;
+        process.env.VITE_SUPABASE_ANON_KEY = parsed.anonKey;
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to load supabase_config.json:", e);
+  }
+
+  app.get("/api/supabase-config", (_req, res) => {
+    res.json(activeSupabaseConfig);
+  });
+
+  app.post("/api/supabase-config", (req, res) => {
+    const { url, anonKey } = req.body || {};
+    if (!url || !anonKey) {
+      res.status(400).json({ error: "URL and Anon Key are required" });
+      return;
+    }
+    const cleanUrl = String(url).trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+    const cleanKey = String(anonKey).trim();
+
+    activeSupabaseConfig = {
+      url: cleanUrl,
+      anonKey: cleanKey,
+      updatedAt: new Date().toISOString(),
+      isCustom: true,
+    };
+
+    process.env.VITE_SUPABASE_URL = cleanUrl;
+    process.env.VITE_SUPABASE_ANON_KEY = cleanKey;
+
+    try {
+      fs.writeFileSync(configFilePath, JSON.stringify(activeSupabaseConfig, null, 2), "utf-8");
+    } catch (err) {
+      console.warn("Failed to save supabase_config.json:", err);
+    }
+
+    // Broadcast change to all connected clients across devices
+    broadcastRealtimeEvent("config:supabase", { url: cleanUrl, anonKey: cleanKey });
+
+    res.json({ ok: true, config: activeSupabaseConfig });
+  });
+
+  app.delete("/api/supabase-config", (_req, res) => {
+    try {
+      if (fs.existsSync(configFilePath)) {
+        fs.unlinkSync(configFilePath);
+      }
+    } catch (_) {}
+    activeSupabaseConfig = {
+      url: "https://iiopgzyxzvmnmkgnrzvc.supabase.co",
+      anonKey: "sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80",
+      updatedAt: new Date().toISOString(),
+      isCustom: false,
+    };
+    broadcastRealtimeEvent("config:reset", {});
+    res.json({ ok: true, config: activeSupabaseConfig });
+  });
+
   // Server-Sent Events (SSE) Stream for instant real-time updates
   app.get("/api/realtime/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -99,6 +180,7 @@ async function startServer() {
         workSessions: realtimeState.workSessions,
         chatChannels: realtimeState.chatChannels,
         chatMessages: realtimeState.chatMessages,
+        supabaseConfig: activeSupabaseConfig,
       },
       timestamp: Date.now(),
     });

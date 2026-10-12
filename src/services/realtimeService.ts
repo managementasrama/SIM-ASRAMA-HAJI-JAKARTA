@@ -25,7 +25,9 @@ export type RealtimeEventType =
   | 'chat:read'
   | 'chat:channel'
   | 'chat:clear'
-  | 'chat:typing';
+  | 'chat:typing'
+  | 'config:supabase'
+  | 'config:reset';
 
 export interface RealtimeEventPayload {
   type: RealtimeEventType;
@@ -149,7 +151,40 @@ class RealtimeService {
 
   private handleIncomingEvent(event: RealtimeEventPayload) {
     const now = Date.now();
+    if (event.type === 'config:supabase') {
+      const cfg = event.payload;
+      if (cfg?.url && cfg?.anonKey && typeof window !== 'undefined') {
+        const curUrl = localStorage.getItem('CUSTOM_SUPABASE_URL');
+        const curKey = localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
+        if (curUrl !== cfg.url || curKey !== cfg.anonKey) {
+          localStorage.setItem('CUSTOM_SUPABASE_URL', cfg.url);
+          localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cfg.anonKey);
+          setTimeout(() => {
+            window.location.reload();
+          }, 800);
+        }
+      }
+    } else if (event.type === 'config:reset' && typeof window !== 'undefined') {
+      localStorage.removeItem('CUSTOM_SUPABASE_URL');
+      localStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    }
+
     if (event.type === 'init' && event.payload) {
+      if (event.payload.supabaseConfig?.isCustom && event.payload.supabaseConfig?.url && event.payload.supabaseConfig?.anonKey && typeof window !== 'undefined') {
+        const cfg = event.payload.supabaseConfig;
+        const curUrl = localStorage.getItem('CUSTOM_SUPABASE_URL');
+        const curKey = localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
+        if (curUrl !== cfg.url || curKey !== cfg.anonKey) {
+          localStorage.setItem('CUSTOM_SUPABASE_URL', cfg.url);
+          localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cfg.anonKey);
+          setTimeout(() => {
+            window.location.reload();
+          }, 400);
+        }
+      }
       if (Array.isArray(event.payload.presences)) {
         event.payload.presences.forEach((p: OnlinePresenceInfo) => {
           if (p && p.userId) {

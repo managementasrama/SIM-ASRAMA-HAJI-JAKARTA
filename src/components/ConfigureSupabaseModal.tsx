@@ -27,6 +27,8 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
     message: ''
   });
   const [isMigrating, setIsMigrating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [autoMigrate, setAutoMigrate] = useState(true);
   const [copiedSql, setCopiedSql] = useState(false);
 
   if (!isOpen) return null;
@@ -50,25 +52,40 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
     }
   };
 
-  const handleSaveAndApply = () => {
+  const handleSaveAndApply = async () => {
     if (!inputUrl.trim() || !inputKey.trim()) {
       showToast('Mohon isi URL dan Anon Key Supabase yang valid.', 'error');
       return;
     }
+    setIsSaving(true);
     try {
-      saveCustomSupabaseCredentials(inputUrl.trim(), inputKey.trim());
-      showToast('Kredensial database Supabase berhasil disimpan! Memuat ulang sistem...', 'success');
+      const cleanUrl = inputUrl.trim();
+      const cleanKey = inputKey.trim();
+
+      // Jika autoMigrate diaktifkan, salin data aktif ke target Supabase sebelum beralih
+      if (autoMigrate) {
+        showToast('Menyalin data aktif ke database baru...', 'info');
+        const currentPayload = dataStorage.exportFullDatabase();
+        const migRes = await pushAllToTargetSupabase(cleanUrl, cleanKey, currentPayload);
+        if (!migRes.success) {
+          console.warn('Migrasi data otomatis warning:', migRes.error);
+        }
+      }
+
+      await saveCustomSupabaseCredentials(cleanUrl, cleanKey);
+      showToast('Kredensial database Supabase berhasil disimpan permanen! Database ini akan dipakai seterusnya di seluruh perangkat. Memuat ulang sistem...', 'success');
       setTimeout(() => {
         window.location.reload();
-      }, 1000);
+      }, 1200);
     } catch (e: any) {
       showToast(`Gagal menyimpan kredensial: ${e?.message || 'Error'}`, 'error');
+      setIsSaving(false);
     }
   };
 
-  const handleResetToDefault = () => {
+  const handleResetToDefault = async () => {
     if (window.confirm('Apakah Anda yakin ingin mengembalikan koneksi database ke konfigurasi bawaan (Environment Variable / Default)?')) {
-      removeCustomSupabaseCredentials();
+      await removeCustomSupabaseCredentials();
       showToast('Koneksi database dikembalikan ke default. Memuat ulang sistem...', 'info');
       setTimeout(() => {
         window.location.reload();
@@ -350,12 +367,36 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
                   </div>
                 )}
 
+                {/* Checkbox auto-migrate & jaminan permanen */}
+                <div className="bg-emerald-50/70 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-200/80 dark:border-emerald-800/60 space-y-2">
+                  <label className="flex items-start space-x-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoMigrate}
+                      onChange={e => setAutoMigrate(e.target.checked)}
+                      className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <div>
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                        Salin otomatis data saat ini (gedung, kamar, tarif, transaksi, petugas) ke database baru
+                      </span>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Memastikan database baru langsung siap pakai dan tidak mulai dari tabel kosong.
+                      </p>
+                    </div>
+                  </label>
+                  <div className="flex items-center space-x-1.5 text-[10.5px] text-emerald-800 dark:text-emerald-300 font-semibold pt-1 border-t border-emerald-200/50 dark:border-emerald-800/40">
+                    <i className="fa-solid fa-circle-check text-emerald-600 dark:text-emerald-400"></i>
+                    <span>Setelah disimpan &amp; dihubungkan, database ini akan dipakai seterusnya di seluruh perangkat &amp; pengguna.</span>
+                  </div>
+                </div>
+
                 {/* Action Buttons */}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                   <button
                     type="button"
                     onClick={handleTestConnection}
-                    disabled={testStatus.status === 'testing'}
+                    disabled={testStatus.status === 'testing' || isSaving}
                     className="px-3 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold rounded-lg transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <i className="fa-solid fa-satellite-dish"></i>
@@ -365,20 +406,21 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
                   <button
                     type="button"
                     onClick={handleMigrateCurrentData}
-                    disabled={isMigrating || !inputUrl.trim() || !inputKey.trim()}
+                    disabled={isMigrating || isSaving || !inputUrl.trim() || !inputKey.trim()}
                     className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <i className={`fa-solid ${isMigrating ? 'fa-spinner fa-spin' : 'fa-database'}`}></i>
-                    <span>Salin Data Aktif ke Supabase Baru</span>
+                    <span>Salin Data Saja</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleSaveAndApply}
-                    className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition flex items-center space-x-1.5 cursor-pointer shadow-xs ml-auto"
+                    disabled={isSaving || !inputUrl.trim() || !inputKey.trim()}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition flex items-center space-x-1.5 cursor-pointer shadow-xs ml-auto disabled:opacity-50"
                   >
-                    <i className="fa-solid fa-check"></i>
-                    <span>Simpan &amp; Hubungkan</span>
+                    <i className={`fa-solid ${isSaving ? 'fa-spinner fa-spin' : 'fa-check-double'}`}></i>
+                    <span>{isSaving ? 'Menyimpan & Menghubungkan...' : 'Simpan & Pakai Seterusnya'}</span>
                   </button>
                 </div>
               </div>
