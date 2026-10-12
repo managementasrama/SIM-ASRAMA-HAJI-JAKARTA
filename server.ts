@@ -85,6 +85,8 @@ async function startServer() {
   // SUPABASE ACTIVE CONFIGURATION PERSISTENCE & MULTI-DEVICE SYNC
   // =========================================================================
   const configFilePath = path.join(process.cwd(), "supabase_config.json");
+  const envFilePath = path.join(process.cwd(), ".env");
+
   let activeSupabaseConfig = {
     url: process.env.VITE_SUPABASE_URL || "https://iiopgzyxzvmnmkgnrzvc.supabase.co",
     anonKey: process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80",
@@ -105,6 +107,11 @@ async function startServer() {
         };
         process.env.VITE_SUPABASE_URL = parsed.url;
         process.env.VITE_SUPABASE_ANON_KEY = parsed.anonKey;
+
+        // Pastikan file .env sinkron dengan konfigurasi aktif
+        try {
+          fs.writeFileSync(envFilePath, `VITE_SUPABASE_URL=${parsed.url}\nVITE_SUPABASE_ANON_KEY=${parsed.anonKey}\n`, "utf-8");
+        } catch (_) {}
       }
     }
   } catch (e) {
@@ -136,8 +143,10 @@ async function startServer() {
 
     try {
       fs.writeFileSync(configFilePath, JSON.stringify(activeSupabaseConfig, null, 2), "utf-8");
+      // Selalu perbarui file .env agar runtime Vite & dev server membaca konfigurasi terbaru
+      fs.writeFileSync(envFilePath, `VITE_SUPABASE_URL=${cleanUrl}\nVITE_SUPABASE_ANON_KEY=${cleanKey}\n`, "utf-8");
     } catch (err) {
-      console.warn("Failed to save supabase_config.json:", err);
+      console.warn("Failed to save supabase_config.json / .env:", err);
     }
 
     // Broadcast change to all connected clients across devices
@@ -150,6 +159,9 @@ async function startServer() {
     try {
       if (fs.existsSync(configFilePath)) {
         fs.unlinkSync(configFilePath);
+      }
+      if (fs.existsSync(envFilePath)) {
+        fs.unlinkSync(envFilePath);
       }
     } catch (_) {}
     activeSupabaseConfig = {

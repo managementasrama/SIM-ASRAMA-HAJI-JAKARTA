@@ -29,9 +29,10 @@ function sanitizeSupabaseUrl(url?: string): string {
   return url.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 }
 
-// Deteksi penyimpanan kustom di browser (jika pengguna mengganti database lewat UI)
-const customStoredUrl = typeof window !== 'undefined' ? localStorage.getItem('CUSTOM_SUPABASE_URL') : null;
-const customStoredKey = typeof window !== 'undefined' ? localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY') : null;
+// Deteksi penyimpanan kustom di browser atau window inject
+const windowConfig = typeof window !== 'undefined' ? (window as any).__INITIAL_SUPABASE_CONFIG__ : null;
+const customStoredUrl = typeof window !== 'undefined' ? (windowConfig?.url || localStorage.getItem('CUSTOM_SUPABASE_URL')) : null;
+const customStoredKey = typeof window !== 'undefined' ? (windowConfig?.anonKey || localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY')) : null;
 
 // Deteksi environment variable aman untuk Vite & Vercel
 const rawEnvUrl = 
@@ -44,8 +45,9 @@ const rawEnvKey =
   (typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)) ||
   '';
 
-const defaultFallbackUrl = 'https://iiopgzyxzvmnmkgnrzvc.supabase.co';
-const defaultFallbackKey = 'sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80';
+// Default fallback mengarah ke proyek Supabase yang telah dikonfigurasi aktif
+const defaultFallbackUrl = 'https://xtbgkfjksjuptyhkqqwa.supabase.co';
+const defaultFallbackKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0YmdrZmprc2p1cHR5aGtxcXdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MTQ1MjIsImV4cCI6MjEwNzE5MDUyMn0.RMZNJGVSFjE8cBcMT2CXc8LmBkqRjfB_Ufdc0qrhIn0';
 
 export const SUPABASE_URL = sanitizeSupabaseUrl(customStoredUrl || rawEnvUrl || defaultFallbackUrl);
 export const SUPABASE_ANON_KEY = (customStoredKey || rawEnvKey || defaultFallbackKey || '').trim();
@@ -95,6 +97,7 @@ export async function saveCustomSupabaseCredentials(url: string, key: string): P
   if (typeof window !== 'undefined') {
     localStorage.setItem('CUSTOM_SUPABASE_URL', cleanUrl);
     localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cleanKey);
+    (window as any).__INITIAL_SUPABASE_CONFIG__ = { url: cleanUrl, anonKey: cleanKey };
 
     // Siarkan ke tab lain di browser yang sama
     try {
@@ -151,31 +154,41 @@ export async function removeCustomSupabaseCredentials(): Promise<void> {
 /**
  * Uji konektivitas ke database Supabase kustom sebelum disimpan
  */
-export async function testCustomSupabaseConnection(testUrl: string, testKey: string): Promise<{ success: boolean; message: string }> {
+export async function testCustomSupabaseConnection(testUrl: string, testKey: string): Promise<{ success: boolean; hasTables?: boolean; message: string }> {
   try {
     const cleanUrl = sanitizeSupabaseUrl(testUrl);
     if (!cleanUrl || !testKey) {
-      return { success: false, message: 'URL dan Anon Key Supabase wajib diisi.' };
+      return { success: false, hasTables: false, message: 'URL dan Anon Key Supabase wajib diisi.' };
     }
-    const tempClient = createClient(cleanUrl, testKey.trim());
-    const { error } = await tempClient.from('app_database_sync').select('id').limit(1);
-    if (error) {
-      if (error.code === '42P01') {
+    const tempClient = createClient(cleanUrl, testKey.trim(), {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+
+    const [syncRes, bldRes] = await Promise.all([
+      tempClient.from('app_database_sync').select('id').limit(1),
+      tempClient.from('buildings').select('id').limit(1)
+    ]);
+
+    const hasTables = !syncRes.error || !bldRes.error;
+    if (!hasTables) {
+      if (syncRes.error?.code === '42P01' && bldRes.error?.code === '42P01') {
         return { 
-          success: true, 
-          message: 'Terkoneksi ke Supabase! (Catatan: Tabel database belum dibuat. Silakan jalankan script SQL yang disediakan di SQL Editor Supabase).' 
+          success: false, 
+          hasTables: false,
+          message: 'Terkoneksi ke Supabase, TETAPI tabel belum dibuat. Harap salin dan jalankan Skrip SQL di Tab ke-3 di SQL Editor Supabase Anda terlebih dahulu.' 
         };
       }
-      return { success: false, message: `Koneksi gagal: ${error.message} (Kode: ${error.code})` };
+      const err = syncRes.error || bldRes.error;
+      return { success: false, hasTables: false, message: `Koneksi gagal: ${err?.message || 'Error'} (Kode: ${err?.code || 'ERR'})` };
     }
-    return { success: true, message: 'Berhasil terhubung ke database Supabase baru secara realtime!' };
+    return { success: true, hasTables: true, message: 'Berhasil terhubung ke database Supabase! Struktur tabel siap digunakan.' };
   } catch (err: any) {
-    return { success: false, message: `Gagal menghubungi Supabase: ${err?.message || 'Network error'}` };
+    return { success: false, hasTables: false, message: `Gagal menghubungi Supabase: ${err?.message || 'Network error'}` };
   }
 }
 
 /**
- * Migrasikan / Push seluruh payload database aktif ke database Supabase baru
+ * Migrasikan / Salin seluruh data aktif ke database Supabase baru secara lengkap dan terverifikasi
  */
 export async function pushAllToTargetSupabase(targetUrl: string, targetKey: string, dbPayload: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
   try {
@@ -183,80 +196,87 @@ export async function pushAllToTargetSupabase(targetUrl: string, targetKey: stri
     if (!cleanUrl || !targetKey) {
       return { success: false, error: 'URL atau Key tidak valid' };
     }
-    const targetClient = createClient(cleanUrl, targetKey.trim());
+    const targetClient = createClient(cleanUrl, targetKey.trim(), {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
     
-    // 1. Simpan atomic snapshot ke app_database_sync
-    const payloadRecord = {
-      id: 'root_snapshot',
-      database_payload: dbPayload,
-      updated_at: new Date().toISOString()
-    };
-    await targetClient.from('app_database_sync').upsert(payloadRecord, { onConflict: 'id' });
+    // 1. Verifikasi tabel utama
+    const { error: pingErr } = await targetClient.from('app_database_sync').select('id').limit(1);
+    if (pingErr) {
+      if (pingErr.code === '42P01') {
+        return {
+          success: false,
+          error: 'Tabel basis data belum dibuat di proyek Supabase baru. Silakan buka menu SQL Editor di Supabase baru Anda dan jalankan skrip SQL di Tab ke-3 (Skrip SQL Schema Baru) terlebih dahulu.'
+        };
+      }
+      return {
+        success: false,
+        error: `Gagal mengakses Supabase target: ${pingErr.message} (Kode: ${pingErr.code})`
+      };
+    }
 
-    // 2. Simpan buildings
-    if (dbPayload.buildings && dbPayload.buildings.length > 0) {
+    // 2. Simpan atomic snapshot ke app_database_sync (dengan id 'main_production_db' dan 'root_snapshot')
+    const { error: syncError } = await targetClient.from('app_database_sync').upsert([
+      { id: 'main_production_db', database_payload: dbPayload, updated_at: new Date().toISOString() },
+      { id: 'root_snapshot', database_payload: dbPayload, updated_at: new Date().toISOString() }
+    ], { onConflict: 'id' });
+
+    if (syncError) {
+      return { success: false, error: `Gagal menyimpan snapshot ke app_database_sync: ${syncError.message}` };
+    }
+
+    // 3. Simpan buildings
+    if (Array.isArray(dbPayload.buildings) && dbPayload.buildings.length > 0) {
       try {
         const bRows = dbPayload.buildings.map(b => ({
           id: b.id,
           name: b.name,
           code: b.code || '',
-          floors: b.floors || 1,
-          total_rooms: b.totalRooms || 0,
+          floors: Number(b.floors) || 1,
+          total_rooms: Number(b.totalRooms) || 0,
+          capacity_desc: b.capacityDesc || '',
+          category: b.category || 'PENGINAPAN',
           description: b.description || '',
-          is_active: b.status !== 'NONAKTIF',
-          updated_at: new Date().toISOString()
+          status: b.status || 'AKTIF'
         }));
-        await targetClient.from('buildings').upsert(bRows, { onConflict: 'id' });
+        const { error: bErr } = await targetClient.from('buildings').upsert(bRows, { onConflict: 'id' });
+        if (bErr) console.warn('Peringatan upsert buildings ke target:', bErr.message);
       } catch (err) {
         console.warn('Gagal upsert buildings ke target:', err);
       }
     }
 
-    // 3. Simpan rooms
-    if (dbPayload.rooms && dbPayload.rooms.length > 0) {
+    // 4. Simpan rooms
+    if (Array.isArray(dbPayload.rooms) && dbPayload.rooms.length > 0) {
       try {
         const rRows = dbPayload.rooms.map(r => ({
           id: r.id,
           room_number: r.roomNumber,
           building: r.building,
-          floor: r.floor || 1,
+          floor: Number(r.floor) || 1,
           type: r.type || 'Standard',
-          capacity: r.capacity || 2,
-          price_per_night: r.pricePerNight || 0,
+          bed_type: r.bedType || null,
+          capacity: typeof r.capacity === 'string' ? r.capacity : String(r.capacity || '2 Orang'),
+          capacity_number: Number(r.capacityNumber ?? 2),
+          price_per_night: Number(r.pricePerNight || 0),
           status: r.status || 'KOSONG',
           active_tx_id: r.activeTxId || null,
           active_maint_id: r.activeMaintId || null,
           qc_status: r.qcStatus || 'LOLOS_QC',
-          updated_at: new Date().toISOString()
+          last_qc_date: r.lastQcDate || null,
+          last_qc_by: r.lastQcBy || null,
+          last_qc_notes: r.lastQcNotes || null,
+          facilities: Array.isArray(r.facilities) ? r.facilities : []
         }));
-        await targetClient.from('rooms').upsert(rRows, { onConflict: 'id' });
+        const { error: rErr } = await targetClient.from('rooms').upsert(rRows, { onConflict: 'id' });
+        if (rErr) console.warn('Peringatan upsert rooms ke target:', rErr.message);
       } catch (err) {
         console.warn('Gagal upsert rooms ke target:', err);
       }
     }
 
-    // 4. Simpan users
-    if (dbPayload.users && dbPayload.users.length > 0) {
-      try {
-        const uRows = dbPayload.users.map(u => ({
-          id: u.id,
-          username: u.username,
-          name: u.fullName || u.username,
-          email: u.email || `${u.username}@asramahaji.id`,
-          role: u.role,
-          department: u.department || 'Operasional',
-          status: u.status || 'Aktif',
-          password_hash: u.password || '',
-          updated_at: new Date().toISOString()
-        }));
-        await targetClient.from('users').upsert(uRows, { onConflict: 'id' });
-      } catch (err) {
-        console.warn('Gagal upsert users ke target:', err);
-      }
-    }
-
     // 5. Simpan meeting_rooms
-    if (dbPayload.meetingRooms && dbPayload.meetingRooms.length > 0) {
+    if (Array.isArray(dbPayload.meetingRooms) && dbPayload.meetingRooms.length > 0) {
       try {
         const mrRows = dbPayload.meetingRooms.map(m => ({
           id: m.id,
@@ -265,25 +285,53 @@ export async function pushAllToTargetSupabase(targetUrl: string, targetKey: stri
           category: m.category || 'SERBAGUNA',
           building: m.building || 'Kompleks Ruang Pertemuan',
           capacity: m.capacity || '',
-          capacity_number: m.capacityNumber || 50,
-          facilities: m.facilities || [],
-          daily_rate: m.dailyRate || 0,
-          session_rate: m.sessionRate || 0,
+          capacity_number: Number(m.capacityNumber || 50),
+          facilities: Array.isArray(m.facilities) ? m.facilities : [],
+          daily_rate: Number(m.dailyRate || 0),
+          session_rate: Number(m.sessionRate || 0),
           description: m.description || '',
           status: m.status || 'TERSEDIA',
           qc_status: m.qcStatus || 'LOLOS_QC',
           active_tx_id: m.activeTxId || null,
-          active_maint_id: m.activeMaintId || null,
-          updated_at: new Date().toISOString()
+          active_maint_id: m.activeMaintId || null
         }));
-        await targetClient.from('meeting_rooms').upsert(mrRows, { onConflict: 'id' });
+        const { error: mrErr } = await targetClient.from('meeting_rooms').upsert(mrRows, { onConflict: 'id' });
+        if (mrErr) console.warn('Peringatan upsert meeting_rooms ke target:', mrErr.message);
       } catch (err) {
         console.warn('Gagal upsert meeting_rooms ke target:', err);
       }
     }
 
-    // 6. Simpan room_capacity_rates
-    if (dbPayload.roomCapacityRates && dbPayload.roomCapacityRates.length > 0) {
+    // 6. Simpan users
+    if (Array.isArray(dbPayload.users) && dbPayload.users.length > 0) {
+      try {
+        const uRows = dbPayload.users.map(u => ({
+          id: u.id,
+          username: u.username,
+          full_name: u.fullName || u.username,
+          role: u.role,
+          password: u.password || '',
+          department: u.department || 'Operasional',
+          supervisor_id: u.supervisorId || null,
+          assigned_building: u.assignedBuilding || null,
+          phone: u.phone || null,
+          status: u.status || 'Aktif',
+          email: u.email || `${u.username}@asramahaji.id`,
+          nip: u.nip || null,
+          is_owner: Boolean(u.isOwner),
+          signature_url: u.signatureUrl || null,
+          qr_code_url: u.qrCodeUrl || null,
+          signature_history: u.signatureHistory || []
+        }));
+        const { error: uErr } = await targetClient.from('users').upsert(uRows, { onConflict: 'id' });
+        if (uErr) console.warn('Peringatan upsert users ke target:', uErr.message);
+      } catch (err) {
+        console.warn('Gagal upsert users ke target:', err);
+      }
+    }
+
+    // 7. Simpan room_capacity_rates
+    if (Array.isArray(dbPayload.roomCapacityRates) && dbPayload.roomCapacityRates.length > 0) {
       try {
         const rcrRows = dbPayload.roomCapacityRates.map(rc => ({
           id: rc.id,
@@ -298,6 +346,175 @@ export async function pushAllToTargetSupabase(targetUrl: string, targetKey: stri
       } catch (err) {
         console.warn('Gagal upsert room_capacity_rates ke target:', err);
       }
+    }
+
+    // 8. Simpan transactions
+    if (Array.isArray(dbPayload.transactions) && dbPayload.transactions.length > 0) {
+      try {
+        const txRows = dbPayload.transactions.map(t => ({
+          id: t.id,
+          room_id: t.roomId,
+          room_number: t.roomNumber,
+          category: t.category,
+          guest_name: t.guestName,
+          guest_type: t.guestType,
+          nik_ktp: t.nikKtp,
+          kloter: t.kloter,
+          start_date: t.startDate,
+          duration: t.duration,
+          phone: t.phone,
+          notes: t.notes,
+          status: t.status,
+          created_user: t.createdUser,
+          is_group: t.isGroup,
+          group_type: t.groupType,
+          group_name: t.groupName,
+          group_pic: t.groupPic,
+          group_pic_phone: t.groupPicPhone,
+          group_id: t.groupId,
+          total_pax: t.totalPax,
+          include_aula: t.includeAula,
+          rent_aula_id: t.rentAulaId,
+          rent_aula_name: t.rentAulaName,
+          catering_package: t.cateringPackage,
+          catering_pax_count: t.cateringPaxCount,
+          spk_number: t.spkNumber,
+          allocated_room_numbers: t.allocatedRoomNumbers,
+          allocated_rooms_count: t.allocatedRoomsCount,
+          breakfast: t.breakfast,
+          breakfast_menu: t.breakfastMenu,
+          breakfast_portions: t.breakfastPortions,
+          breakfast_days: t.breakfastDays,
+          breakfast_status: t.breakfastStatus,
+          rent_type: t.rentType,
+          duration_unit: t.durationUnit,
+          extra_bed: t.extraBed,
+          extra_bed_count: t.extraBedCount,
+          extra_bed_price: t.extraBedPrice || 0,
+          extra_bed_notes: t.extraBedNotes || null,
+          agency_or_document: t.agencyOrDocument || null,
+          price_per_night: t.pricePerNight || 0,
+          payment_status: t.paymentStatus || 'BELUM_LUNAS',
+          paid_amount: t.paidAmount || 0,
+          dp_amount: t.dpAmount || 0,
+          dp_date: t.dpDate || null,
+          dp_method: t.dpMethod || null,
+          dp_note: t.dpNote || null,
+          remaining_amount: t.remainingAmount || 0,
+          va_number: t.vaNumber || null,
+          va_account_name: t.vaAccountName || null,
+          bank_name: t.bankName || null,
+          bank_account_number: t.bankAccountNumber || null,
+          payment_method: t.paymentMethod || null,
+          payment_date: t.paymentDate || null,
+          payment_note: t.paymentNote || null,
+          kwitansi_no: t.kwitansiNo || null,
+          cancelled_at: t.cancelledAt || null,
+          cancel_reason: t.cancelReason || null,
+          cancelled_user: t.cancelledUser || null,
+          extend_history: t.extendHistory || [],
+          check_in_time: t.checkInTime,
+          check_out_time: t.checkOutTime
+        }));
+        await targetClient.from('transactions').upsert(txRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert transactions ke target:', err);
+      }
+    }
+
+    // 9. Simpan maintenances
+    if (Array.isArray(dbPayload.maintenances) && dbPayload.maintenances.length > 0) {
+      try {
+        const maintRows = dbPayload.maintenances.map(m => ({
+          id: m.id,
+          room_id: m.roomId,
+          building: m.building,
+          room_number: m.roomNumber,
+          category: m.category,
+          urgency: m.urgency,
+          technician: m.technician,
+          description: m.description,
+          report_time: m.reportTime,
+          status: m.status,
+          reported_user: m.reportedUser,
+          assigned_technician_id: m.assignedTechnicianId,
+          assigned_technician_name: m.assignedTechnicianName,
+          assigned_by_manager: m.assignedByManager,
+          assigned_time: m.assignedTime,
+          manager_notes: m.managerNotes,
+          work_completed_time: m.workCompletedTime,
+          technician_notes: m.technicianNotes,
+          resolved_time: m.resolvedTime,
+          qc_inspection_id: m.qcInspectionId,
+          facility_type: m.facilityType
+        }));
+        await targetClient.from('maintenances').upsert(maintRows, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Gagal upsert maintenances ke target:', err);
+      }
+    }
+
+    // 10. Simpan app_settings
+    if (dbPayload.appSettings) {
+      try {
+        await targetClient.from('app_settings').upsert({
+          id: 'default',
+          organization_name: dbPayload.appSettings.organizationName,
+          sub_title: dbPayload.appSettings.subTitle,
+          ministry_name: dbPayload.appSettings.ministryName,
+          address: dbPayload.appSettings.address,
+          phone: dbPayload.appSettings.phone,
+          email: dbPayload.appSettings.email,
+          portal_url: dbPayload.appSettings.portalUrl,
+          app_logo: dbPayload.appSettings.appLogo || null,
+          app_favicon: dbPayload.appSettings.appFavicon || null,
+          tag_title: dbPayload.appSettings.tagTitle || null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+      } catch (_) {}
+    }
+
+    // 11. Simpan breakfast_menu_items
+    if (Array.isArray(dbPayload.breakfastMenuItems) && dbPayload.breakfastMenuItems.length > 0) {
+      try {
+        const bmiRows = dbPayload.breakfastMenuItems.map(b => ({
+          id: b.id,
+          name: b.name,
+          category: b.category,
+          price: b.price || 0,
+          description: b.description || '',
+          is_available: b.isAvailable !== false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }));
+        await targetClient.from('breakfast_menu_items').upsert(bmiRows, { onConflict: 'id' });
+      } catch (_) {}
+    }
+
+    // 12. Simpan breakfast_orders
+    if (Array.isArray(dbPayload.breakfastOrders) && dbPayload.breakfastOrders.length > 0) {
+      try {
+        const boRows = dbPayload.breakfastOrders.map(o => ({
+          id: o.id,
+          room_number: o.roomNumber,
+          building: o.building,
+          guest_name: o.guestName,
+          phone: o.phone || null,
+          kloter: o.kloter || null,
+          transaction_id: o.transactionId || null,
+          menu_id: o.menuId || null,
+          menu_name: o.menuName,
+          portions: o.portions,
+          days: o.days || 1,
+          start_date: o.startDate || new Date().toISOString().slice(0, 10),
+          delivery_time: o.deliveryTime || '06:30 WIB',
+          status: o.status || 'MENUNGGU',
+          notes: o.notes || '',
+          price_per_portion: o.pricePerPortion || 0,
+          total_price: o.totalPrice || 0
+        }));
+        await targetClient.from('breakfast_orders').upsert(boRows, { onConflict: 'id' });
+      } catch (_) {}
     }
 
     return { success: true };
@@ -704,52 +921,52 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       return null;
     }
 
-    // APP_DATABASE_SYNC ADALAH SINGLE SOURCE OF TRUTH (SNAPSHOT KANONIK RESMI):
-    // Jika syncPayload tersedia, hormati 100% data yang telah dihapus atau diedit oleh pengguna.
-    // Jangan pernah membangkitkan kembali (resurrect) data yang sudah dihapus dengan mengambil baris usang dari tabel relasional.
-    const mergedBuildings = Array.isArray(syncPayload?.buildings)
-      ? syncPayload.buildings
-      : (!buildingsRes.error ? relBuildings : []);
+    // PRIORITASKAN TABEL RELASIONAL SUPABASE SECARA LANGSUNG SEBAGAI SINGLE SOURCE OF TRUTH:
+    // Aksi CRUD (tambah, edit nama gedung, hapus) langsung membaca tabel database Supabase
+    // sehingga perubahan di database akan langsung terlihat dan tidak pernah ter-reset oleh snapshot usang.
+    const mergedBuildings = (!buildingsRes.error && relBuildings.length > 0)
+      ? relBuildings
+      : (Array.isArray(syncPayload?.buildings) ? syncPayload.buildings : []);
 
-    const mergedMeetingRooms = Array.isArray(syncPayload?.meetingRooms)
-      ? syncPayload.meetingRooms
-      : (!meetingRoomsRes.error ? relMeetingRooms : []);
+    const mergedMeetingRooms = (!meetingRoomsRes.error && relMeetingRooms.length > 0)
+      ? relMeetingRooms
+      : (Array.isArray(syncPayload?.meetingRooms) ? syncPayload.meetingRooms : []);
 
-    const mergedTransactions = Array.isArray(syncPayload?.transactions)
-      ? syncPayload.transactions
-      : (!transactionsRes.error ? relTransactions : []);
+    const mergedTransactions = (!transactionsRes.error && transactionsRes.data && transactionsRes.data.length >= 0)
+      ? relTransactions
+      : (Array.isArray(syncPayload?.transactions) ? syncPayload.transactions : []);
 
-    const mergedMaintenances = Array.isArray(syncPayload?.maintenances)
-      ? syncPayload.maintenances
-      : (!maintenancesRes.error ? relMaintenances : []);
+    const mergedMaintenances = (!maintenancesRes.error && maintenancesRes.data && maintenancesRes.data.length >= 0)
+      ? relMaintenances
+      : (Array.isArray(syncPayload?.maintenances) ? syncPayload.maintenances : []);
 
-    const mergedRooms = Array.isArray(syncPayload?.rooms)
-      ? deduplicateRoomsByBuildingAndNumber(syncPayload.rooms, mergedMeetingRooms)
-      : (!roomsRes.error ? deduplicateRoomsByBuildingAndNumber(relRooms, mergedMeetingRooms) : []);
+    const mergedRooms = (!roomsRes.error && relRooms.length > 0)
+      ? deduplicateRoomsByBuildingAndNumber(relRooms, mergedMeetingRooms)
+      : (Array.isArray(syncPayload?.rooms) ? deduplicateRoomsByBuildingAndNumber(syncPayload.rooms, mergedMeetingRooms) : []);
 
-    const mergedQc = Array.isArray(syncPayload?.qcInspections)
-      ? syncPayload.qcInspections
-      : (!qcRes.error ? relQc : []);
+    const mergedQc = (!qcRes.error && qcRes.data && qcRes.data.length >= 0)
+      ? relQc
+      : (Array.isArray(syncPayload?.qcInspections) ? syncPayload.qcInspections : []);
 
-    const mergedAudit = Array.isArray(syncPayload?.auditLogs)
-      ? syncPayload.auditLogs.slice(0, 300)
-      : (!auditRes.error ? relAudit : []);
+    const mergedAudit = (!auditRes.error && auditRes.data && auditRes.data.length >= 0)
+      ? relAudit
+      : (Array.isArray(syncPayload?.auditLogs) ? syncPayload.auditLogs.slice(0, 300) : []);
 
     const mergedUsers = (directUsers && directUsers.length > 0)
       ? directUsers
       : (syncPayload?.users && syncPayload.users.length > 0 ? syncPayload.users : initialUsers);
 
-    const mergedOrders = Array.isArray(syncPayload?.breakfastOrders)
-      ? syncPayload.breakfastOrders
-      : (!breakfastOrdersRes.error ? relOrders : []);
+    const mergedOrders = (!breakfastOrdersRes.error && breakfastOrdersRes.data && breakfastOrdersRes.data.length >= 0)
+      ? relOrders
+      : (Array.isArray(syncPayload?.breakfastOrders) ? syncPayload.breakfastOrders : []);
 
-    const mergedMenu = Array.isArray(syncPayload?.breakfastMenuItems) && syncPayload.breakfastMenuItems.length > 0
-      ? syncPayload.breakfastMenuItems
-      : (relMenu.length > 0 ? relMenu : initialBreakfastMenuItems);
+    const mergedMenu = (!breakfastMenuRes.error && relMenu.length > 0)
+      ? relMenu
+      : (Array.isArray(syncPayload?.breakfastMenuItems) && syncPayload.breakfastMenuItems.length > 0 ? syncPayload.breakfastMenuItems : initialBreakfastMenuItems);
 
-    const mergedRates = Array.isArray(syncPayload?.roomCapacityRates) && syncPayload.roomCapacityRates.length > 0
-      ? deduplicateRoomCapacityRates(syncPayload.roomCapacityRates)
-      : (relRates.length > 0 ? relRates : initialRoomCapacityRates);
+    const mergedRates = (!ratesRes.error && ratesRes.data && ratesRes.data.length > 0)
+      ? relRates
+      : (Array.isArray(syncPayload?.roomCapacityRates) && syncPayload.roomCapacityRates.length > 0 ? deduplicateRoomCapacityRates(syncPayload.roomCapacityRates) : initialRoomCapacityRates);
 
     // Gabungkan workSessions dari syncPayload dan tabel relasional work_sessions secara aman (mendukung banyak akun aktif bersamaan)
     const sessionMap = new Map<string, WorkSession>();
@@ -839,6 +1056,14 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
       passwordResetRequests: pwdRes.data || syncPayload?.passwordResetRequests || []
     };
 
+    // Pastikan app_database_sync (main_production_db & root_snapshot) selalu selaras dengan tabel relasional
+    try {
+      supabase.from('app_database_sync').upsert([
+        { id: 'main_production_db', database_payload: resultDb, updated_at: new Date().toISOString() },
+        { id: 'root_snapshot', database_payload: resultDb, updated_at: new Date().toISOString() }
+      ], { onConflict: 'id' }).then(() => {});
+    } catch (_) {}
+
     return resultDb;
   } catch (e) {
     console.warn('Gagal membaca data dari Supabase:', e);
@@ -924,11 +1149,10 @@ export async function syncFullDatabaseToSupabase(db: CompleteStorageDatabase): P
     // 1. Simpan snapshot terpadu ke app_database_sync (cepat, atomic, dan menjamin relasi utuh)
     const { error: syncError } = await supabase
       .from('app_database_sync')
-      .upsert({
-        id: 'main_production_db',
-        database_payload: payloadToSave,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'id' });
+      .upsert([
+        { id: 'main_production_db', database_payload: payloadToSave, updated_at: new Date().toISOString() },
+        { id: 'root_snapshot', database_payload: payloadToSave, updated_at: new Date().toISOString() }
+      ], { onConflict: 'id' });
 
     if (syncError && syncError.code !== '42P01') {
       console.warn('Peringatan saat upsert app_database_sync:', syncError.message);
@@ -1986,6 +2210,27 @@ export async function updateRoomInSupabaseDirect(r: Room): Promise<{ success: bo
     if (error) {
       return { success: false, error: error.message };
     }
+
+    // Perbarui juga data di app_database_sync agar snapshot konsisten
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const p = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(p.rooms)) {
+          const idx = p.rooms.findIndex(item => item.id === r.id);
+          if (idx >= 0) {
+            p.rooms[idx] = { ...p.rooms[idx], ...r };
+          } else {
+            p.rooms.push(r);
+          }
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: p, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: p, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
+        }
+      }
+    } catch (_) {}
+
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error' };
@@ -2049,6 +2294,27 @@ export async function updateMeetingRoomInSupabaseDirect(m: MeetingRoom): Promise
     if (error) {
       return { success: false, error: error.message };
     }
+
+    // Perbarui juga data di app_database_sync agar snapshot konsisten
+    try {
+      const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
+      if (syncData?.database_payload) {
+        const p = syncData.database_payload as CompleteStorageDatabase;
+        if (Array.isArray(p.meetingRooms)) {
+          const idx = p.meetingRooms.findIndex(item => item.id === m.id);
+          if (idx >= 0) {
+            p.meetingRooms[idx] = { ...p.meetingRooms[idx], ...m };
+          } else {
+            p.meetingRooms.push(m);
+          }
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: p, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: p, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
+        }
+      }
+    } catch (_) {}
+
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error' };
@@ -2139,7 +2405,10 @@ export async function updateBuildingInSupabaseDirect(b: Building, previousName?:
             const oldLower = previousName.trim().toLowerCase();
             p.rooms = p.rooms.map(r => (r.building || '').trim().toLowerCase() === oldLower ? { ...r, building: b.name.trim() } : r);
           }
-          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: p, updated_at: new Date().toISOString() });
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: p, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: p, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
         }
       }
     } catch (_) {}
@@ -2192,7 +2461,10 @@ export async function deleteRoomInSupabaseDirect(roomId: string): Promise<{ succ
         const payload = syncData.database_payload as CompleteStorageDatabase;
         if (Array.isArray(payload.rooms)) {
           payload.rooms = payload.rooms.filter(r => r.id !== roomId);
-          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
         }
       }
     } catch (_) {}
@@ -2229,7 +2501,10 @@ export async function deleteBuildingInSupabaseDirect(buildingId: string, buildin
             const bLower = buildingName.trim().toLowerCase();
             payload.rooms = payload.rooms.filter(r => (r.building || '').trim().toLowerCase() !== bLower);
           }
-          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
         }
       }
     } catch (_) {}
@@ -2254,7 +2529,10 @@ export async function deleteMeetingRoomInSupabaseDirect(meetingRoomId: string): 
         const payload = syncData.database_payload as CompleteStorageDatabase;
         if (Array.isArray(payload.meetingRooms)) {
           payload.meetingRooms = payload.meetingRooms.filter(m => m.id !== meetingRoomId);
-          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
         }
       }
     } catch (_) {}
@@ -2279,7 +2557,10 @@ export async function deleteTransactionInSupabaseDirect(transactionId: string): 
         const payload = syncData.database_payload as CompleteStorageDatabase;
         if (Array.isArray(payload.transactions)) {
           payload.transactions = payload.transactions.filter(t => t.id !== transactionId);
-          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
         }
       }
     } catch (_) {}
@@ -2304,7 +2585,10 @@ export async function deleteUserInSupabaseDirect(userId: string): Promise<{ succ
         const payload = syncData.database_payload as CompleteStorageDatabase;
         if (Array.isArray(payload.users)) {
           payload.users = payload.users.filter(u => u.id !== userId);
-          await supabase.from('app_database_sync').upsert({ id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() });
+          await supabase.from('app_database_sync').upsert([
+            { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
+            { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
+          ], { onConflict: 'id' });
         }
       }
     } catch (_) {}

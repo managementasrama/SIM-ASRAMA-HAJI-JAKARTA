@@ -9,24 +9,18 @@ async function bootstrap() {
   try {
     const res = await fetch('/api/supabase-config');
     if (res.ok) {
-      const data = await res.json();
-      const localUrl = localStorage.getItem('CUSTOM_SUPABASE_URL');
-      const localKey = localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        const localUrl = localStorage.getItem('CUSTOM_SUPABASE_URL');
+        const localKey = localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
 
-      if (data?.url && data?.anonKey) {
-        if (data.isCustom) {
-          // Server memiliki konfigurasi kustom tersimpan -> sinkronkan ke browser ini
+        if (data?.url && data?.anonKey) {
+          (window as any).__INITIAL_SUPABASE_CONFIG__ = data;
           if (localUrl !== data.url || localKey !== data.anonKey) {
             localStorage.setItem('CUSTOM_SUPABASE_URL', data.url);
             localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', data.anonKey);
           }
-        } else if (localUrl && localKey) {
-          // Browser ini memiliki konfigurasi kustom tapi server belum -> daftarkan ke server
-          fetch('/api/supabase-config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: localUrl, anonKey: localKey }),
-          }).catch(() => {});
         }
       }
     }

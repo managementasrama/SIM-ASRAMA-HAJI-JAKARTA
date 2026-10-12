@@ -39,6 +39,10 @@ import {
   deleteRoomInSupabaseDirect,
   deleteMeetingRoomInSupabaseDirect,
   updateBuildingInSupabaseDirect,
+  updateRoomInSupabaseDirect,
+  updateMeetingRoomInSupabaseDirect,
+  mapSupabaseRoomToAppRoom,
+  mapSupabaseMeetingRoomToAppMeetingRoom,
   deleteTransactionInSupabaseDirect,
   deleteMaintenanceInSupabaseDirect,
   deleteQcInspectionInSupabaseDirect,
@@ -665,6 +669,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else if (payload.table === 'rooms') {
             if (payload.eventType === 'DELETE' && payload.old?.id) {
               setRooms(prev => prev.filter(r => r.id !== payload.old.id));
+            } else if (payload.eventType === 'INSERT' && payload.new) {
+              const mappedRoom = mapSupabaseRoomToAppRoom(payload.new);
+              setRooms(prev => {
+                if (prev.some(r => r.id === mappedRoom.id)) return prev;
+                return [...prev, mappedRoom];
+              });
+            } else if (payload.eventType === 'UPDATE' && payload.new) {
+              const mappedRoom = mapSupabaseRoomToAppRoom(payload.new);
+              setRooms(prev => prev.map(r => r.id === mappedRoom.id ? { ...r, ...mappedRoom } : r));
+            }
+          } else if (payload.table === 'meeting_rooms') {
+            if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setMeetingRooms(prev => prev.filter(m => m.id !== payload.old.id));
+            } else if (payload.eventType === 'INSERT' && payload.new) {
+              const mappedMr = mapSupabaseMeetingRoomToAppMeetingRoom(payload.new);
+              setMeetingRooms(prev => {
+                if (prev.some(m => m.id === mappedMr.id)) return prev;
+                return [...prev, mappedMr];
+              });
+            } else if (payload.eventType === 'UPDATE' && payload.new) {
+              const mappedMr = mapSupabaseMeetingRoomToAppMeetingRoom(payload.new);
+              setMeetingRooms(prev => prev.map(m => m.id === mappedMr.id ? { ...m, ...mappedMr } : m));
             }
           }
           triggerBackgroundSync(`Realtime ${payload.eventType || 'change'} ${payload.table || ''}`);
@@ -4263,12 +4289,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ==========================================
   // METODE DATABASE RUANG PERTEMUAN (CRUD)
   // ==========================================
-  const addMeetingRoom = (mr: MeetingRoom) => {
+  const addMeetingRoom = async (mr: MeetingRoom) => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && currentUser?.role !== 'Manager Resepsionis')) {
       showToast('Akses Ditolak: Anda tidak memiliki wewenang untuk menambah ruang pertemuan!', 'error');
       return;
     }
-    dataStorage.saveMeetingRoom(mr);
+    const saved = dataStorage.saveMeetingRoom(mr);
     setMeetingRooms(dataStorage.getMeetingRooms());
     setRooms(dataStorage.getRooms());
     setBuildings(dataStorage.getBuildings());
@@ -4276,6 +4302,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMaintenances(dataStorage.getMaintenances());
     showToast(`Ruang Pertemuan "${mr.name}" berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Ruang Pertemuan', `Menambahkan ruang pertemuan: ${mr.name} (Kapasitas: ${mr.capacity} orang)`);
+    try {
+      await updateMeetingRoomInSupabaseDirect(saved);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push meeting room baru ke Supabase:', e);
+    }
   };
 
   const updateMeetingRoom = async (mr: MeetingRoom) => {
@@ -4284,6 +4316,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
+      await updateMeetingRoomInSupabaseDirect(mr);
       dataStorage.saveMeetingRoom(mr);
       setMeetingRooms(dataStorage.getMeetingRooms());
       setRooms(dataStorage.getRooms());
@@ -4334,12 +4367,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ==========================================
   // METODE DATABASE MASTER KAMAR (ROOMS CRUD)
   // ==========================================
-  const addRoom = (room: Room) => {
+  const addRoom = async (room: Room) => {
     if (!currentUser || (!isSuperAdmin(currentUser?.role) && currentUser?.role !== 'Admin' && currentUser?.role !== 'Manager Resepsionis')) {
       showToast('Akses Ditolak: Hanya Admin atau Manager Resepsionis yang dapat menambah kamar!', 'error');
       return;
     }
-    dataStorage.saveRoom(room);
+    const saved = dataStorage.saveRoom(room);
     setRooms(dataStorage.getRooms());
     setBuildings(dataStorage.getBuildings());
     setMeetingRooms(dataStorage.getMeetingRooms());
@@ -4348,6 +4381,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast(`Kamar ${room.roomNumber} (${room.building}) berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Kamar', `Menambah kamar: No ${room.roomNumber}, Gedung ${room.building}, Tipe ${room.type}`);
+    try {
+      await updateRoomInSupabaseDirect(saved);
+      await dataStorage.pushAllToSupabase();
+    } catch (e) {
+      console.warn('Gagal push kamar baru ke Supabase:', e);
+    }
   };
 
   const updateRoom = async (room: Room) => {
@@ -4356,6 +4395,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
+      await updateRoomInSupabaseDirect(room);
       dataStorage.saveRoom(room);
       setRooms(dataStorage.getRooms());
       setBuildings(dataStorage.getBuildings());

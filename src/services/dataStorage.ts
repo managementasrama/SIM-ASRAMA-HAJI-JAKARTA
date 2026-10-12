@@ -1900,6 +1900,10 @@ export class DataStorageService {
   // ==========================================
   // CADANGAN & PEMULIHAN (BACKUP & RESTORE)
   // ==========================================
+  public exportFullDatabase(): CompleteStorageDatabase {
+    return this.getDatabase();
+  }
+
   public exportDatabaseAsJson(): string {
     const db = this.getDatabase();
     return JSON.stringify(db, null, 2);

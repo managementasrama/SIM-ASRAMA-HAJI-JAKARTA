@@ -14,6 +14,23 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', '/api/supabase-config', false);
+          xhr.send(null);
+          if (xhr.status === 200) {
+            var cfg = JSON.parse(xhr.responseText);
+            if (cfg && cfg.url && cfg.anonKey) {
+              window.__INITIAL_SUPABASE_CONFIG__ = cfg;
+              localStorage.setItem('CUSTOM_SUPABASE_URL', cfg.url);
+              localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cfg.anonKey);
+            }
+          }
+        } catch (_) {}
+      })();
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
     <div id="root" class="flex-grow flex flex-col"></div>

@@ -16,7 +16,25 @@ interface ConfigureSupabaseModalProps {
 }
 
 export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseModalProps) {
-  const { showToast, dataStorage } = useAppContext();
+  const { 
+    showToast, 
+    dataStorage,
+    buildings,
+    rooms,
+    meetingRooms,
+    transactions,
+    maintenances,
+    qcInspections,
+    workSessions,
+    auditLogs,
+    users,
+    appSettings,
+    roomCapacityRates,
+    breakfastMenuItems,
+    breakfastOrders,
+    chatChannels,
+    chatMessages
+  } = useAppContext();
   const currentInfo = getSupabaseSourceInfo();
 
   const [activeTab, setActiveTab] = useState<'UI_DIRECT' | 'VERCEL_ENV' | 'SQL_SCHEMA'>('UI_DIRECT');
@@ -32,6 +50,30 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
   const [copiedSql, setCopiedSql] = useState(false);
 
   if (!isOpen) return null;
+
+  const getCurrentFullPayload = (): CompleteStorageDatabase => {
+    return {
+      schemaVersion: 4,
+      appName: appSettings?.organizationName || 'SIM-Akomodasi UPT Asrama Haji Jakarta',
+      exportedAt: new Date().toISOString(),
+      appSettings: appSettings || dataStorage.getAppSettings(),
+      users: users && users.length > 0 ? users : dataStorage.getUsers(),
+      buildings: buildings && buildings.length > 0 ? buildings : dataStorage.getBuildings(),
+      meetingRooms: meetingRooms && meetingRooms.length > 0 ? meetingRooms : dataStorage.getMeetingRooms(),
+      rooms: rooms && rooms.length > 0 ? rooms : dataStorage.getRooms(),
+      transactions: transactions || dataStorage.getTransactions(),
+      maintenances: maintenances || dataStorage.getMaintenances(),
+      qcInspections: qcInspections || dataStorage.getQcInspections(),
+      workSessions: workSessions || dataStorage.getWorkSessions(),
+      auditLogs: auditLogs || dataStorage.getAuditLogs(),
+      chatChannels: chatChannels && chatChannels.length > 0 ? chatChannels : dataStorage.getChatChannels(),
+      chatMessages: chatMessages || dataStorage.getChatMessages(),
+      breakfastMenuItems: breakfastMenuItems && breakfastMenuItems.length > 0 ? breakfastMenuItems : dataStorage.getBreakfastMenuItems(),
+      breakfastOrders: breakfastOrders || dataStorage.getBreakfastOrders(),
+      roomCapacityRates: roomCapacityRates && roomCapacityRates.length > 0 ? roomCapacityRates : dataStorage.getRoomCapacityRates(),
+      passwordResetRequests: []
+    };
+  };
 
   const handleTestConnection = async () => {
     if (!inputUrl.trim() || !inputKey.trim()) {
@@ -62,21 +104,38 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
       const cleanUrl = inputUrl.trim();
       const cleanKey = inputKey.trim();
 
-      // Jika autoMigrate diaktifkan, salin data aktif ke target Supabase sebelum beralih
+      // 1. Verifikasi koneksi dan kesiapan tabel
+      setTestStatus({ status: 'testing', message: 'Menguji koneksi ke database target...' });
+      const testRes = await testCustomSupabaseConnection(cleanUrl, cleanKey);
+      if (!testRes.success) {
+        showToast(testRes.message, 'error');
+        setTestStatus({ status: 'error', message: testRes.message });
+        setIsSaving(false);
+        return;
+      }
+
+      // 2. Jika autoMigrate diaktifkan, salin data aktif ke target Supabase sebelum beralih
       if (autoMigrate) {
         showToast('Menyalin data aktif ke database baru...', 'info');
-        const currentPayload = dataStorage.exportFullDatabase();
+        const currentPayload = getCurrentFullPayload();
         const migRes = await pushAllToTargetSupabase(cleanUrl, cleanKey, currentPayload);
         if (!migRes.success) {
-          console.warn('Migrasi data otomatis warning:', migRes.error);
+          showToast(`Gagal menyalin data: ${migRes.error}`, 'error');
+          setTestStatus({ status: 'error', message: migRes.error || 'Migrasi gagal' });
+          setIsSaving(false);
+          return;
         }
       }
 
-      await saveCustomSupabaseCredentials(cleanUrl, cleanKey);
-      showToast('Kredensial database Supabase berhasil disimpan permanen! Database ini akan dipakai seterusnya di seluruh perangkat. Memuat ulang sistem...', 'success');
+      const saveOk = await saveCustomSupabaseCredentials(cleanUrl, cleanKey);
+      if (saveOk) {
+        showToast('Kredensial database Supabase berhasil disimpan permanen! Database ini akan dipakai seterusnya di seluruh perangkat. Memuat ulang sistem...', 'success');
+      } else {
+        showToast('Kredensial database Supabase tersimpan di browser! Memuat ulang sistem...', 'success');
+      }
       setTimeout(() => {
         window.location.reload();
-      }, 1200);
+      }, 1000);
     } catch (e: any) {
       showToast(`Gagal menyimpan kredensial: ${e?.message || 'Error'}`, 'error');
       setIsSaving(false);
@@ -99,20 +158,26 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
       return;
     }
     setIsMigrating(true);
+    setTestStatus({ status: 'testing', message: 'Sedang menyalin seluruh data ke database target...' });
     try {
-      const currentPayload = dataStorage.exportFullDatabase();
+      const currentPayload = getCurrentFullPayload();
       const res = await pushAllToTargetSupabase(inputUrl.trim(), inputKey.trim(), currentPayload);
       if (res.success) {
-        showToast('Seluruh data master (gedung, kamar, akun pengguna) berhasil disalin ke Supabase baru!', 'success');
+        showToast('Seluruh data aktif (gedung, kamar, transaksi, akun, dll) berhasil disalin ke Supabase baru!', 'success');
         setTestStatus({
           status: 'success',
-          message: 'Data aktif berhasil dimigrasikan ke proyek database baru!'
+          message: 'Seluruh data aktif berhasil disalin dan tersimpan di proyek Supabase baru!'
         });
       } else {
-        showToast(`Migrasi data gagal: ${res.error}`, 'error');
+        showToast(`Salin data gagal: ${res.error}`, 'error');
+        setTestStatus({
+          status: 'error',
+          message: res.error || 'Gagal menyalin data'
+        });
       }
     } catch (err: any) {
-      showToast(`Gagal migrasi data: ${err?.message || 'Error'}`, 'error');
+      showToast(`Gagal menyalin data: ${err?.message || 'Error'}`, 'error');
+      setTestStatus({ status: 'error', message: err?.message || 'Error' });
     } finally {
       setIsMigrating(false);
     }
@@ -135,9 +200,11 @@ CREATE TABLE IF NOT EXISTS public.buildings (
     code TEXT DEFAULT '',
     floors INTEGER DEFAULT 1,
     total_rooms INTEGER DEFAULT 0,
+    capacity_desc TEXT DEFAULT '',
+    category TEXT DEFAULT 'PENGINAPAN',
     description TEXT DEFAULT '',
-    is_active BOOLEAN DEFAULT true,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    status TEXT DEFAULT 'AKTIF',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.rooms (
@@ -146,41 +213,79 @@ CREATE TABLE IF NOT EXISTS public.rooms (
     building TEXT NOT NULL,
     floor INTEGER DEFAULT 1,
     type TEXT DEFAULT 'Standard',
-    capacity INTEGER DEFAULT 2,
+    bed_type TEXT,
+    capacity TEXT DEFAULT '2 Orang',
+    capacity_number INTEGER DEFAULT 2,
     price_per_night NUMERIC DEFAULT 0,
     status TEXT DEFAULT 'KOSONG',
     active_tx_id TEXT,
     active_maint_id TEXT,
     qc_status TEXT DEFAULT 'LOLOS_QC',
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    last_qc_date TEXT,
+    last_qc_by TEXT,
+    last_qc_notes TEXT,
+    facilities TEXT[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.meeting_rooms (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    capacity INTEGER DEFAULT 50,
-    price_half_day NUMERIC DEFAULT 0,
-    price_full_day NUMERIC DEFAULT 0,
+    code TEXT DEFAULT '',
+    building TEXT DEFAULT 'Kompleks Ruang Pertemuan',
+    capacity TEXT DEFAULT '',
+    capacity_number INTEGER DEFAULT 50,
     facilities TEXT[] DEFAULT '{}',
+    daily_rate NUMERIC DEFAULT 0,
+    session_rate NUMERIC DEFAULT 0,
+    description TEXT DEFAULT '',
     status TEXT DEFAULT 'TERSEDIA',
-    active_tx_id TEXT,
     qc_status TEXT DEFAULT 'LOLOS_QC',
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    active_tx_id TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS public.users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
+    full_name TEXT NOT NULL,
     email TEXT DEFAULT '',
     role TEXT NOT NULL,
     department TEXT DEFAULT 'Operasional',
     shift TEXT DEFAULT 'Pagi',
     status TEXT DEFAULT 'Aktif',
-    password_hash TEXT DEFAULT '',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    password TEXT DEFAULT '',
+    nip TEXT,
+    is_owner BOOLEAN DEFAULT false,
+    signature_url TEXT,
+    qr_code_url TEXT,
+    signature_history JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.room_capacity_rates (
+    id TEXT PRIMARY KEY,
+    room_type TEXT NOT NULL,
+    bed_type TEXT NOT NULL,
+    capacity_pax INTEGER DEFAULT 1,
+    price_per_night NUMERIC DEFAULT 0,
+    description TEXT,
+    facilities TEXT[] DEFAULT '{}',
+    is_active BOOLEAN DEFAULT true,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Nonaktifkan Row Level Security (RLS) agar anon key dapat melakukan CRUD tanpa diblokir
+ALTER TABLE IF EXISTS public.app_database_sync DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.buildings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.rooms DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.meeting_rooms DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.room_capacity_rates DISABLE ROW LEVEL SECURITY;
+
+-- Berikan izin akses penuh ke role anon dan authenticated
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
 
 -- Aktifkan Realtime Publikasi
 ALTER PUBLICATION supabase_realtime ADD TABLE public.app_database_sync;
@@ -188,10 +293,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.buildings;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.meeting_rooms;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.room_capacity_rates;
 `;
     navigator.clipboard.writeText(sqlText);
     setCopiedSql(true);
-    showToast('Skrip SQL dasar berhasil disalin ke papan klip!', 'success');
+    showToast('Skrip SQL lengkap berhasil disalin ke papan klip!', 'success');
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
@@ -349,21 +455,32 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
 
                 {/* Test Status Feedback */}
                 {testStatus.status !== 'idle' && (
-                  <div className={`p-3 rounded-lg border text-[11px] flex items-center space-x-2 ${
+                  <div className={`p-3 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
                     testStatus.status === 'testing'
                       ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-300 dark:border-sky-800 text-sky-800 dark:text-sky-300'
                       : testStatus.status === 'success'
                       ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
                       : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300'
                   }`}>
-                    <i className={`fa-solid ${
-                      testStatus.status === 'testing'
-                        ? 'fa-spinner fa-spin text-sky-500'
-                        : testStatus.status === 'success'
-                        ? 'fa-circle-check text-emerald-500'
-                        : 'fa-triangle-exclamation text-rose-500'
-                    }`}></i>
-                    <span>{testStatus.message}</span>
+                    <div className="flex items-center space-x-2">
+                      <i className={`fa-solid ${
+                        testStatus.status === 'testing'
+                          ? 'fa-spinner fa-spin text-sky-500'
+                          : testStatus.status === 'success'
+                          ? 'fa-circle-check text-emerald-500'
+                          : 'fa-triangle-exclamation text-rose-500'
+                      }`}></i>
+                      <span>{testStatus.message}</span>
+                    </div>
+                    {testStatus.message.includes('Skrip SQL') && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('SQL_SCHEMA')}
+                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg text-[10px] shrink-0 cursor-pointer shadow-xs"
+                      >
+                        Lihat Skrip SQL
+                      </button>
+                    )}
                   </div>
                 )}
 
