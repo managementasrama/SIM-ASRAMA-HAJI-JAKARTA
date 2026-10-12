@@ -24,10 +24,16 @@
             var cfg = JSON.parse(xhr.responseText);
             if (cfg && cfg.url && cfg.anonKey) {
               window.__INITIAL_SUPABASE_CONFIG__ = cfg;
-              localStorage.setItem('CUSTOM_SUPABASE_URL', cfg.url);
-              localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cfg.anonKey);
             }
           }
+        } catch (_) {}
+        // Hapus cache lokal lama agar data murni berasal dari database secara realtime
+        try {
+          localStorage.removeItem('CUSTOM_SUPABASE_URL');
+          localStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
+          localStorage.removeItem('SIM_ASRAMA_HAJI_DATABASE');
+          localStorage.removeItem('CENTRAL_DB_CACHE');
+          localStorage.removeItem('CENTRAL_DB_LOCAL_BACKUP');
         } catch (_) {}
       })();
     </script>

@@ -28,6 +28,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
   const [category, setCategory] = useState<'PENGINAPAN' | 'SERBAGUNA' | 'RUANG_PERTEMUAN' | 'KANTOR'>('PENGINAPAN');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<'AKTIF' | 'NONAKTIF'>('AKTIF');
+  const [isSaving, setIsSaving] = useState(false);
 
   const liveBuildingRoomsCount = useMemo(() => {
     if (!buildingToEdit) return 0;
@@ -65,7 +66,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !code.trim()) {
       showToast('Nama dan kode gedung wajib diisi!', 'warning');
@@ -84,32 +85,38 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
       finalCapDesc = 'Kapasitas Gedung Utuh';
     }
 
-    if (isEdit && buildingToEdit) {
-      updateBuilding({
-        ...buildingToEdit,
-        name: name.trim(),
-        code: code.trim().toUpperCase(),
-        floors: Number(floors) || 1,
-        totalRooms: finalTotalRooms,
-        capacityDesc: finalCapDesc,
-        category,
-        description: description.trim(),
-        status
-      });
-    } else {
-      addBuilding({
-        name: name.trim(),
-        code: code.trim().toUpperCase(),
-        floors: Number(floors) || 1,
-        totalRooms: finalTotalRooms,
-        capacityDesc: finalCapDesc,
-        category,
-        description: description.trim(),
-        status
-      });
+    setIsSaving(true);
+    try {
+      if (isEdit && buildingToEdit) {
+        await updateBuilding({
+          ...buildingToEdit,
+          name: name.trim(),
+          code: code.trim().toUpperCase(),
+          floors: Number(floors) || 1,
+          totalRooms: finalTotalRooms,
+          capacityDesc: finalCapDesc,
+          category,
+          description: description.trim(),
+          status
+        });
+      } else {
+        await addBuilding({
+          name: name.trim(),
+          code: code.trim().toUpperCase(),
+          floors: Number(floors) || 1,
+          totalRooms: finalTotalRooms,
+          capacityDesc: finalCapDesc,
+          category,
+          description: description.trim(),
+          status
+        });
+      }
+      onClose();
+    } catch (err: any) {
+      showToast(`Gagal menyimpan gedung ke database: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsSaving(false);
     }
-
-    onClose();
   };
 
   const canManage = currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin');
@@ -367,16 +374,29 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition"
+                disabled={isSaving}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center space-x-1.5"
+                disabled={isSaving}
+                className={`px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow transition flex items-center space-x-1.5 ${
+                  isSaving ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                }`}
               >
-                <i className="fa-solid fa-floppy-disk"></i>
-                <span>{isEdit ? 'Simpan Perubahan Gedung' : 'Tambahkan Gedung Baru'}</span>
+                {isSaving ? (
+                  <>
+                    <i className="fa-solid fa-spinner fa-spin"></i>
+                    <span>Menyimpan ke Database...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-floppy-disk"></i>
+                    <span>{isEdit ? 'Simpan Perubahan Gedung' : 'Tambahkan Gedung Baru'}</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -1945,17 +1965,17 @@ export function DeleteConfirmModal({ isOpen, onClose, title, itemName, itemType,
           </div>
           <div>
             <h4 className="font-bold text-sm text-rose-950">{title}</h4>
-            <p className="text-[11px] text-rose-600">Peringatan Penghapusan Data</p>
+            <p className="text-[11px] text-rose-600 font-medium">Konfirmasi Hapus dari Database</p>
           </div>
         </div>
 
         <div className="p-5 space-y-3">
           <p className="text-xs text-slate-600 leading-relaxed">
-            Apakah Anda yakin ingin menghapus {itemType} <strong>&quot;{itemName}&quot;</strong> dari basis data lokal?
+            Apakah Anda yakin ingin menghapus {itemType} <strong>&quot;{itemName}&quot;</strong> secara permanen dari database?
           </p>
-          <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-[11px] text-amber-800">
-            <i className="fa-solid fa-triangle-exclamation mr-1.5"></i>
-            Tindakan ini akan menghapus data tersebut secara permanen dari penyimpanan lokal.
+          <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200 text-[11px] text-rose-800 font-medium leading-relaxed">
+            <i className="fa-solid fa-triangle-exclamation mr-1.5 text-rose-600"></i>
+            Tindakan ini akan menghapus data tersebut secara permanen dari Database Pusat (Supabase) dan tidak dapat dibatalkan.
           </div>
         </div>
 
@@ -1963,7 +1983,7 @@ export function DeleteConfirmModal({ isOpen, onClose, title, itemName, itemType,
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition"
+            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition cursor-pointer"
           >
             Batal
           </button>
@@ -1973,10 +1993,10 @@ export function DeleteConfirmModal({ isOpen, onClose, title, itemName, itemType,
               onConfirm();
               onClose();
             }}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5 cursor-pointer"
           >
-            <i className="fa-solid fa-trash"></i>
-            <span>Ya, Hapus Data</span>
+            <i className="fa-solid fa-trash-can"></i>
+            <span>Ya, Hapus Permanen dari Database</span>
           </button>
         </div>
       </div>

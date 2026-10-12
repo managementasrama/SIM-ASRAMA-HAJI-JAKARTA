@@ -24,6 +24,8 @@ export function EmailNotificationModal({ isOpen, onClose, selectedEmailId }: Ema
   const [selectedId, setSelectedId] = useState<string | null>(selectedEmailId || null);
   const [previewMode, setPreviewMode] = useState<'RENDER' | 'METADATA'>('RENDER');
 
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
   useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
@@ -181,11 +183,7 @@ export function EmailNotificationModal({ isOpen, onClose, selectedEmailId }: Ema
             {emailNotifications.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm("Kosongkan riwayat arsip notifikasi email?")) {
-                    clearEmailHistory();
-                  }
-                }}
+                onClick={() => setShowClearConfirm(true)}
                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                 title="Hapus semua arsip notifikasi"
               >
@@ -376,6 +374,47 @@ export function EmailNotificationModal({ isOpen, onClose, selectedEmailId }: Ema
           </button>
         </div>
       </div>
+
+      {showClearConfirm && (
+        <div 
+          className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowClearConfirm(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5 space-y-4 text-center border border-rose-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center text-xl mx-auto border border-rose-200">
+              <i className="fa-solid fa-trash-can"></i>
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm">Kosongkan Riwayat Notifikasi Email?</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                Apakah Anda yakin ingin menghapus seluruh log dan arsip email notifikasi? Tindakan ini permanen.
+              </p>
+            </div>
+            <div className="flex items-center justify-center space-x-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearEmailHistory();
+                  setShowClearConfirm(false);
+                }}
+                className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs transition cursor-pointer"
+              >
+                Ya, Kosongkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

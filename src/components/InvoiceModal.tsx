@@ -607,34 +607,39 @@ function InvoiceModalInner({
     setShowPayModal(false);
   };
 
+  const [showRevertConfirm, setShowRevertConfirm] = useState(false);
+
   const handleRevertPayment = () => {
-    if (window.confirm('Yakin ingin mereset status pembayaran tagihan ini kembali ke Belum Lunas?')) {
-      const updated: Transaction = {
-        ...activeTx,
-        paymentStatus: 'BELUM_LUNAS',
-        paidAmount: undefined,
-        dpAmount: undefined,
-        dpDate: undefined,
-        dpMethod: undefined,
-        dpNote: undefined,
-        remainingAmount: pricingDetails.grandTotal
-      };
-      updateTransaction(updated);
-      if (isGroupBooking && memberTransactions.length > 0) {
-        memberTransactions.forEach(m => {
-          if (m.id !== activeTx.id) {
-            updateTransaction({
-              ...m,
-              paymentStatus: 'BELUM_LUNAS',
-              paidAmount: undefined,
-              dpAmount: undefined,
-              remainingAmount: undefined
-            });
-          }
-        });
-      }
-      showToast('Status pembayaran tagihan berhasil direset menjadi Belum Lunas.', 'info');
+    setShowRevertConfirm(true);
+  };
+
+  const executeRevertPayment = () => {
+    setShowRevertConfirm(false);
+    const updated: Transaction = {
+      ...activeTx,
+      paymentStatus: 'BELUM_LUNAS',
+      paidAmount: undefined,
+      dpAmount: undefined,
+      dpDate: undefined,
+      dpMethod: undefined,
+      dpNote: undefined,
+      remainingAmount: pricingDetails.grandTotal
+    };
+    updateTransaction(updated);
+    if (isGroupBooking && memberTransactions.length > 0) {
+      memberTransactions.forEach(m => {
+        if (m.id !== activeTx.id) {
+          updateTransaction({
+            ...m,
+            paymentStatus: 'BELUM_LUNAS',
+            paidAmount: undefined,
+            dpAmount: undefined,
+            remainingAmount: undefined
+          });
+        }
+      });
     }
+    showToast('Status pembayaran tagihan berhasil direset menjadi Belum Lunas.', 'info');
   };
 
   const handleGoBack = () => {
@@ -2524,6 +2529,44 @@ function InvoiceModalInner({
                     ? `Konfirmasi Pelunasan Penuh (${formatRupiah(enteredAmount)})`
                     : `Simpan Uang Muka / DP (${formatRupiah(enteredAmount)})`}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRevertConfirm && (
+        <div 
+          className="fixed inset-0 z-60 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowRevertConfirm(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5 space-y-4 text-center border border-amber-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl mx-auto border border-amber-200">
+              <i className="fa-solid fa-rotate-left"></i>
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm">Reset Status Pembayaran?</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                Apakah Anda yakin ingin mereset status pembayaran tagihan ini kembali ke <strong className="text-rose-700">Belum Lunas</strong>?
+              </p>
+            </div>
+            <div className="flex items-center justify-center space-x-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowRevertConfirm(false)}
+                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={executeRevertPayment}
+                className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-xs transition cursor-pointer"
+              >
+                Ya, Reset Status
               </button>
             </div>
           </div>

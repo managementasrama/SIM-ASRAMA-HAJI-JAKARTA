@@ -552,6 +552,11 @@ export class DataStorageService {
     return LOCAL_STORAGE_KEY;
   }
 
+  public clearCache(): void {
+    this.cache = null;
+    this.hasHydratedFromCloud = false;
+  }
+
   public getDatabase(_ns?: any): CompleteStorageDatabase {
     if (this.cache) {
       return this.cache;
@@ -1050,10 +1055,9 @@ export class DataStorageService {
       users,
       meetingRooms
     });
-    updateBuildingInSupabaseDirect(buildingWithId, previousBuildingName).then(res => {
-      if (!res.success) console.warn('Gagal update building ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update building error:', err));
+    updateBuildingInSupabaseDirect(buildingWithId, previousBuildingName).catch(err => {
+      console.warn('Supabase update building background info:', err);
+    });
     return buildingWithId;
   }
 

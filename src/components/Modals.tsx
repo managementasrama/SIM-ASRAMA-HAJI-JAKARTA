@@ -11,7 +11,7 @@ import { RoomDetailModal } from './RoomDetailModal';
 import { GroupRegistrationModal } from './GroupRegistrationModal';
 import { AgendaListModal } from './AgendaListModal';
 import { AccountProfileModal } from './AccountProfileModal';
-import { RoomModal, RoomCapacityRateModal } from './CatalogManagementModals';
+import { RoomModal, RoomCapacityRateModal, DeleteConfirmModal } from './CatalogManagementModals';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { dataStorage } from '../services/dataStorage';
 
@@ -702,6 +702,7 @@ export function Modals() {
   const [uDepartment, setUDepartment] = useState('Pelayanan & Resepsionis');
   const [uSearch, setUSearch] = useState('');
   const [uDeptFilter, setUDeptFilter] = useState<'ALL' | 'Resepsionis' | 'QC' | 'Teknisi' | 'Koperasi'>('ALL');
+  const [userToDelete, setUserToDelete] = useState<{ id: string; fullName: string; username: string } | null>(null);
 
   // Auto-fill supervisor and department when role changes
   const handleRoleChange = (newRole: string) => {
@@ -3778,9 +3779,7 @@ export function Modals() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    if (window.confirm(`Yakin ingin menghapus akun ${u.fullName} (${u.username}) dari sistem?`)) {
-                                      deleteUser(u.id);
-                                    }
+                                    setUserToDelete({ id: u.id, fullName: u.fullName, username: u.username });
                                   }}
                                   className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs transition border border-rose-200 cursor-pointer"
                                   title="Hapus Akun"
@@ -3799,6 +3798,20 @@ export function Modals() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmModal
+        isOpen={Boolean(userToDelete)}
+        title="Hapus Akun Petugas"
+        itemName={userToDelete ? `${userToDelete.fullName} (@${userToDelete.username})` : ''}
+        itemType="Akun Petugas"
+        onClose={() => setUserToDelete(null)}
+        onConfirm={() => {
+          if (userToDelete) {
+            deleteUser(userToDelete.id);
+            setUserToDelete(null);
+          }
+        }}
+      />
 
       {isKloterOpen && (
         <div 

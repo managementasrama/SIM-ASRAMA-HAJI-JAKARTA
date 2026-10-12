@@ -87,15 +87,53 @@ async function startServer() {
   const configFilePath = path.join(process.cwd(), "supabase_config.json");
   const envFilePath = path.join(process.cwd(), ".env");
 
+  // Helper untuk membaca nilai dari file .env secara langsung
+  // Helper untuk membaca nilai dari file .env secara langsung
+  function parseEnvFile(): { url?: string; anonKey?: string } {
+    try {
+      if (fs.existsSync(envFilePath)) {
+        const raw = fs.readFileSync(envFilePath, "utf-8");
+        let url: string | undefined;
+        let anonKey: string | undefined;
+
+        const urlMatch = raw.match(/VITE_SUPABASE_URL\s*=\s*["']?([^\r\n"']+)["']?/);
+        if (urlMatch && urlMatch[1]) {
+          url = urlMatch[1].trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+        }
+
+        const keyMatch = raw.match(/VITE_SUPABASE_(?:ANON_KEY|PUBLISHABLE_KEY)\s*=\s*["']?([^\r\n"']+)["']?/);
+        if (keyMatch && keyMatch[1]) {
+          anonKey = keyMatch[1].trim();
+        }
+
+        return { url, anonKey };
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  const envConfig = parseEnvFile();
+  const defaultUrl = "https://iiopgzyxzvmnmkgnrzvc.supabase.co";
+  const defaultKey = "sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80";
+
   let activeSupabaseConfig = {
-    url: process.env.VITE_SUPABASE_URL || "https://iiopgzyxzvmnmkgnrzvc.supabase.co",
-    anonKey: process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80",
+    url: envConfig.url || process.env.VITE_SUPABASE_URL || defaultUrl,
+    anonKey: envConfig.anonKey || process.env.VITE_SUPABASE_ANON_KEY || defaultKey,
     updatedAt: new Date().toISOString(),
-    isCustom: false,
+    isCustom: Boolean(envConfig.url && envConfig.anonKey),
   };
 
   try {
-    if (fs.existsSync(configFilePath)) {
+    if (envConfig.url && envConfig.anonKey) {
+      // Prioritaskan konfigurasi terbaru dari .env
+      activeSupabaseConfig = {
+        url: envConfig.url,
+        anonKey: envConfig.anonKey,
+        updatedAt: new Date().toISOString(),
+        isCustom: true,
+      };
+      fs.writeFileSync(configFilePath, JSON.stringify(activeSupabaseConfig, null, 2), "utf-8");
+    } else if (fs.existsSync(configFilePath)) {
       const fileRaw = fs.readFileSync(configFilePath, "utf-8");
       const parsed = JSON.parse(fileRaw);
       if (parsed?.url && parsed?.anonKey) {
@@ -105,17 +143,12 @@ async function startServer() {
           updatedAt: parsed.updatedAt || new Date().toISOString(),
           isCustom: true,
         };
-        process.env.VITE_SUPABASE_URL = parsed.url;
-        process.env.VITE_SUPABASE_ANON_KEY = parsed.anonKey;
-
-        // Pastikan file .env sinkron dengan konfigurasi aktif
-        try {
-          fs.writeFileSync(envFilePath, `VITE_SUPABASE_URL=${parsed.url}\nVITE_SUPABASE_ANON_KEY=${parsed.anonKey}\n`, "utf-8");
-        } catch (_) {}
       }
     }
+    process.env.VITE_SUPABASE_URL = activeSupabaseConfig.url;
+    process.env.VITE_SUPABASE_ANON_KEY = activeSupabaseConfig.anonKey;
   } catch (e) {
-    console.warn("Failed to load supabase_config.json:", e);
+    console.warn("Failed to synchronize supabase database config:", e);
   }
 
   app.get("/api/supabase-config", (_req, res) => {

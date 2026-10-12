@@ -29,10 +29,8 @@ function sanitizeSupabaseUrl(url?: string): string {
   return url.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
 }
 
-// Deteksi penyimpanan kustom di browser atau window inject
+// Deteksi konfigurasi database dari server / environment variable tanpa ketergantungan localStorage
 const windowConfig = typeof window !== 'undefined' ? (window as any).__INITIAL_SUPABASE_CONFIG__ : null;
-const customStoredUrl = typeof window !== 'undefined' ? (windowConfig?.url || localStorage.getItem('CUSTOM_SUPABASE_URL')) : null;
-const customStoredKey = typeof window !== 'undefined' ? (windowConfig?.anonKey || localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY')) : null;
 
 // Deteksi environment variable aman untuk Vite & Vercel
 const rawEnvUrl = 
@@ -46,25 +44,25 @@ const rawEnvKey =
   '';
 
 // Default fallback mengarah ke proyek Supabase yang telah dikonfigurasi aktif
-const defaultFallbackUrl = 'https://xtbgkfjksjuptyhkqqwa.supabase.co';
-const defaultFallbackKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0YmdrZmprc2p1cHR5aGtxcXdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MTQ1MjIsImV4cCI6MjEwNzE5MDUyMn0.RMZNJGVSFjE8cBcMT2CXc8LmBkqRjfB_Ufdc0qrhIn0';
+const defaultFallbackUrl = 'https://iiopgzyxzvmnmkgnrzvc.supabase.co';
+const defaultFallbackKey = 'sb_publishable_rpX2kofk6225g4vs6lB1gQ_6_F4bz80';
 
-export const SUPABASE_URL = sanitizeSupabaseUrl(customStoredUrl || rawEnvUrl || defaultFallbackUrl);
-export const SUPABASE_ANON_KEY = (customStoredKey || rawEnvKey || defaultFallbackKey || '').trim();
+export let SUPABASE_URL = sanitizeSupabaseUrl(windowConfig?.url || rawEnvUrl || defaultFallbackUrl);
+export let SUPABASE_ANON_KEY = (windowConfig?.anonKey || rawEnvKey || defaultFallbackKey || '').trim();
 
 /**
  * Mendapatkan informasi sumber konfigurasi Supabase yang sedang aktif
  */
 export function getSupabaseSourceInfo(): {
   url: string;
-  source: 'custom_storage' | 'environment_variable' | 'default_hardcoded';
+  source: 'server_config' | 'environment_variable' | 'default_hardcoded';
   host: string;
   isCustom: boolean;
   hasEnv: boolean;
 } {
-  let source: 'custom_storage' | 'environment_variable' | 'default_hardcoded' = 'default_hardcoded';
-  if (customStoredUrl && customStoredKey) {
-    source = 'custom_storage';
+  let source: 'server_config' | 'environment_variable' | 'default_hardcoded' = 'default_hardcoded';
+  if (windowConfig?.url && windowConfig?.anonKey) {
+    source = 'server_config';
   } else if (rawEnvUrl && rawEnvKey) {
     source = 'environment_variable';
   }
@@ -81,23 +79,30 @@ export function getSupabaseSourceInfo(): {
     url: SUPABASE_URL,
     source,
     host,
-    isCustom: Boolean(customStoredUrl && customStoredKey),
+    isCustom: Boolean(windowConfig?.isCustom || (windowConfig?.url && windowConfig.url !== defaultFallbackUrl)),
     hasEnv: Boolean(rawEnvUrl && rawEnvKey)
   };
 }
 
 /**
- * Simpan kredensial Supabase kustom ke localStorage, sync ke server (supabase_config.json)
- * dan siarkan ke seluruh tab / perangkat lain.
+ * Simpan kredensial Supabase kustom dan sinkronkan ke server (supabase_config.json dan .env)
+ * secara realtime tanpa menyimpan payload data ke localStorage.
  */
 export async function saveCustomSupabaseCredentials(url: string, key: string): Promise<boolean> {
   const cleanUrl = sanitizeSupabaseUrl(url);
   const cleanKey = key.trim();
 
+  SUPABASE_URL = cleanUrl;
+  SUPABASE_ANON_KEY = cleanKey;
+
   if (typeof window !== 'undefined') {
-    localStorage.setItem('CUSTOM_SUPABASE_URL', cleanUrl);
-    localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cleanKey);
-    (window as any).__INITIAL_SUPABASE_CONFIG__ = { url: cleanUrl, anonKey: cleanKey };
+    (window as any).__INITIAL_SUPABASE_CONFIG__ = { url: cleanUrl, anonKey: cleanKey, isCustom: true };
+    try {
+      localStorage.removeItem('CUSTOM_SUPABASE_URL');
+      localStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
+      localStorage.removeItem('SIM_ASRAMA_HAJI_DATABASE');
+      localStorage.removeItem('CENTRAL_DB_CACHE');
+    } catch (_) {}
 
     // Siarkan ke tab lain di browser yang sama
     try {
@@ -112,7 +117,9 @@ export async function saveCustomSupabaseCredentials(url: string, key: string): P
     } catch (_) {}
   }
 
-  // Sinkronkan ke server backend agar server & seluruh perangkat lain memakai database ini
+  reconfigureSupabaseClient(cleanUrl, cleanKey);
+
+  // Sinkronkan ke server backend agar server & seluruh sesi memakai database ini
   try {
     const res = await fetch('/api/supabase-config', {
       method: 'POST',
@@ -523,13 +530,34 @@ export async function pushAllToTargetSupabase(targetUrl: string, targetKey: stri
   }
 }
 
-/**
- * Klien resmi Supabase (@supabase/supabase-js)
- */
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+let _activeClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true
+  }
+});
+
+/**
+ * Reconfigures the active Supabase client dynamically without page reload
+ */
+export function reconfigureSupabaseClient(newUrl: string, newKey: string) {
+  SUPABASE_URL = sanitizeSupabaseUrl(newUrl);
+  SUPABASE_ANON_KEY = newKey.trim();
+  _activeClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
+}
+
+/**
+ * Klien resmi Supabase (@supabase/supabase-js) dinamis yang selalu mengarah ke database aktif
+ */
+export const supabase: any = new Proxy({} as any, {
+  get(_target, prop) {
+    const val = (_activeClient as any)[prop];
+    return typeof val === 'function' ? val.bind(_activeClient) : val;
   }
 });
 
@@ -924,47 +952,47 @@ export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDa
     // PRIORITASKAN TABEL RELASIONAL SUPABASE SECARA LANGSUNG SEBAGAI SINGLE SOURCE OF TRUTH:
     // Aksi CRUD (tambah, edit nama gedung, hapus) langsung membaca tabel database Supabase
     // sehingga perubahan di database akan langsung terlihat dan tidak pernah ter-reset oleh snapshot usang.
-    const mergedBuildings = (!buildingsRes.error && relBuildings.length > 0)
+    const mergedBuildings = !buildingsRes.error
       ? relBuildings
       : (Array.isArray(syncPayload?.buildings) ? syncPayload.buildings : []);
 
-    const mergedMeetingRooms = (!meetingRoomsRes.error && relMeetingRooms.length > 0)
+    const mergedMeetingRooms = !meetingRoomsRes.error
       ? relMeetingRooms
       : (Array.isArray(syncPayload?.meetingRooms) ? syncPayload.meetingRooms : []);
 
-    const mergedTransactions = (!transactionsRes.error && transactionsRes.data && transactionsRes.data.length >= 0)
+    const mergedTransactions = !transactionsRes.error
       ? relTransactions
       : (Array.isArray(syncPayload?.transactions) ? syncPayload.transactions : []);
 
-    const mergedMaintenances = (!maintenancesRes.error && maintenancesRes.data && maintenancesRes.data.length >= 0)
+    const mergedMaintenances = !maintenancesRes.error
       ? relMaintenances
       : (Array.isArray(syncPayload?.maintenances) ? syncPayload.maintenances : []);
 
-    const mergedRooms = (!roomsRes.error && relRooms.length > 0)
+    const mergedRooms = !roomsRes.error
       ? deduplicateRoomsByBuildingAndNumber(relRooms, mergedMeetingRooms)
       : (Array.isArray(syncPayload?.rooms) ? deduplicateRoomsByBuildingAndNumber(syncPayload.rooms, mergedMeetingRooms) : []);
 
-    const mergedQc = (!qcRes.error && qcRes.data && qcRes.data.length >= 0)
+    const mergedQc = !qcRes.error
       ? relQc
       : (Array.isArray(syncPayload?.qcInspections) ? syncPayload.qcInspections : []);
 
-    const mergedAudit = (!auditRes.error && auditRes.data && auditRes.data.length >= 0)
+    const mergedAudit = !auditRes.error
       ? relAudit
       : (Array.isArray(syncPayload?.auditLogs) ? syncPayload.auditLogs.slice(0, 300) : []);
 
-    const mergedUsers = (directUsers && directUsers.length > 0)
+    const mergedUsers = (directUsers !== null && directUsers !== undefined)
       ? directUsers
       : (syncPayload?.users && syncPayload.users.length > 0 ? syncPayload.users : initialUsers);
 
-    const mergedOrders = (!breakfastOrdersRes.error && breakfastOrdersRes.data && breakfastOrdersRes.data.length >= 0)
+    const mergedOrders = !breakfastOrdersRes.error
       ? relOrders
       : (Array.isArray(syncPayload?.breakfastOrders) ? syncPayload.breakfastOrders : []);
 
-    const mergedMenu = (!breakfastMenuRes.error && relMenu.length > 0)
+    const mergedMenu = !breakfastMenuRes.error
       ? relMenu
       : (Array.isArray(syncPayload?.breakfastMenuItems) && syncPayload.breakfastMenuItems.length > 0 ? syncPayload.breakfastMenuItems : initialBreakfastMenuItems);
 
-    const mergedRates = (!ratesRes.error && ratesRes.data && ratesRes.data.length > 0)
+    const mergedRates = !ratesRes.error
       ? relRates
       : (Array.isArray(syncPayload?.roomCapacityRates) && syncPayload.roomCapacityRates.length > 0 ? deduplicateRoomCapacityRates(syncPayload.roomCapacityRates) : initialRoomCapacityRates);
 
@@ -1246,13 +1274,13 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
       const bldPayloads = db.buildings.map(b => ({
         id: b.id,
         name: b.name,
-        code: b.code,
-        floors: b.floors,
-        total_rooms: b.totalRooms,
-        capacity_desc: b.capacityDesc,
-        category: b.category,
-        description: b.description,
-        status: b.status
+        code: b.code || null,
+        floors: Number(b.floors) || 1,
+        total_rooms: Number(b.totalRooms) || 0,
+        capacity_desc: b.capacityDesc || null,
+        category: b.category || 'PENGINAPAN',
+        description: b.description || null,
+        status: b.status || 'AKTIF'
       }));
       await supabase.from('buildings').upsert(bldPayloads, { onConflict: 'id' });
     }
@@ -1275,18 +1303,20 @@ async function syncIndividualTables(db: CompleteStorageDatabase) {
         id: r.id,
         building: r.building,
         room_number: r.roomNumber,
-        floor: r.floor,
-        type: r.type,
-        capacity: r.capacity,
-        status: r.status,
-        qc_status: r.qcStatus,
-        last_qc_date: r.lastQcDate,
-        last_qc_by: r.lastQcBy,
-        last_qc_notes: r.lastQcNotes,
-        active_tx_id: r.activeTxId,
-        active_maint_id: r.activeMaintId,
-        price_per_night: r.pricePerNight,
-        facilities: r.facilities
+        floor: Number(r.floor) || 1,
+        type: r.type || 'Standar',
+        bed_type: r.bedType || null,
+        capacity: r.capacity || '',
+        capacity_number: Number(r.capacityNumber) || null,
+        status: r.status || 'KOSONG',
+        qc_status: r.qcStatus || 'LOLOS_QC',
+        last_qc_date: r.lastQcDate || null,
+        last_qc_by: r.lastQcBy || null,
+        last_qc_notes: r.lastQcNotes || null,
+        active_tx_id: r.activeTxId || null,
+        active_maint_id: r.activeMaintId || null,
+        price_per_night: Number(r.pricePerNight) || 0,
+        facilities: Array.isArray(r.facilities) ? r.facilities : []
       }));
       await supabase.from('rooms').upsert(roomPayloads, { onConflict: 'id' });
     }
@@ -2366,44 +2396,92 @@ export { useRealtimeSync } from '../hooks/useRealtimeSync';
  */
 export async function updateBuildingInSupabaseDirect(b: Building, previousName?: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const cleanName = b.name.trim();
+    const cleanPrev = (previousName || '').trim();
+
+    // 1. Cari target ID di database: utamakan b.id, jika belum ada cari berdasarkan nama sebelumnya
+    let targetId = b.id;
+    let existingFound = false;
+    try {
+      const { data: byId } = await supabase.from('buildings').select('id, name').eq('id', b.id).maybeSingle();
+      if (byId) {
+        existingFound = true;
+      } else if (cleanPrev) {
+        const { data: byName } = await supabase.from('buildings').select('id, name').ilike('name', cleanPrev).maybeSingle();
+        if (byName?.id) {
+          targetId = byName.id;
+          existingFound = true;
+        }
+      }
+    } catch (_) {}
+
     const payload = {
-      id: b.id,
-      name: b.name,
-      code: b.code || null,
-      floors: b.floors ?? 1,
-      total_rooms: b.totalRooms ?? 0,
+      id: targetId,
+      name: cleanName,
+      code: (b.code || '').trim().toUpperCase() || null,
+      floors: Number(b.floors) || 1,
+      total_rooms: Number(b.totalRooms) || 0,
       capacity_desc: b.capacityDesc || null,
       category: b.category || 'PENGINAPAN',
       description: b.description || null,
       status: b.status || 'AKTIF'
     };
-    const { error } = await supabase.from('buildings').upsert(payload, { onConflict: 'id' });
-    if (error) {
-      return { success: false, error: error.message };
+
+    let saveErr = null;
+    if (existingFound) {
+      // Jalankan direct SQL UPDATE terlebih dahulu
+      const { error: updErr } = await supabase.from('buildings').update(payload).eq('id', targetId);
+      if (updErr) {
+        const { error: upErr } = await supabase.from('buildings').upsert(payload, { onConflict: 'id' });
+        saveErr = upErr;
+      }
+    } else {
+      const { error: insErr } = await supabase.from('buildings').upsert(payload, { onConflict: 'id' });
+      saveErr = insErr;
     }
 
-    // Jika nama gedung berubah, perbarui juga field building pada semua kamar di tabel rooms Supabase
-    if (previousName && previousName.trim() !== b.name.trim()) {
+    if (saveErr) {
+      console.error('Supabase update building error:', saveErr);
+      return { success: false, error: saveErr.message };
+    }
+
+    // 2. Jika nama gedung berubah, sinkronkan ke semua tabel relasional di database Supabase secara real-time
+    if (cleanPrev && cleanPrev.toLowerCase() !== cleanName.toLowerCase()) {
       try {
-        await supabase
-          .from('rooms')
-          .update({ building: b.name.trim() })
-          .ilike('building', previousName.trim());
+        await Promise.allSettled([
+          supabase.from('rooms').update({ building: cleanName }).ilike('building', cleanPrev),
+          supabase.from('transactions').update({ building: cleanName }).ilike('building', cleanPrev),
+          supabase.from('maintenances').update({ building: cleanName }).ilike('building', cleanPrev),
+          supabase.from('qc_inspections').update({ building: cleanName }).ilike('building', cleanPrev),
+          supabase.from('meeting_rooms').update({ building: cleanName }).ilike('building', cleanPrev),
+          supabase.from('users').update({ assigned_building: cleanName }).ilike('assigned_building', cleanPrev)
+        ]);
       } catch (e) {
-        console.warn('Gagal update nama gedung di tabel rooms Supabase:', e);
+        console.warn('Gagal cascade update nama gedung ke tabel relasional Supabase:', e);
       }
     }
 
-    // Perbarui juga data di app_database_sync agar konsisten seketika
+    // 3. Perbarui juga snapshot terpadu di app_database_sync agar konsisten seketika
     try {
       const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
       if (syncData?.database_payload) {
         const p = syncData.database_payload as CompleteStorageDatabase;
         if (Array.isArray(p.buildings)) {
-          p.buildings = p.buildings.map(item => item.id === b.id ? { ...item, ...b } : item);
-          if (previousName && previousName.trim() !== b.name.trim() && Array.isArray(p.rooms)) {
-            const oldLower = previousName.trim().toLowerCase();
-            p.rooms = p.rooms.map(r => (r.building || '').trim().toLowerCase() === oldLower ? { ...r, building: b.name.trim() } : r);
+          p.buildings = p.buildings.map(item => (item.id === targetId || item.id === b.id) ? { ...item, ...b, id: targetId, name: cleanName } : item);
+          if (cleanPrev && cleanPrev.toLowerCase() !== cleanName.toLowerCase()) {
+            const oldLower = cleanPrev.toLowerCase();
+            if (Array.isArray(p.rooms)) {
+              p.rooms = p.rooms.map(r => (r.building || '').trim().toLowerCase() === oldLower ? { ...r, building: cleanName } : r);
+            }
+            if (Array.isArray(p.transactions)) {
+              p.transactions = p.transactions.map(t => (t.building || '').trim().toLowerCase() === oldLower ? { ...t, building: cleanName } : t);
+            }
+            if (Array.isArray(p.maintenances)) {
+              p.maintenances = p.maintenances.map(m => (m.building || '').trim().toLowerCase() === oldLower ? { ...m, building: cleanName } : m);
+            }
+            if (Array.isArray(p.qcInspections)) {
+              p.qcInspections = p.qcInspections.map(q => (q.building || '').trim().toLowerCase() === oldLower ? { ...q, building: cleanName } : q);
+            }
           }
           await supabase.from('app_database_sync').upsert([
             { id: 'main_production_db', database_payload: p, updated_at: new Date().toISOString() },
@@ -2479,33 +2557,52 @@ export async function deleteRoomInSupabaseDirect(roomId: string): Promise<{ succ
  */
 export async function deleteBuildingInSupabaseDirect(buildingId: string, buildingName?: string): Promise<{ success: boolean; error?: string }> {
   try {
+    // Hapus dari tabel buildings berdasarkan id
     const { error } = await supabase.from('buildings').delete().eq('id', buildingId);
     if (error && error.code !== '42P01') {
-      return { success: false, error: error.message };
+      console.warn('Gagal delete building by id:', error.message);
+    }
+
+    // Jika buildingName tersedia, hapus juga record yang memiliki nama sama di tabel buildings
+    if (buildingName) {
+      try {
+        await supabase.from('buildings').delete().ilike('name', buildingName.trim());
+      } catch (_) {}
     }
 
     // Bersihkan juga unit-unit kamar yang terafiliasi dengan gedung ini dari tabel rooms Supabase
     try {
       if (buildingName) {
-        await supabase.from('rooms').delete().ilike('building', `%${buildingName.trim()}%`);
+        await supabase.from('rooms').delete().ilike('building', buildingName.trim());
       }
     } catch (_) {}
 
+    // Bersihkan juga dari meeting_rooms jika ada fasilitas aula di gedung ini
+    try {
+      if (buildingName) {
+        await supabase.from('meeting_rooms').delete().ilike('building', buildingName.trim());
+      }
+    } catch (_) {}
+
+    // Hapus dari snapshot app_database_sync
     try {
       const { data: syncData } = await supabase.from('app_database_sync').select('database_payload').eq('id', 'main_production_db').maybeSingle();
       if (syncData?.database_payload) {
         const payload = syncData.database_payload as CompleteStorageDatabase;
+        const bLower = (buildingName || '').trim().toLowerCase();
         if (Array.isArray(payload.buildings)) {
-          payload.buildings = payload.buildings.filter(b => b.id !== buildingId);
-          if (buildingName && Array.isArray(payload.rooms)) {
-            const bLower = buildingName.trim().toLowerCase();
-            payload.rooms = payload.rooms.filter(r => (r.building || '').trim().toLowerCase() !== bLower);
-          }
-          await supabase.from('app_database_sync').upsert([
-            { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
-            { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
-          ], { onConflict: 'id' });
+          payload.buildings = payload.buildings.filter(b => b.id !== buildingId && (bLower ? b.name.trim().toLowerCase() !== bLower : true));
         }
+        if (buildingName && Array.isArray(payload.rooms)) {
+          payload.rooms = payload.rooms.filter(r => (r.building || '').trim().toLowerCase() !== bLower);
+        }
+        if (buildingName && Array.isArray(payload.meetingRooms)) {
+          payload.meetingRooms = payload.meetingRooms.filter(m => (m.building || '').trim().toLowerCase() !== bLower && m.name.trim().toLowerCase() !== bLower);
+        }
+        await supabase.from('app_database_sync').upsert([
+          { id: 'main_production_db', database_payload: payload, updated_at: new Date().toISOString() },
+          { id: 'root_snapshot', database_payload: payload, updated_at: new Date().toISOString() }
+        ], { onConflict: 'id' });
       }
     } catch (_) {}
     return { success: true };

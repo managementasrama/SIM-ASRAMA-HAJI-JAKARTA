@@ -9,6 +9,8 @@ import {
   SUPABASE_ANON_KEY
 } from '../lib/supabase';
 import { useAppContext } from '../store';
+import { CompleteStorageDatabase } from '../types';
+import { ActionConfirmModal } from './CatalogManagementModals';
 
 interface ConfigureSupabaseModalProps {
   isOpen: boolean;
@@ -48,6 +50,7 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
   const [isSaving, setIsSaving] = useState(false);
   const [autoMigrate, setAutoMigrate] = useState(true);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -142,14 +145,17 @@ export function ConfigureSupabaseModal({ isOpen, onClose }: ConfigureSupabaseMod
     }
   };
 
-  const handleResetToDefault = async () => {
-    if (window.confirm('Apakah Anda yakin ingin mengembalikan koneksi database ke konfigurasi bawaan (Environment Variable / Default)?')) {
-      await removeCustomSupabaseCredentials();
-      showToast('Koneksi database dikembalikan ke default. Memuat ulang sistem...', 'info');
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    }
+  const handleResetToDefault = () => {
+    setIsResetConfirmOpen(true);
+  };
+
+  const handleExecuteReset = async () => {
+    setIsResetConfirmOpen(false);
+    await removeCustomSupabaseCredentials();
+    showToast('Koneksi database dikembalikan ke default. Memuat ulang sistem...', 'info');
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
   };
 
   const handleMigrateCurrentData = async () => {
@@ -702,6 +708,18 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
           </button>
         </div>
       </div>
+
+      <ActionConfirmModal
+        isOpen={isResetConfirmOpen}
+        title="Kembalikan ke Database Default"
+        subtitle="Konfirmasi Reset Konfigurasi Database"
+        message="Apakah Anda yakin ingin mengembalikan koneksi database ke konfigurasi bawaan (Environment Variable / Default)? Sistem akan memuat ulang dengan konfigurasi default."
+        confirmText="Ya, Kembalikan ke Default"
+        variant="warning"
+        icon="fa-rotate-left"
+        onClose={() => setIsResetConfirmOpen(false)}
+        onConfirm={handleExecuteReset}
+      />
     </div>
   );
 }
