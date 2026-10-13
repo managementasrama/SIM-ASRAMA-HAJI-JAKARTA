@@ -81,6 +81,12 @@ export function Header() {
       label: 'Kelola Anggota', 
       icon: 'fa-users-gear', 
       roles: ['Super Admin', 'Admin'] 
+    },
+    { 
+      id: 'spreadsheetSync', 
+      label: 'Google Spreadsheet', 
+      icon: 'fa-file-excel', 
+      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager'] 
     }
   ];
 
@@ -350,6 +356,35 @@ export function Header() {
                           </span>
                         )}
                       </div>
+                    </div>
+
+                    {/* 3c. Integrasi Google Spreadsheet */}
+                    <div className="p-3 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-600/70 rounded-xl space-y-2 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs shrink-0">
+                            <i className="fa-solid fa-file-excel"></i>
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Google Spreadsheet</span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Baca &amp; Sinkronisasi Data Sheet</span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-300 dark:border-emerald-700">
+                          Apps Script
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSwitchOpen(false);
+                          setActiveTab('spreadsheetSync');
+                        }}
+                        className="w-full py-1.5 px-3 bg-emerald-50 dark:bg-slate-700 hover:bg-emerald-100 dark:hover:bg-slate-600 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
+                      >
+                        <i className="fa-solid fa-arrow-right-to-bracket text-emerald-600 dark:text-emerald-400"></i>
+                        <span>Buka Panel Google Spreadsheet</span>
+                      </button>
                     </div>
                     {/* Mobile & Tablet Bottom Close Action Bar */}
                     <div className="lg:hidden p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0">

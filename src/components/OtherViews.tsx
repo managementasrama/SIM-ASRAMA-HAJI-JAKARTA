@@ -6221,6 +6221,16 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     <i className="fa-solid fa-code"></i>
                     <span>Skrip SQL Supabase</span>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('spreadsheetSync')}
+                    className="px-3.5 py-2.5 bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-200 border border-emerald-400/40 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                    title="Buka panduan & integrasi Google Spreadsheet"
+                  >
+                    <i className="fa-solid fa-file-excel text-emerald-300"></i>
+                    <span>Integrasi Google Spreadsheet</span>
+                  </button>
                 </div>
               </div>
 

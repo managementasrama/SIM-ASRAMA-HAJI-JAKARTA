@@ -7,6 +7,7 @@ import { RoomsView } from './components/RoomsView';
 import { ReportsView, MaintenanceReportsView, AuditLogView, BreakfastOrdersView } from './components/OtherViews';
 import { QualityControlView } from './components/QualityControlView';
 import { UserManagementView } from './components/UserManagementView';
+import { SpreadsheetIntegrationView } from './components/SpreadsheetIntegrationView';
 import { Modals } from './components/Modals';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
 
@@ -111,6 +112,10 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
   kelolaAnggota: {
     title: 'Kelola Petugas & Anggota',
     roles: ['Super Admin', 'Admin']
+  },
+  spreadsheetSync: {
+    title: 'Panduan & Integrasi Google Spreadsheet',
+    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager']
   }
 };
 
@@ -182,6 +187,7 @@ function MainApp() {
             {resolvedTab === 'auditLog' && <AuditLogView />}
             {resolvedTab === 'verifyPdf' && <AuditLogView defaultSubView="PDF_DOWNLOAD_LOGS" />}
             {resolvedTab === 'kelolaAnggota' && <UserManagementView />}
+            {resolvedTab === 'spreadsheetSync' && <SpreadsheetIntegrationView />}
           </div>
         )}
       </main>

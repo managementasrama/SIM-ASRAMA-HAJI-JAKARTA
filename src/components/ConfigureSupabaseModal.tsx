@@ -9,7 +9,7 @@ import {
   SUPABASE_ANON_KEY
 } from '../lib/supabase';
 import { useAppContext } from '../store';
-import { CompleteStorageDatabase } from '../types';
+import { CompleteStorageDatabase } from '../services/dataStorage';
 import { ActionConfirmModal } from './CatalogManagementModals';
 
 interface ConfigureSupabaseModalProps {
