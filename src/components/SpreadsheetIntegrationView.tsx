@@ -1,6 +1,29 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext } from '../store';
 import { ActionConfirmModal } from './CatalogManagementModals';
+import { normalizeSpreadsheetPayload, syncFullDatabaseToSpreadsheet } from '../services/spreadsheetStorage';
+
+interface SheetReportItem {
+  key: string;
+  sheetName: string;
+  label: string;
+  description: string;
+  exists: boolean;
+  expectedHeaders: string[];
+  foundHeaders: string[];
+  missingHeaders: string[];
+  status: 'READY' | 'MISSING_HEADERS' | 'MISSING_SHEET';
+}
+
+interface InspectionResponse {
+  ok: boolean;
+  overallStatus: 'READY' | 'NEEDS_PROVISIONING';
+  totalExpected: number;
+  totalReady: number;
+  totalMissingSheets: number;
+  sheetReports: SheetReportItem[];
+  inspectedAt: string;
+}
 
 export function SpreadsheetIntegrationView() {
   const { 
@@ -9,9 +32,16 @@ export function SpreadsheetIntegrationView() {
     buildings, 
     rooms, 
     meetingRooms, 
+    roomCapacityRates,
+    breakfastMenuItems,
+    breakfastOrders,
     transactions, 
     users, 
     maintenances, 
+    qcInspections,
+    workSessions,
+    auditLogs,
+    appSettings,
     dataStorage,
     pushAllToSupabase,
     pullFromCentralDatabase
@@ -22,24 +52,44 @@ export function SpreadsheetIntegrationView() {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [isInspecting, setIsInspecting] = useState(false);
+  const [isAutoProvisioning, setIsAutoProvisioning] = useState(false);
+  const [populateSeedOnProvision, setPopulateSeedOnProvision] = useState(true);
   const [syncStatus, setSyncStatus] = useState<string>('Belum disinkronkan');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  
-  // Data hasil baca dari Spreadsheet
+  const [isForbiddenError, setIsForbiddenError] = useState(false);
+  const [showWhyMissingGuide, setShowWhyMissingGuide] = useState(true);
+
+  // Status Inspeksi Skema Lembar Kerja
+  const [inspectionResult, setInspectionResult] = useState<InspectionResponse | null>(null);
+
+  // Data hasil baca dari Spreadsheet (Semua 13 Tabel)
   const [fetchedData, setFetchedData] = useState<{
     buildings?: any[];
     rooms?: any[];
+    meeting_rooms?: any[];
+    room_capacity_rates?: any[];
+    breakfast_menu_items?: any[];
     transactions?: any[];
     users?: any[];
+    maintenances?: any[];
+    qc_inspections?: any[];
+    breakfast_orders?: any[];
+    work_sessions?: any[];
+    system_logs?: any[];
+    app_settings?: any[];
     raw?: any;
   } | null>(null);
   
-  const [activePreviewTab, setActivePreviewTab] = useState<'BUILDINGS' | 'ROOMS' | 'TRANSACTIONS' | 'USERS' | 'RAW'>('BUILDINGS');
-  const [activeGuideTab, setActiveGuideTab] = useState<'STEP1' | 'STEP2' | 'STEP3' | 'SCRIPT'>('STEP1');
+  const [activePreviewTab, setActivePreviewTab] = useState<
+    'BUILDINGS' | 'ROOMS' | 'ROOM_RATES' | 'MEETING_ROOMS' | 'BREAKFAST_MENUS' | 'TRANSACTIONS' | 'USERS' | 'QC' | 'MAINTENANCES' | 'ORDERS' | 'WORK_SESSIONS' | 'RAW'
+  >('ROOM_RATES');
+  const [activeGuideTab, setActiveGuideTab] = useState<'AUTO' | 'STEP1' | 'STEP2' | 'STEP3' | 'SCRIPT'>('AUTO');
   const [copiedScript, setCopiedScript] = useState(false);
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
   const [showPushConfirm, setShowPushConfirm] = useState(false);
-  const [syncLogs, setSyncLogs] = useState<Array<{ time: string; type: 'FETCH' | 'PUSH' | 'CONFIG'; message: string; success: boolean }>>([]);
+  const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [syncLogs, setSyncLogs] = useState<Array<{ time: string; type: 'FETCH' | 'PUSH' | 'CONFIG' | 'PROVISION'; message: string; success: boolean }>>([]);
 
   // Ambil konfigurasi tersimpan saat pertama kali dibuka
   useEffect(() => {
@@ -62,12 +112,12 @@ export function SpreadsheetIntegrationView() {
     } catch (_) {}
   }, []);
 
-  const addLog = (type: 'FETCH' | 'PUSH' | 'CONFIG', message: string, success: boolean) => {
+  const addLog = (type: 'FETCH' | 'PUSH' | 'CONFIG' | 'PROVISION', message: string, success: boolean) => {
     const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setSyncLogs(prev => [{ time: timeStr, type, message, success }, ...prev.slice(0, 19)]);
   };
 
-  const handleSaveConfig = (e: React.FormEvent) => {
+  const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUrl = scriptUrl.trim();
     if (!cleanUrl.startsWith('https://script.google.com/macros/s/') || !cleanUrl.includes('/exec')) {
@@ -84,6 +134,16 @@ export function SpreadsheetIntegrationView() {
       setSyncStatus('URL Web App Google Apps Script berhasil disimpan');
       addLog('CONFIG', 'URL Web App Google Apps Script berhasil disimpan.', true);
       showToast('Konfigurasi Google Spreadsheet berhasil disimpan!', 'success');
+
+      // Simpan juga ke backend server
+      fetch('/api/sheets-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webAppUrl: cleanUrl, sheetId: sheetDocUrl.trim() })
+      }).catch(() => {});
+
+      // Langsung lakukan inspeksi deteksi struktur lembar kerja
+      handleInspectSchema(cleanUrl);
     } catch (err: any) {
       showToast('Gagal menyimpan konfigurasi ke browser', 'error');
     }
@@ -98,6 +158,7 @@ export function SpreadsheetIntegrationView() {
       setSheetDocUrl('');
       setIsConnected(false);
       setFetchedData(null);
+      setInspectionResult(null);
       setSyncStatus('Konfigurasi telah direset');
       setLastSyncTime(null);
       addLog('CONFIG', 'Konfigurasi Spreadsheet dikosongkan.', true);
@@ -105,116 +166,101 @@ export function SpreadsheetIntegrationView() {
     } catch (_) {}
   };
 
-  // Baca Data dari Spreadsheet via GET
-  const handleTestDataFetch = async () => {
+  // 1. Deteksi & Periksa Struktur Sheet dan Kolom Header
+  const handleInspectSchema = async (overrideUrl?: string) => {
+    const targetUrl = overrideUrl || scriptUrl.trim();
+    if (!targetUrl) {
+      showToast('Masukkan URL Web App Google Apps Script terlebih dahulu!', 'warning');
+      return;
+    }
+
+    setIsInspecting(true);
+    setSyncStatus('Sedang mendeteksi lembar kerja & kolom header di Google Spreadsheet...');
+
+    try {
+      const res = await fetch('/api/sheets/inspect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webAppUrl: targetUrl })
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Gagal melakukan inspeksi`);
+      }
+
+      const json: InspectionResponse = await res.json();
+      if ((json as any).isForbidden) {
+        setIsForbiddenError(true);
+        setSyncStatus('Akses Web App ditolak (HTTP 403 Forbidden). Ubah izin deploy Web App menjadi "Anyone" (Siapa Saja).');
+        addLog('CONFIG', 'HTTP 403 Forbidden: Akses Web App Google Apps Script dibatasi.', false);
+        showToast('HTTP 403 Forbidden: Pastikan izin deploy Web App disetel ke "Anyone" (Siapa saja).', 'error');
+        return;
+      }
+
+      if (!json.ok) {
+        throw new Error((json as any).error || 'Gagal memeriksa skema');
+      }
+
+      setIsForbiddenError(false);
+      setInspectionResult(json);
+      setIsConnected(true);
+
+      const msg = json.overallStatus === 'READY'
+        ? `Seluruh struktur tabel lengkap! (${json.totalReady}/${json.totalExpected} lembar kerja siap digunakan)`
+        : `Ditemukan ${json.totalMissingSheets} lembar kerja belum dibuat. Klik "Inisialisasi Otomatis" untuk menyusunnya.`;
+
+      setSyncStatus(msg);
+      addLog('CONFIG', msg, json.overallStatus === 'READY');
+      showToast(msg, json.overallStatus === 'READY' ? 'success' : 'info');
+    } catch (err: any) {
+      console.warn('Gagal memanggil endpoint inspeksi server, mencoba direct fetch:', err);
+      // Fallback direct request
+      try {
+        const directRes = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'INSPECT_SCHEMA' })
+        });
+        if (directRes.status === 403) {
+          setIsForbiddenError(true);
+          setSyncStatus('HTTP 403 Forbidden: Akses ditolak oleh Google Apps Script.');
+          showToast('HTTP 403 Forbidden: Pastikan izin deploy Web App diatur ke "Anyone".', 'error');
+          return;
+        }
+        const directJson = await directRes.json();
+        if (directJson && directJson.status === 'success') {
+          setIsForbiddenError(false);
+          showToast('Koneksi berhasil! Lembar kerja terdeteksi dari Spreadsheet.', 'success');
+          setSyncStatus(`Terdeteksi ${directJson.totalSheets || 0} lembar kerja di Google Spreadsheet.`);
+        }
+      } catch (fallbackErr: any) {
+        const is403 = String(err?.message || '').includes('403') || String(fallbackErr?.message || '').includes('403');
+        if (is403) setIsForbiddenError(true);
+        const errorMsg = is403 
+          ? 'HTTP 403 Forbidden: Pastikan izin deploy Web App diatur ke "Anyone" (Siapa Saja).'
+          : `Gagal memeriksa Spreadsheet: ${err?.message || 'Cek izin Web App'}`;
+        setSyncStatus(errorMsg);
+        addLog('CONFIG', errorMsg, false);
+        showToast(is403 ? 'HTTP 403 Forbidden: Izin akses Web App dibatasi.' : 'Gagal memeriksa Spreadsheet. Pastikan akses Web App diset ke "Anyone" (Siapa Saja).', 'error');
+      }
+    } finally {
+      setIsInspecting(false);
+    }
+  };
+
+  // 2. Eksekusi Auto-Provisioning: Otomatis Membuat Sheet & Menyusun Header Kolom
+  const handleExecuteAutoProvision = async () => {
+    setShowProvisionModal(false);
     if (!scriptUrl.trim()) {
       showToast('Masukkan URL Web App Google Apps Script terlebih dahulu!', 'warning');
       return;
     }
-    setIsLoading(true);
-    setSyncStatus('Sedang membaca database dari Google Spreadsheet...');
-    
-    try {
-      const response = await fetch(scriptUrl.trim(), {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const raw = await response.json();
-      const nowStr = new Date().toLocaleString('id-ID');
-      setLastSyncTime(nowStr);
-      try {
-        localStorage.setItem('CUSTOM_SHEET_LAST_SYNC', nowStr);
-      } catch (_) {}
-
-      // Normalisasi struktur data yang dikembalikan oleh doGet
-      let normalizedBuildings: any[] = [];
-      let normalizedRooms: any[] = [];
-      let normalizedTransactions: any[] = [];
-      let normalizedUsers: any[] = [];
-
-      if (raw && typeof raw === 'object') {
-        const d = raw.data || raw;
-        if (Array.isArray(d.buildings)) normalizedBuildings = d.buildings;
-        if (Array.isArray(d.rooms)) normalizedRooms = d.rooms;
-        if (Array.isArray(d.transactions)) normalizedTransactions = d.transactions;
-        if (Array.isArray(d.users)) normalizedUsers = d.users;
-      }
-
-      setFetchedData({
-        buildings: normalizedBuildings,
-        rooms: normalizedRooms,
-        transactions: normalizedTransactions,
-        users: normalizedUsers,
-        raw
-      });
-
-      setIsConnected(true);
-      const summaryMsg = `Berhasil membaca: ${normalizedBuildings.length} Gedung, ${normalizedRooms.length} Kamar, ${normalizedTransactions.length} Transaksi, ${normalizedUsers.length} Akun`;
-      setSyncStatus(summaryMsg);
-      addLog('FETCH', summaryMsg, true);
-      showToast('Koneksi berhasil! Seluruh data dari Google Spreadsheet berhasil terbaca.', 'success');
-    } catch (err: any) {
-      console.error('Error fetching spreadsheet data:', err);
-      const errMsg = `Gagal membaca Spreadsheet: ${err?.message || 'Pastikan izin Web App diatur ke "Anyone"'}`;
-      setSyncStatus(errMsg);
-      addLog('FETCH', errMsg, false);
-      showToast('Gagal terhubung ke Spreadsheet. Pastikan Web App di-deploy dengan akses "Anyone" (Siapa Saja).', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Terapkan data yang dibaca dari Spreadsheet ke aplikasi
-  const handleApplyDataToApp = async () => {
-    if (!fetchedData) return;
-    setShowApplyConfirm(false);
-    setIsLoading(true);
+    setIsAutoProvisioning(true);
+    setSyncStatus('Sedang otomatis membuat lembar kerja & menyusun baris header tabel di Spreadsheet...');
 
     try {
-      const currentDb = dataStorage.getDatabase();
-      const updatedDb = {
-        ...currentDb,
-        buildings: (fetchedData.buildings && fetchedData.buildings.length > 0) ? fetchedData.buildings : currentDb.buildings,
-        rooms: (fetchedData.rooms && fetchedData.rooms.length > 0) ? fetchedData.rooms : currentDb.rooms,
-        transactions: (fetchedData.transactions && fetchedData.transactions.length > 0) ? fetchedData.transactions : currentDb.transactions,
-        users: (fetchedData.users && fetchedData.users.length > 0) ? fetchedData.users : currentDb.users,
-        exportedAt: new Date().toISOString()
-      };
-
-      dataStorage.saveDatabase(updatedDb);
-      await pushAllToSupabase(updatedDb);
-      await pullFromCentralDatabase();
-
-      showToast('Data dari Google Spreadsheet berhasil diterapkan ke sistem dan database cloud!', 'success');
-      addLog('FETCH', 'Data dari Spreadsheet berhasil diterapkan ke sistem & Supabase.', true);
-    } catch (err: any) {
-      showToast(`Gagal menerapkan data: ${err?.message || 'Error'}`, 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Kirim (Export) Data Aplikasi ke Google Spreadsheet via POST
-  const handlePushDataToSpreadsheet = async () => {
-    setShowPushConfirm(false);
-    if (!scriptUrl.trim()) {
-      showToast('Masukkan URL Web App terlebih dahulu!', 'warning');
-      return;
-    }
-    setIsPushing(true);
-    setSyncStatus('Sedang mengirim data aplikasi ke Google Spreadsheet...');
-
-    try {
-      const payload = {
-        action: 'SAVE_ALL',
-        timestamp: new Date().toISOString(),
+      const payloadData = populateSeedOnProvision ? {
         buildings: buildings.map(b => ({
           id: b.id,
           name: b.name,
@@ -222,7 +268,8 @@ export function SpreadsheetIntegrationView() {
           floors: b.floors || 1,
           total_rooms: b.totalRooms || 0,
           category: b.category || 'PENGINAPAN',
-          status: b.status || 'AKTIF'
+          status: b.status || 'AKTIF',
+          description: b.description || ''
         })),
         rooms: rooms.map(r => ({
           id: r.id,
@@ -230,9 +277,41 @@ export function SpreadsheetIntegrationView() {
           building: r.building,
           floor: r.floor || 1,
           type: r.type || 'Standar',
+          bed_type: r.bedType || '',
           capacity: r.capacity || '',
           status: r.status || 'KOSONG',
-          price_per_night: r.pricePerNight || 0
+          price_per_night: r.pricePerNight || 0,
+          notes: r.notes || ''
+        })),
+        meeting_rooms: (meetingRooms || []).map(m => ({
+          id: m.id,
+          name: m.name,
+          building: m.building || '',
+          floor: m.floor || 1,
+          capacity: m.capacity || 0,
+          rate_half_day: m.sessionRate || (m as any).rateHalfDay || 0,
+          rate_full_day: m.dailyRate || (m as any).rateFullDay || 0,
+          status: m.status || 'TERSEDIA',
+          amenities: Array.isArray(m.facilities) ? m.facilities.join(', ') : (Array.isArray((m as any).amenities) ? (m as any).amenities.join(', ') : ((m as any).amenities || ''))
+        })),
+        room_capacity_rates: (roomCapacityRates || []).map(r => ({
+          id: r.id,
+          room_type: r.roomType,
+          bed_type: r.bedType,
+          capacity_pax: r.capacityPax,
+          price_per_night: r.pricePerNight,
+          description: r.description || '',
+          facilities: Array.isArray(r.facilities) ? r.facilities.join(', ') : '',
+          is_active: r.isActive ? 'true' : 'false'
+        })),
+        breakfast_menu_items: (breakfastMenuItems || []).map(m => ({
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          price: m.price,
+          description: m.description || '',
+          is_available: m.isAvailable ? 'true' : 'false',
+          allergens: m.allergens || ''
         })),
         transactions: transactions.map(t => ({
           id: t.id,
@@ -244,7 +323,10 @@ export function SpreadsheetIntegrationView() {
           start_date: t.startDate,
           duration: t.duration,
           phone: t.phone || '',
-          notes: t.notes || ''
+          email: t.email || '',
+          notes: t.notes || '',
+          total_amount: t.totalAmount || 0,
+          payment_status: t.paymentStatus || 'LUNAS'
         })),
         users: users.map(u => ({
           id: u.id,
@@ -253,29 +335,353 @@ export function SpreadsheetIntegrationView() {
           role: u.role,
           department: u.department || '',
           status: u.status || 'Aktif',
-          phone: u.phone || ''
+          phone: u.phone || '',
+          email: u.email || ''
+        })),
+        maintenances: (maintenances || []).map(m => ({
+          id: m.id,
+          room_number: m.roomNumber,
+          building: m.building || '',
+          issue: m.issue,
+          urgency: m.urgency,
+          status: m.status,
+          reporter: m.reportedUser || (m as any).reportedBy || (m as any).reporter || '',
+          created_at: m.reportTime || (m as any).createdAt || '',
+          resolved_at: m.resolvedTime || (m as any).resolvedAt || '',
+          notes: m.technicianNotes || (m as any).notes || ''
+        })),
+        qc_inspections: (qcInspections || []).map(q => ({
+          id: q.id,
+          room_id: q.roomId,
+          building: q.building,
+          room_number: q.roomNumber,
+          inspector_name: q.inspectorName,
+          inspection_date: q.inspectionDate,
+          cleanliness: q.cleanliness,
+          linen_bed: q.linenBed,
+          ac_electricity: q.acElectricity,
+          plumbing_water: q.plumbingWater,
+          amenities: q.amenities,
+          result: q.result,
+          notes: q.notes || ''
+        })),
+        breakfast_orders: (breakfastOrders || []).map(o => ({
+          id: o.id,
+          room_number: o.roomNumber,
+          building: o.building || '',
+          guest_name: o.guestName,
+          menu_name: o.menuName,
+          portions: o.portions,
+          days: o.days || 1,
+          order_date: o.startDate || '',
+          delivery_time: o.deliveryTime || '',
+          status: o.status,
+          total_price: o.totalPrice || 0,
+          notes: o.notes || ''
+        })),
+        work_sessions: (workSessions || []).map(w => ({
+          id: w.id,
+          user_id: w.userId,
+          user_name: w.userName,
+          user_role: w.userRole,
+          login_time: w.loginTime,
+          logout_time: w.logoutTime || '',
+          duration_seconds: w.durationSeconds || 0,
+          duration_formatted: w.durationFormatted || '',
+          status: w.status,
+          notes: w.notes || ''
+        })),
+        app_settings: appSettings ? [{
+          organization_name: appSettings.organizationName,
+          sub_title: appSettings.subTitle,
+          ministry_name: appSettings.ministryName,
+          address: appSettings.address,
+          phone: appSettings.phone,
+          email: appSettings.email,
+          portal_url: appSettings.portalUrl,
+          tag_title: appSettings.tagTitle || ''
+        }] : [],
+        system_logs: (auditLogs || []).slice(0, 100).map(l => ({
+          id: l.id || '',
+          timestamp: l.timestamp,
+          user: l.user,
+          action: l.action,
+          details: l.details || ''
         }))
-      };
+      } : {};
 
-      // Catatan: Google Apps Script Web App menerima POST via text/plain agar tidak terkena CORS preflight issue
-      const response = await fetch(scriptUrl.trim(), {
+      const res = await fetch('/api/sheets/auto-provision', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8'
-        },
-        body: JSON.stringify(payload)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webAppUrl: scriptUrl.trim(),
+          populateData: populateSeedOnProvision,
+          data: payloadData
+        })
       });
 
-      const resJson = await response.json().catch(() => ({ status: 'success' }));
+      const resJson = await res.json();
+      if (!res.ok || !resJson.ok) {
+        throw new Error(resJson.error || 'Gagal menjalankan auto-provisioning');
+      }
+
+      setIsConnected(true);
+      const successMsg = 'Inisialisasi Otomatis Berhasil! Seluruh lembar kerja & header tabel telah dibuat di Google Spreadsheet.';
+      setSyncStatus(successMsg);
+      addLog('PROVISION', successMsg, true);
+      showToast(successMsg, 'success');
+
+      // Jalankan inspeksi kembali agar tampilan tabel langsung berubah menjadi hijau (Siap Digunakan)
+      setTimeout(() => {
+        handleInspectSchema();
+      }, 1000);
+    } catch (err: any) {
+      console.error('Error auto-provisioning:', err);
+      // Fallback direct request
+      try {
+        const directPayload = {
+          action: 'AUTO_PROVISION',
+          populateData: populateSeedOnProvision,
+          data: payloadData
+        };
+        const directRes = await fetch(scriptUrl.trim(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(directPayload)
+        });
+        const directJson = await directRes.json();
+        if (directJson && directJson.status === 'success') {
+          showToast('Inisialisasi otomatis berhasil dijalankan langsung ke Apps Script!', 'success');
+          setTimeout(() => handleInspectSchema(), 1000);
+          return;
+        }
+      } catch (_) {}
+
+      const errorMsg = `Gagal inisialisasi: ${err?.message || 'Cek deploy Web App'}`;
+      setSyncStatus(errorMsg);
+      addLog('PROVISION', errorMsg, false);
+      showToast('Gagal melakukan inisialisasi otomatis. Pastikan kode Google Apps Script terbaru telah dipasang di Spreadsheet.', 'error');
+    } finally {
+      setIsAutoProvisioning(false);
+    }
+  };
+
+  // 3. Baca Data dari Spreadsheet via GET
+  const handleTestDataFetch = async () => {
+    if (!scriptUrl.trim()) {
+      showToast('Masukkan URL Web App Google Apps Script terlebih dahulu!', 'warning');
+      return;
+    }
+    setIsLoading(true);
+    setSyncStatus('Sedang membaca database dari Google Spreadsheet...');
+    
+    try {
+      // 1. Prioritaskan pembacaan melalui backend proxy server (menghindari CORS dan blokir header)
+      let raw: any = null;
+      let is403 = false;
+      try {
+        const proxyRes = await fetch('/api/sheets/database');
+        if (proxyRes.ok) {
+          const proxyJson = await proxyRes.json();
+          if (proxyJson.isForbidden) {
+            is403 = true;
+          }
+          if (proxyJson.status === 'success' && proxyJson.data) {
+            raw = proxyJson.data;
+          } else if (proxyJson.status === 'fallback' && proxyJson.data) {
+            raw = proxyJson.data;
+            if (proxyJson.warning) {
+              setSyncStatus(proxyJson.warning);
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 2. Direct fetch jika proxy belum mengembalikan data
+      if (!raw && !is403) {
+        const response = await fetch(scriptUrl.trim(), {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+
+        if (response.status === 403) {
+          is403 = true;
+          throw new Error('HTTP 403 Forbidden: Akses Web App ditolak');
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const text = await response.text();
+        try {
+          raw = JSON.parse(text);
+        } catch (_) {
+          if (text.includes('accounts.google.com') || text.includes('ServiceLogin')) {
+            is403 = true;
+            throw new Error('HTTP 403 Forbidden: Web App meminta login akun');
+          }
+        }
+      }
+
+      if (is403) {
+        setIsForbiddenError(true);
+        const errMsg = 'Akses Ditolak (HTTP 403 Forbidden). Pastikan deploy Web App diatur ke "Anyone" (Siapa Saja).';
+        setSyncStatus(errMsg);
+        addLog('FETCH', errMsg, false);
+        showToast('Koneksi Ditolak (403 Forbidden). Ubah izin deploy Web App menjadi "Anyone".', 'error');
+        return;
+      }
+
+      setIsForbiddenError(false);
       const nowStr = new Date().toLocaleString('id-ID');
       setLastSyncTime(nowStr);
       try {
         localStorage.setItem('CUSTOM_SHEET_LAST_SYNC', nowStr);
       } catch (_) {}
 
-      setSyncStatus('Data aplikasi berhasil dikirim dan disimpan ke baris Google Spreadsheet!');
-      addLog('PUSH', 'Data berhasil dikirim ke Google Spreadsheet.', true);
-      showToast('Data aplikasi berhasil disinkronkan ke Google Spreadsheet!', 'success');
+      // Normalisasi struktur data yang dikembalikan oleh doGet
+      let normalizedBuildings: any[] = [];
+      let normalizedRooms: any[] = [];
+      let normalizedMeetingRooms: any[] = [];
+      let normalizedRoomRates: any[] = [];
+      let normalizedBreakfastMenus: any[] = [];
+      let normalizedTransactions: any[] = [];
+      let normalizedUsers: any[] = [];
+      let normalizedMaintenances: any[] = [];
+      let normalizedQc: any[] = [];
+      let normalizedOrders: any[] = [];
+      let normalizedWorkSessions: any[] = [];
+      let normalizedLogs: any[] = [];
+      let normalizedSettings: any[] = [];
+
+      if (raw && typeof raw === 'object') {
+        const d = raw.data || raw;
+        if (Array.isArray(d.buildings)) normalizedBuildings = d.buildings;
+        if (Array.isArray(d.rooms)) normalizedRooms = d.rooms;
+        if (Array.isArray(d.meeting_rooms || d.meetingRooms)) normalizedMeetingRooms = d.meeting_rooms || d.meetingRooms;
+        if (Array.isArray(d.room_capacity_rates || d.roomCapacityRates)) normalizedRoomRates = d.room_capacity_rates || d.roomCapacityRates;
+        if (Array.isArray(d.breakfast_menu_items || d.breakfastMenuItems)) normalizedBreakfastMenus = d.breakfast_menu_items || d.breakfastMenuItems;
+        if (Array.isArray(d.transactions)) normalizedTransactions = d.transactions;
+        if (Array.isArray(d.users)) normalizedUsers = d.users;
+        if (Array.isArray(d.maintenances)) normalizedMaintenances = d.maintenances;
+        if (Array.isArray(d.qc_inspections || d.qcInspections)) normalizedQc = d.qc_inspections || d.qcInspections;
+        if (Array.isArray(d.breakfast_orders || d.breakfastOrders)) normalizedOrders = d.breakfast_orders || d.breakfastOrders;
+        if (Array.isArray(d.work_sessions || d.workSessions)) normalizedWorkSessions = d.work_sessions || d.workSessions;
+        if (Array.isArray(d.system_logs || d.auditLogs)) normalizedLogs = d.system_logs || d.auditLogs;
+        if (Array.isArray(d.app_settings || d.appSettings)) normalizedSettings = d.app_settings || d.appSettings;
+      }
+
+      setFetchedData({
+        buildings: normalizedBuildings,
+        rooms: normalizedRooms,
+        meeting_rooms: normalizedMeetingRooms,
+        room_capacity_rates: normalizedRoomRates,
+        breakfast_menu_items: normalizedBreakfastMenus,
+        transactions: normalizedTransactions,
+        users: normalizedUsers,
+        maintenances: normalizedMaintenances,
+        qc_inspections: normalizedQc,
+        breakfast_orders: normalizedOrders,
+        work_sessions: normalizedWorkSessions,
+        system_logs: normalizedLogs,
+        app_settings: normalizedSettings,
+        raw
+      });
+
+      setIsConnected(true);
+      const summaryMsg = `Berhasil membaca: ${normalizedBuildings.length} Gedung, ${normalizedRooms.length} Kamar, ${normalizedRoomRates.length} Katalog Tipe Kamar, ${normalizedMeetingRooms.length} Aula, ${normalizedTransactions.length} Transaksi, ${normalizedUsers.length} Petugas`;
+      setSyncStatus(summaryMsg);
+      addLog('FETCH', summaryMsg, true);
+      showToast('Koneksi berhasil! Seluruh data dari Google Spreadsheet berhasil terbaca.', 'success');
+    } catch (err: any) {
+      console.warn('Peringatan pembacaan spreadsheet:', err?.message || err);
+      const errStr = String(err?.message || '');
+      const is403 = errStr.includes('403') || errStr.includes('Forbidden');
+      if (is403) {
+        setIsForbiddenError(true);
+      }
+      const errMsg = is403
+        ? 'Akses Ditolak (HTTP 403 Forbidden): Pastikan izin Web App diatur ke "Anyone" (Siapa Saja).'
+        : `Gagal membaca Spreadsheet: ${err?.message || 'Pastikan izin Web App diatur ke "Anyone"'}`;
+      setSyncStatus(errMsg);
+      addLog('FETCH', errMsg, false);
+      showToast(is403 ? 'HTTP 403 Forbidden: Akses Web App ditolak. Ubah izin ke "Anyone".' : 'Gagal terhubung ke Spreadsheet.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 4. Terapkan data yang dibaca dari Spreadsheet ke aplikasi
+  const handleApplyDataToApp = async () => {
+    if (!fetchedData) return;
+    setShowApplyConfirm(false);
+    setIsLoading(true);
+
+    try {
+      const currentDb = dataStorage.getDatabase();
+      const rawPayload = fetchedData.raw?.data || fetchedData.raw || fetchedData;
+      const normalizedFromSheet = normalizeSpreadsheetPayload(rawPayload);
+
+      const updatedDb = {
+        ...currentDb,
+        buildings: (fetchedData.buildings && fetchedData.buildings.length > 0) ? fetchedData.buildings : (normalizedFromSheet.buildings.length > 0 ? normalizedFromSheet.buildings : currentDb.buildings),
+        rooms: (normalizedFromSheet.rooms && normalizedFromSheet.rooms.length > 0) ? normalizedFromSheet.rooms : currentDb.rooms,
+        meetingRooms: (normalizedFromSheet.meetingRooms && normalizedFromSheet.meetingRooms.length > 0) ? normalizedFromSheet.meetingRooms : currentDb.meetingRooms,
+        roomCapacityRates: (normalizedFromSheet.roomCapacityRates && normalizedFromSheet.roomCapacityRates.length > 0) ? normalizedFromSheet.roomCapacityRates : currentDb.roomCapacityRates,
+        breakfastMenuItems: (normalizedFromSheet.breakfastMenuItems && normalizedFromSheet.breakfastMenuItems.length > 0) ? normalizedFromSheet.breakfastMenuItems : currentDb.breakfastMenuItems,
+        transactions: (fetchedData.transactions && fetchedData.transactions.length > 0) ? fetchedData.transactions : currentDb.transactions,
+        users: (fetchedData.users && fetchedData.users.length > 0) ? fetchedData.users : currentDb.users,
+        maintenances: (fetchedData.maintenances && fetchedData.maintenances.length > 0) ? fetchedData.maintenances : currentDb.maintenances,
+        qcInspections: (normalizedFromSheet.qcInspections && normalizedFromSheet.qcInspections.length > 0) ? normalizedFromSheet.qcInspections : currentDb.qcInspections,
+        breakfastOrders: (fetchedData.breakfast_orders && fetchedData.breakfast_orders.length > 0) ? fetchedData.breakfast_orders : currentDb.breakfastOrders,
+        workSessions: (normalizedFromSheet.workSessions && normalizedFromSheet.workSessions.length > 0) ? normalizedFromSheet.workSessions : currentDb.workSessions,
+        appSettings: normalizedFromSheet.appSettings || currentDb.appSettings,
+        exportedAt: new Date().toISOString()
+      };
+
+      dataStorage.saveDatabase(updatedDb);
+      await syncFullDatabaseToSpreadsheet(updatedDb);
+      await pushAllToSupabase(updatedDb);
+      await pullFromCentralDatabase();
+
+      showToast('Data dari Google Spreadsheet berhasil diterapkan ke sistem dan database!', 'success');
+      addLog('FETCH', 'Data dari Spreadsheet berhasil diterapkan ke sistem aplikasi.', true);
+    } catch (err: any) {
+      showToast(`Gagal menerapkan data: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 5. Kirim (Export) Data Aplikasi ke Google Spreadsheet via POST
+  const handlePushDataToSpreadsheet = async () => {
+    setShowPushConfirm(false);
+    if (!scriptUrl.trim()) {
+      showToast('Masukkan URL Web App terlebih dahulu!', 'warning');
+      return;
+    }
+    setIsPushing(true);
+    setSyncStatus('Sedang mengirim data aplikasi ke Google Spreadsheet...');
+
+    try {
+      const currentDb = dataStorage.getDatabase();
+      const result = await syncFullDatabaseToSpreadsheet(currentDb);
+      if (!result.success && result.error) {
+        throw new Error(result.error);
+      }
+
+      const nowStr = new Date().toLocaleString('id-ID');
+      setLastSyncTime(nowStr);
+      try {
+        localStorage.setItem('CUSTOM_SHEET_LAST_SYNC', nowStr);
+      } catch (_) {}
+
+      setSyncStatus('Seluruh data aplikasi & katalog berhasil disinkronkan ke Google Spreadsheet!');
+      addLog('PUSH', 'Seluruh data aplikasi berhasil dikirim ke Google Spreadsheet.', true);
+      showToast('Data aplikasi & seluruh katalog berhasil disinkronkan ke Google Spreadsheet!', 'success');
     } catch (err: any) {
       console.error('Error pushing data to spreadsheet:', err);
       const errMsg = `Gagal mengirim data ke Spreadsheet: ${err?.message || 'Cek fungsi doPost di Apps Script'}`;
@@ -287,26 +693,43 @@ export function SpreadsheetIntegrationView() {
     }
   };
 
-  // Kode Google Apps Script siap salin (Code.gs)
+  // Kode Google Apps Script Resmi Lengkap (Code.gs)
   const appsScriptCode = `/**
  * ==============================================================================
- * KODE RESMI GOOGLE APPS SCRIPT: INTEGRASI SIM ASRAMA HAJI JAKARTA
+ * KODE RESMI GOOGLE APPS SCRIPT: INTEGRASI & AUTO-PROVISIONING SIM ASRAMA HAJI
  * Pasang skrip ini di Google Spreadsheet: Menu Extensions > Apps Script
+ * Dilengkapi fitur: Auto-Detect, Auto-Create Sheet, Auto-Format Header Row
  * ==============================================================================
  */
 
-// 1. FUNGSI UNTUK MEMBACA SELURUH DATA DARI SPREADSHEET (GET REQUEST)
+// 1. FUNGSI UNTUK MEMBACA DATA ATAU STATUS DARI SPREADSHEET (GET REQUEST)
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
+
+    if (action === "inspect") {
+      return ContentService.createTextOutput(JSON.stringify(inspectAllSheets(ss)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var result = {
       status: "success",
       generatedAt: new Date().toISOString(),
       data: {
         buildings: readSheetAsObjects(ss, "buildings"),
         rooms: readSheetAsObjects(ss, "rooms"),
+        meeting_rooms: readSheetAsObjects(ss, "meeting_rooms"),
+        room_capacity_rates: readSheetAsObjects(ss, "room_capacity_rates"),
+        breakfast_menu_items: readSheetAsObjects(ss, "breakfast_menu_items"),
         transactions: readSheetAsObjects(ss, "transactions"),
-        users: readSheetAsObjects(ss, "users")
+        users: readSheetAsObjects(ss, "users"),
+        maintenances: readSheetAsObjects(ss, "maintenances"),
+        qc_inspections: readSheetAsObjects(ss, "qc_inspections"),
+        breakfast_orders: readSheetAsObjects(ss, "breakfast_orders"),
+        work_sessions: readSheetAsObjects(ss, "work_sessions"),
+        app_settings: readSheetAsObjects(ss, "app_settings"),
+        system_logs: readSheetAsObjects(ss, "system_logs")
       }
     };
 
@@ -320,29 +743,89 @@ function doGet(e) {
   }
 }
 
-// 2. FUNGSI UNTUK MENULIS / MENYINKRONKAN DATA DARI APLIKASI KE SPREADSHEET (POST REQUEST)
+// 2. FUNGSI UNTUK MENERIMA PERINTAH PROVISIONING, INSPEKSI, ATAU SIMPAN (POST REQUEST)
 function doPost(e) {
   try {
     var contents = e.postData ? e.postData.contents : "";
-    var payload = JSON.parse(contents);
+    var payload = JSON.parse(contents || "{}");
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var action = payload.action || "SAVE_ALL";
 
+    // AKSI A: INSPEKSI STRUKTUR LEMBAR KERJA & HEADER
+    if (action === "INSPECT_SCHEMA") {
+      return ContentService.createTextOutput(JSON.stringify(inspectAllSheets(ss)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // AKSI B: AUTO-PROVISIONING (MEMBUAT SHEET & MENATA HEADER OTOMATIS)
+    if (action === "AUTO_PROVISION" || action === "INIT_SCHEMA") {
+      var schema = payload.schema || getDefaultSchema();
+      var populateData = Boolean(payload.populateData);
+      var dataObj = payload.data || {};
+
+      var provisionReport = autoProvisionAllSheets(ss, schema, populateData, dataObj);
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Auto-provisioning seluruh 13 lembar kerja & header berhasil diselesaikan!",
+        report: provisionReport,
+        updatedAt: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // AKSI C: SIMPAN / SINKRONISASI SELURUH DATA (SAVE_ALL)
     if (payload.buildings && Array.isArray(payload.buildings)) {
-      writeObjectsToSheet(ss, "buildings", payload.buildings);
+      writeObjectsToSheet(ss, "buildings", payload.buildings, ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"]);
     }
     if (payload.rooms && Array.isArray(payload.rooms)) {
-      writeObjectsToSheet(ss, "rooms", payload.rooms);
+      writeObjectsToSheet(ss, "rooms", payload.rooms, ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"]);
+    }
+    var mRooms = payload.meetingRooms || payload.meeting_rooms;
+    if (mRooms && Array.isArray(mRooms)) {
+      writeObjectsToSheet(ss, "meeting_rooms", mRooms, ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"]);
+    }
+    var rRates = payload.roomCapacityRates || payload.room_capacity_rates;
+    if (rRates && Array.isArray(rRates)) {
+      writeObjectsToSheet(ss, "room_capacity_rates", rRates, ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"]);
+    }
+    var bMenus = payload.breakfastMenuItems || payload.breakfast_menu_items;
+    if (bMenus && Array.isArray(bMenus)) {
+      writeObjectsToSheet(ss, "breakfast_menu_items", bMenus, ["id", "name", "category", "price", "description", "is_available", "allergens"]);
     }
     if (payload.transactions && Array.isArray(payload.transactions)) {
-      writeObjectsToSheet(ss, "transactions", payload.transactions);
+      writeObjectsToSheet(ss, "transactions", payload.transactions, ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"]);
     }
     if (payload.users && Array.isArray(payload.users)) {
-      writeObjectsToSheet(ss, "users", payload.users);
+      writeObjectsToSheet(ss, "users", payload.users, ["id", "username", "full_name", "role", "department", "status", "phone", "email"]);
+    }
+    if (payload.maintenances && Array.isArray(payload.maintenances)) {
+      writeObjectsToSheet(ss, "maintenances", payload.maintenances, ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"]);
+    }
+    var qcs = payload.qcInspections || payload.qc_inspections;
+    if (qcs && Array.isArray(qcs)) {
+      writeObjectsToSheet(ss, "qc_inspections", qcs, ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"]);
+    }
+    var bOrders = payload.breakfastOrders || payload.breakfast_orders;
+    if (bOrders && Array.isArray(bOrders)) {
+      writeObjectsToSheet(ss, "breakfast_orders", bOrders, ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"]);
+    }
+    var wSessions = payload.workSessions || payload.work_sessions;
+    if (wSessions && Array.isArray(wSessions)) {
+      writeObjectsToSheet(ss, "work_sessions", wSessions, ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"]);
+    }
+    var aSettings = payload.appSettings || payload.app_settings;
+    if (aSettings) {
+      var arrSettings = Array.isArray(aSettings) ? aSettings : [aSettings];
+      writeObjectsToSheet(ss, "app_settings", arrSettings, ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"]);
+    }
+    var sysLogs = payload.auditLogs || payload.system_logs;
+    if (sysLogs && Array.isArray(sysLogs)) {
+      writeObjectsToSheet(ss, "system_logs", sysLogs.slice(0, 100), ["id", "timestamp", "user", "action", "details"]);
     }
 
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
-      message: "Data berhasil disinkronkan ke Google Spreadsheet!",
+      message: "Data seluruh 13 tabel berhasil disimpan dan disinkronkan ke Google Spreadsheet!",
       updatedAt: new Date().toISOString()
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -353,7 +836,148 @@ function doPost(e) {
   }
 }
 
-// HELPER: Membaca sheet menjadi array of JSON objects berdasarkan baris header (Baris 1)
+// FUNGSI INSPEKSI STRUKTUR SELURUH SHEET
+function inspectAllSheets(ss) {
+  var allSheets = ss.getSheets();
+  var reports = [];
+
+  for (var i = 0; i < allSheets.length; i++) {
+    var sheet = allSheets[i];
+    var sheetName = sheet.getName();
+    var lastCol = sheet.getLastColumn();
+    var headers = [];
+
+    if (lastCol > 0) {
+      var rowValues = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      for (var c = 0; c < rowValues.length; c++) {
+        var h = String(rowValues[c] || "").trim();
+        if (h) headers.push(h);
+      }
+    }
+
+    reports.push({
+      name: sheetName,
+      rowCount: sheet.getLastRow(),
+      colCount: lastCol,
+      headers: headers
+    });
+  }
+
+  return {
+    status: "success",
+    totalSheets: allSheets.length,
+    sheets: reports,
+    inspectedAt: new Date().toISOString()
+  };
+}
+
+// FUNGSI AUTO-PROVISIONING: MEMBUAT SHEET & MENATA HEADER OTOMATIS
+function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
+  var created = [];
+  var updated = [];
+  var allSheetNames = [];
+  var sheets = ss.getSheets();
+  for (var s = 0; s < sheets.length; s++) {
+    allSheetNames.push(sheets[s].getName());
+  }
+
+  var keys = Object.keys(schema);
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var tableDef = schema[key];
+    var sheetName = tableDef.sheetName || key;
+    var headers = tableDef.headers || [];
+
+    var sheet = ss.getSheetByName(sheetName);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      created.push(sheetName);
+    } else {
+      updated.push(sheetName);
+    }
+
+    // Tulis dan Format Baris Header di Baris 1
+    if (headers.length > 0) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      var headerRange = sheet.getRange(1, 1, 1, headers.length);
+      headerRange.setFontWeight("bold");
+      headerRange.setFontColor("#ffffff");
+      headerRange.setBackground("#059669"); // Hijau Emerald Kemenag
+      sheet.setFrozenRows(1);
+    }
+
+    // Jika diminta mengisi data dan datanya tersedia
+    if (populateData && dataObj) {
+      var items = dataObj[key] || dataObj[sheetName] || [];
+      if (Array.isArray(items) && items.length > 0) {
+        var rowsData = [];
+        for (var r = 0; r < items.length; r++) {
+          var item = items[r];
+          var row = [];
+          for (var c = 0; c < headers.length; c++) {
+            var hName = headers[c];
+            var camelName = hName.replace(/_([a-z])/g, function(g) { return g[1].toUpperCase(); });
+            var val = item[hName] !== undefined ? item[hName] : item[camelName];
+            if (val === undefined || val === null) val = "";
+            else if (Array.isArray(val)) val = val.join(", ");
+            else if (typeof val === "boolean") val = val ? "true" : "false";
+            row.push(val);
+          }
+          rowsData.push(row);
+        }
+        if (rowsData.length > 0) {
+          var lastRow = sheet.getLastRow();
+          if (lastRow > 1) {
+            sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+          }
+          sheet.getRange(2, 1, rowsData.length, headers.length).setValues(rowsData);
+        }
+      }
+    }
+
+    // Auto-fit lebar kolom
+    try {
+      sheet.autoResizeColumns(1, headers.length);
+    } catch (_) {}
+  }
+
+  // Bersihkan lembar bawaan "Sheet1" jika kosong dan sheet baru telah dibuat
+  try {
+    var defaultSheet = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1") || ss.getSheetByName("Lembar 1");
+    if (defaultSheet && ss.getSheets().length > 1 && defaultSheet.getLastRow() <= 1) {
+      ss.deleteSheet(defaultSheet);
+    }
+  } catch (_) {}
+
+  return {
+    createdSheets: created,
+    updatedSheets: updated,
+    totalCreated: created.length,
+    totalUpdated: updated.length
+  };
+}
+
+// SKEMA DEFAULT JIKA TIDAK DIKIRIM CLIENT
+function getDefaultSchema() {
+  return {
+    buildings: { sheetName: "buildings", headers: ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"] },
+    rooms: { sheetName: "rooms", headers: ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"] },
+    meeting_rooms: { sheetName: "meeting_rooms", headers: ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"] },
+    room_capacity_rates: { sheetName: "room_capacity_rates", headers: ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"] },
+    breakfast_menu_items: { sheetName: "breakfast_menu_items", headers: ["id", "name", "category", "price", "description", "is_available", "allergens"] },
+    transactions: { sheetName: "transactions", headers: ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"] },
+    users: { sheetName: "users", headers: ["id", "username", "full_name", "role", "department", "status", "phone", "email"] },
+    maintenances: { sheetName: "maintenances", headers: ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"] },
+    qc_inspections: { sheetName: "qc_inspections", headers: ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"] },
+    breakfast_orders: { sheetName: "breakfast_orders", headers: ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"] },
+    work_sessions: { sheetName: "work_sessions", headers: ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"] },
+    app_settings: { sheetName: "app_settings", headers: ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"] },
+    system_logs: { sheetName: "system_logs", headers: ["id", "timestamp", "user", "action", "details"] }
+  };
+}
+
+// HELPER MEMBACA SHEET MENJADI ARRAY OF OBJECTS
 function readSheetAsObjects(ss, sheetName) {
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) return [];
@@ -378,9 +1002,8 @@ function readSheetAsObjects(ss, sheetName) {
   return rows;
 }
 
-// HELPER: Menulis array of objects ke sheet (membuat header otomatis jika sheet baru)
-function writeObjectsToSheet(ss, sheetName, items) {
-  if (!items || items.length === 0) return;
+// HELPER MENULIS ARRAY OF OBJECTS KE SHEET
+function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
@@ -388,21 +1011,37 @@ function writeObjectsToSheet(ss, sheetName, items) {
     sheet.clearContents();
   }
 
-  // Dapatkan seluruh nama kolom
-  var headers = Object.keys(items[0]);
+  var headers = defaultHeaders || ((items && items.length > 0) ? Object.keys(items[0]) : []);
+  if (!headers || headers.length === 0) return;
+
   var output = [headers];
 
-  for (var i = 0; i < items.length; i++) {
-    var row = [];
-    for (var j = 0; j < headers.length; j++) {
-      var val = items[i][headers[j]];
-      row.push(val !== undefined && val !== null ? val : "");
+  if (items && Array.isArray(items)) {
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var row = [];
+      for (var j = 0; j < headers.length; j++) {
+        var hName = headers[j];
+        var camelName = hName.replace(/_([a-z])/g, function(g) { return g[1].toUpperCase(); });
+        var val = item[hName] !== undefined ? item[hName] : item[camelName];
+        if (val === undefined || val === null) val = "";
+        else if (Array.isArray(val)) val = val.join(", ");
+        else if (typeof val === "boolean") val = val ? "true" : "false";
+        row.push(val);
+      }
+      output.push(row);
     }
-    output.push(row);
   }
 
   sheet.getRange(1, 1, output.length, headers.length).setValues(output);
-  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#d1fae5");
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setFontWeight("bold");
+  headerRange.setFontColor("#ffffff");
+  headerRange.setBackground("#059669");
+  sheet.setFrozenRows(1);
+  try {
+    sheet.autoResizeColumns(1, headers.length);
+  } catch (_) {}
 }`;
 
   const handleCopyScript = () => {
@@ -415,7 +1054,7 @@ function writeObjectsToSheet(ss, sheetName, items) {
   return (
     <div className="space-y-6 max-w-6xl mx-auto my-4 text-xs sm:text-sm animate-in fade-in duration-200">
       {/* 1. Header & Hero Bar */}
-      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-emerald-500/30 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-emerald-500/30 relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-10 pointer-events-none flex items-center justify-center">
           <i className="fa-solid fa-file-excel text-[180px]"></i>
         </div>
@@ -428,14 +1067,14 @@ function writeObjectsToSheet(ss, sheetName, items) {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-base sm:text-xl font-black text-white tracking-wide">
-                  Panduan &amp; Integrasi Google Spreadsheet
+                  Integrasi &amp; Auto-Provisioning Google Spreadsheet
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 uppercase tracking-wider">
-                  Live Sync
+                  Auto-Schema Ready
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-emerald-200/90 mt-1 max-w-2xl leading-relaxed">
-                Hubungkan dan jadikan Google Spreadsheet sebagai sumber data atau arsip cadangan langsung bagi SIM Asrama Haji. Anda dapat membaca data atau mengirim perubahan secara instan melalui Google Apps Script Web App.
+                Hubungkan Google Spreadsheet kosong sekalipun — aplikasi akan <strong>secara otomatis mendeteksi, membuat lembar kerja (sheet), dan menyusun header tabel</strong> tanpa perlu Anda buat manual!
               </p>
             </div>
           </div>
@@ -455,16 +1094,16 @@ function writeObjectsToSheet(ss, sheetName, items) {
             <button
               type="button"
               onClick={handleCopyScript}
-              className="px-4 py-2 bg-gold-500 hover:bg-gold-400 text-slate-950 font-extrabold rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md cursor-pointer"
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md cursor-pointer"
             >
               <i className={`fa-solid ${copiedScript ? 'fa-check' : 'fa-copy'}`}></i>
-              <span>{copiedScript ? 'Tersalin!' : 'Salin Kode Skrip (Code.gs)'}</span>
+              <span>{copiedScript ? 'Tersalin!' : 'Salin Skrip Code.gs'}</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* 2. Status Koneksi & Tombol Aksi Cepat */}
+      {/* 2. Status Koneksi & Aksi Utama */}
       <div className={`p-4 sm:p-5 rounded-2xl border transition-all shadow-sm ${
         isConnected 
           ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700/60 text-emerald-950 dark:text-emerald-100' 
@@ -495,11 +1134,54 @@ function writeObjectsToSheet(ss, sheetName, items) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+            {/* Tombol Deteksi / Periksa Skema */}
+            <button
+              type="button"
+              onClick={() => handleInspectSchema()}
+              disabled={isInspecting || !scriptUrl.trim()}
+              className="px-3.5 py-2.5 bg-sky-700 hover:bg-sky-800 disabled:opacity-50 text-white font-bold rounded-xl shadow transition flex items-center space-x-2 cursor-pointer text-xs"
+              title="Periksa keberadaan lembar kerja dan baris header kolom di Google Spreadsheet"
+            >
+              {isInspecting ? (
+                <>
+                  <i className="fa-solid fa-spinner fa-spin"></i>
+                  <span>Mendeteksi...</span>
+                </>
+              ) : (
+                <>
+                  <i className="fa-solid fa-magnifying-glass-chart"></i>
+                  <span>Deteksi Struktur Sheet</span>
+                </>
+              )}
+            </button>
+
+            {/* Tombol Auto-Provisioning */}
+            <button
+              type="button"
+              onClick={() => setShowProvisionModal(true)}
+              disabled={isAutoProvisioning || !scriptUrl.trim()}
+              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-xl shadow transition flex items-center space-x-2 cursor-pointer text-xs"
+              title="Otomatis buat seluruh lembar kerja dan baris header di Spreadsheet"
+            >
+              {isAutoProvisioning ? (
+                <>
+                  <i className="fa-solid fa-spinner fa-spin"></i>
+                  <span>Menginisialisasi...</span>
+                </>
+              ) : (
+                <>
+                  <i className="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
+                  <span>Inisialisasi Otomatis (Auto-Provision)</span>
+                </>
+              )}
+            </button>
+
+            {/* Tombol Baca Data */}
             <button
               type="button"
               onClick={handleTestDataFetch}
               disabled={isLoading || isPushing || !scriptUrl.trim()}
-              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-xl shadow transition flex items-center space-x-2 cursor-pointer"
+              className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-bold rounded-xl shadow transition flex items-center space-x-2 cursor-pointer text-xs"
             >
               {isLoading ? (
                 <>
@@ -509,27 +1191,28 @@ function writeObjectsToSheet(ss, sheetName, items) {
               ) : (
                 <>
                   <i className="fa-solid fa-cloud-arrow-down"></i>
-                  <span>Baca Database Spreadsheet</span>
+                  <span>Baca Data</span>
                 </>
               )}
             </button>
 
+            {/* Tombol Kirim Data */}
             <button
               type="button"
               onClick={() => setShowPushConfirm(true)}
               disabled={isLoading || isPushing || !scriptUrl.trim()}
-              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 text-white font-bold rounded-xl shadow transition flex items-center space-x-2 cursor-pointer"
-              title="Kirim seluruh data aplikasi ke Google Spreadsheet"
+              className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 text-white font-bold rounded-xl shadow transition flex items-center space-x-2 cursor-pointer text-xs"
+              title="Kirim data aktif aplikasi ke Google Spreadsheet"
             >
               {isPushing ? (
                 <>
                   <i className="fa-solid fa-spinner fa-spin"></i>
-                  <span>Mengirim Data...</span>
+                  <span>Mengirim...</span>
                 </>
               ) : (
                 <>
                   <i className="fa-solid fa-cloud-arrow-up"></i>
-                  <span>Kirim Data ke Spreadsheet</span>
+                  <span>Kirim Data</span>
                 </>
               )}
             </button>
@@ -537,13 +1220,185 @@ function writeObjectsToSheet(ss, sheetName, items) {
         </div>
       </div>
 
-      {/* 3. Form Input URL Web App & Dokumen Spreadsheet */}
+      {/* Box Penanganan Khusus Error 403 Forbidden */}
+      {isForbiddenError && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-400 dark:border-amber-600 shadow-md space-y-3">
+          <div className="flex items-start space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center text-lg font-black shrink-0">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-extrabold text-amber-950 dark:text-amber-100 text-sm sm:text-base">
+                Terdeteksi Akses Ditolak (HTTP 403 Forbidden)
+              </h3>
+              <p className="text-xs text-amber-900/90 dark:text-amber-200/90 mt-0.5 leading-relaxed">
+                Penyebab utama error ini: Opsi <strong>"Who has access"</strong> saat melakukan <strong>Deploy Web App</strong> di Google Apps Script masih disetel ke <em>"Only myself" (Hanya saya)</em> atau akun organisasi terbatas, sehingga Google memblokir akses publik.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white/80 dark:bg-slate-900/80 p-3.5 rounded-xl border border-amber-300 dark:border-amber-700/60 space-y-2 text-xs text-slate-800 dark:text-slate-200">
+            <span className="font-bold text-emerald-700 dark:text-emerald-400 block">
+              🛠️ Cara Memperbaiki dalam 30 Detik (Tanpa Mengubah URL):
+            </span>
+            <ol className="list-decimal list-inside space-y-1.5 pl-1 leading-relaxed">
+              <li>Buka file Google Spreadsheet Anda &gt; menu <strong>Extensions &gt; Apps Script</strong>.</li>
+              <li>Di pojok kanan atas, klik tombol biru <strong>Deploy &gt; Manage deployments</strong>.</li>
+              <li>Klik ikon <strong>Pensil (Edit)</strong> pada deployment aktif Web App Anda.</li>
+              <li>Pada opsi <strong>"Who has access" (Siapa yang memiliki akses)</strong>, ubah menjadi <strong className="text-emerald-700 dark:text-emerald-300 font-extrabold">Anyone (Siapa saja)</strong>.</li>
+              <li>Klik tombol biru <strong>Deploy</strong>. Selesai! URL Web App tetap sama dan koneksi akan langsung berhasil.</li>
+            </ol>
+          </div>
+
+          <div className="flex items-center justify-end space-x-2 pt-1">
+            <button
+              type="button"
+              onClick={() => handleTestDataFetch()}
+              disabled={isLoading}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl text-xs shadow transition flex items-center space-x-1.5 cursor-pointer"
+            >
+              <i className="fa-solid fa-rotate-right"></i>
+              <span>Coba Tes Koneksi Ulang</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsForbiddenError(false)}
+              className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition cursor-pointer"
+            >
+              Tutup Petunjuk
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Panel Khusus: Auto-Provisioning & Deteksi Struktur Tabel */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-4">
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold text-sm">
+                <i className="fa-solid fa-wand-magic-sparkles"></i>
+              </span>
+              <h2 className="font-extrabold text-slate-900 dark:text-slate-100 text-sm sm:text-base">
+                Auto-Provisioning: Pembuatan Otomatis Lembar Kerja &amp; Header
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
+              Anda tidak perlu membuat lembar kerja (sheet) satu per satu secara manual. Cukup hubungkan Spreadsheet kosong, sistem akan memeriksa kelengkapan tabel dan secara otomatis membuat sheet serta menata header kolom tabel sesuai skema aplikasi.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setShowProvisionModal(true)}
+              disabled={isAutoProvisioning || !scriptUrl.trim()}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow transition flex items-center space-x-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-bolt text-amber-300"></i>
+              <span>Mulai Auto-Provisioning</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Ringkasan Status Inspeksi */}
+        {inspectionResult && (
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <span className={`w-3 h-3 rounded-full ${inspectionResult.overallStatus === 'READY' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                  Hasil Deteksi: {inspectionResult.totalReady} dari {inspectionResult.totalExpected} Lembar Kerja Siap Digunakan
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                Diperiksa: {new Date(inspectionResult.inspectedAt).toLocaleTimeString('id-ID')}
+              </span>
+            </div>
+
+            {/* Grid Kartu Tabel */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              {inspectionResult.sheetReports.map((report) => (
+                <div 
+                  key={report.key}
+                  className={`p-3 rounded-xl border transition-all ${
+                    report.status === 'READY'
+                      ? 'bg-white dark:bg-slate-800/90 border-emerald-300 dark:border-emerald-700/60 shadow-xs'
+                      : report.status === 'MISSING_HEADERS'
+                      ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60'
+                      : 'bg-rose-50/60 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <div>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold text-xs block">
+                        {report.sheetName}
+                      </span>
+                      <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">
+                        {report.label}
+                      </h4>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      report.status === 'READY'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                        : report.status === 'MISSING_HEADERS'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                        : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                    }`}>
+                      {report.status === 'READY' ? 'Siap' : report.status === 'MISSING_HEADERS' ? 'Header Kurang' : 'Belum Dibuat'}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
+                    {report.description}
+                  </p>
+
+                  <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                    <span>{report.expectedHeaders.length} Kolom Baku</span>
+                    <span>{report.exists ? 'Sheet Ada' : 'Perlu Dibuat'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Jika belum pernah diinspeksi */}
+        {!inspectionResult && (
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-dashed border-slate-300 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 flex items-center justify-center text-lg shrink-0">
+                <i className="fa-solid fa-table-list"></i>
+              </div>
+              <div>
+                <h4 className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                  Struktur Baku Database: 13 Lembar Kerja Master, Operasional &amp; Sistem
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Mencakup <code>buildings</code>, <code>rooms</code>, <code>room_capacity_rates</code> (katalog tipe kamar &amp; tarif), <code>meeting_rooms</code>, <code>breakfast_menu_items</code>, <code>transactions</code>, <code>users</code>, <code>maintenances</code>, <code>qc_inspections</code>, <code>breakfast_orders</code>, <code>work_sessions</code>, <code>app_settings</code>, dan <code>system_logs</code>.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleInspectSchema()}
+              disabled={isInspecting || !scriptUrl.trim()}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shrink-0"
+            >
+              {isInspecting ? 'Mendeteksi...' : 'Periksa Kelengkapan Sheet Sekarang'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 4. Form Input URL Web App & Dokumen Spreadsheet */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
           <div className="flex items-center space-x-2">
             <i className="fa-solid fa-link text-emerald-600 text-sm"></i>
             <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-              Pengaturan URL Endpoint Google Apps Script
+              Pengaturan URL Endpoint Google Apps Script &amp; Spreadsheet
             </h3>
           </div>
           {isConnected && (
@@ -604,7 +1459,7 @@ function writeObjectsToSheet(ss, sheetName, items) {
         </form>
       </div>
 
-      {/* 4. Hasil Pembacaan Data Spreadsheet (Preview & Terapkan) */}
+      {/* 5. Hasil Pembacaan Data Spreadsheet (Preview & Terapkan) */}
       {fetchedData && (
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-4 animate-in fade-in">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-3">
@@ -634,6 +1489,18 @@ function writeObjectsToSheet(ss, sheetName, items) {
           <div className="flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl overflow-x-auto max-w-full">
             <button
               type="button"
+              onClick={() => setActivePreviewTab('ROOM_RATES')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'ROOM_RATES' 
+                  ? 'bg-emerald-600 text-white shadow-xs' 
+                  : 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100'
+              }`}
+            >
+              <i className="fa-solid fa-tags"></i>
+              <span>Katalog Tipe Kamar &amp; Tarif ({fetchedData.room_capacity_rates?.length || 0})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActivePreviewTab('BUILDINGS')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
                 activePreviewTab === 'BUILDINGS' 
@@ -655,6 +1522,30 @@ function writeObjectsToSheet(ss, sheetName, items) {
             >
               <i className="fa-solid fa-door-open"></i>
               <span>Kamar ({fetchedData.rooms?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePreviewTab('MEETING_ROOMS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'MEETING_ROOMS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-people-roof"></i>
+              <span>Aula ({fetchedData.meeting_rooms?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePreviewTab('BREAKFAST_MENUS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'BREAKFAST_MENUS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-utensils"></i>
+              <span>Menu Sarapan ({fetchedData.breakfast_menu_items?.length || 0})</span>
             </button>
             <button
               type="button"
@@ -682,6 +1573,54 @@ function writeObjectsToSheet(ss, sheetName, items) {
             </button>
             <button
               type="button"
+              onClick={() => setActivePreviewTab('QC')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'QC' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-clipboard-check"></i>
+              <span>Inspeksi QC ({fetchedData.qc_inspections?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePreviewTab('MAINTENANCES')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'MAINTENANCES' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-wrench"></i>
+              <span>Perawatan ({fetchedData.maintenances?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePreviewTab('ORDERS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'ORDERS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-bowl-food"></i>
+              <span>Pesanan Makan ({fetchedData.breakfast_orders?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePreviewTab('WORK_SESSIONS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'WORK_SESSIONS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-user-clock"></i>
+              <span>Sesi Kerja ({fetchedData.work_sessions?.length || 0})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActivePreviewTab('RAW')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
                 activePreviewTab === 'RAW' 
@@ -696,6 +1635,122 @@ function writeObjectsToSheet(ss, sheetName, items) {
 
           {/* Preview Content */}
           <div className="overflow-x-auto max-h-72 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900 p-2 text-xs">
+            {activePreviewTab === 'ROOM_RATES' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Tipe Kamar</th>
+                    <th className="p-2">Varian Bed</th>
+                    <th className="p-2">Kapasitas Pax</th>
+                    <th className="p-2">Tarif per Malam</th>
+                    <th className="p-2">Fasilitas / Catatan</th>
+                    <th className="p-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.room_capacity_rates || []).map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          (r.room_type || r.roomType) === 'Superior' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                          (r.room_type || r.roomType) === 'Standar' ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300' :
+                          'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        }`}>
+                          {r.room_type || r.roomType || 'Standar'}
+                        </span>
+                      </td>
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{r.bed_type || r.bedType}</td>
+                      <td className="p-2">{r.capacity_pax || r.capacityPax || 2} Pax</td>
+                      <td className="p-2 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        Rp {Number(r.price_per_night || r.pricePerNight || 0).toLocaleString('id-ID')}
+                      </td>
+                      <td className="p-2 text-slate-500 max-w-xs truncate">{r.description || (Array.isArray(r.facilities) ? r.facilities.join(', ') : r.facilities) || '-'}</td>
+                      <td className="p-2">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700">
+                          {String(r.is_active || r.isActive) === 'true' || r.is_active === true ? 'Aktif' : 'Nonaktif'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.room_capacity_rates || fetchedData.room_capacity_rates.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Belum ada baris di sheet 'room_capacity_rates'. Klik 'Inisialisasi Otomatis' untuk menyusunnya.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'MEETING_ROOMS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Nama Aula</th>
+                    <th className="p-2">Gedung</th>
+                    <th className="p-2">Kapasitas</th>
+                    <th className="p-2">Tarif Full Day</th>
+                    <th className="p-2">Tarif Half Day</th>
+                    <th className="p-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.meeting_rooms || []).map((m, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{m.name}</td>
+                      <td className="p-2">{m.building}</td>
+                      <td className="p-2">{m.capacity}</td>
+                      <td className="p-2 font-mono">Rp {Number(m.rate_full_day || m.dailyRate || 0).toLocaleString('id-ID')}</td>
+                      <td className="p-2 font-mono">Rp {Number(m.rate_half_day || m.sessionRate || 0).toLocaleString('id-ID')}</td>
+                      <td className="p-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700">
+                          {m.status || 'TERSEDIA'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.meeting_rooms || fetchedData.meeting_rooms.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris data aula di sheet 'meeting_rooms'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'BREAKFAST_MENUS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Nama Menu</th>
+                    <th className="p-2">Kategori</th>
+                    <th className="p-2">Harga per Porsi</th>
+                    <th className="p-2">Keterangan</th>
+                    <th className="p-2">Ketersediaan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.breakfast_menu_items || []).map((b, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{b.name}</td>
+                      <td className="p-2">{b.category}</td>
+                      <td className="p-2 font-mono font-bold text-emerald-600">Rp {Number(b.price || 0).toLocaleString('id-ID')}</td>
+                      <td className="p-2 text-slate-500 truncate max-w-xs">{b.description || '-'}</td>
+                      <td className="p-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800">
+                          {String(b.is_available) === 'true' || b.is_available === true ? 'Tersedia' : 'Habis'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.breakfast_menu_items || fetchedData.breakfast_menu_items.length === 0) && (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-center text-slate-400">Tidak ada baris data menu di sheet 'breakfast_menu_items'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
             {activePreviewTab === 'BUILDINGS' && (
               <table className="w-full text-left">
                 <thead>
@@ -736,6 +1791,7 @@ function writeObjectsToSheet(ss, sheetName, items) {
                     <th className="p-2">Gedung</th>
                     <th className="p-2">Lantai</th>
                     <th className="p-2">Tipe</th>
+                    <th className="p-2">Varian Bed</th>
                     <th className="p-2">Status</th>
                     <th className="p-2">Tarif/Malam</th>
                   </tr>
@@ -747,6 +1803,7 @@ function writeObjectsToSheet(ss, sheetName, items) {
                       <td className="p-2">{r.building}</td>
                       <td className="p-2">{r.floor}</td>
                       <td className="p-2">{r.type}</td>
+                      <td className="p-2 text-slate-500">{r.bed_type || r.bedType || '-'}</td>
                       <td className="p-2">
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700">
                           {r.status || 'KOSONG'}
@@ -757,7 +1814,7 @@ function writeObjectsToSheet(ss, sheetName, items) {
                   ))}
                   {(!fetchedData.rooms || fetchedData.rooms.length === 0) && (
                     <tr>
-                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris data kamar di sheet 'rooms'.</td>
+                      <td colSpan={7} className="p-4 text-center text-slate-400">Tidak ada baris data kamar di sheet 'rooms'.</td>
                     </tr>
                   )}
                 </tbody>
@@ -830,6 +1887,148 @@ function writeObjectsToSheet(ss, sheetName, items) {
               </table>
             )}
 
+            {activePreviewTab === 'QC' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">No. Kamar</th>
+                    <th className="p-2">Gedung</th>
+                    <th className="p-2">Pemeriksa QC</th>
+                    <th className="p-2">Tanggal</th>
+                    <th className="p-2">Kebersihan</th>
+                    <th className="p-2">Hasil QC</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.qc_inspections || []).map((q, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{q.room_number || q.roomNumber}</td>
+                      <td className="p-2">{q.building}</td>
+                      <td className="p-2">{q.inspector_name || q.inspectorName}</td>
+                      <td className="p-2 font-mono text-slate-500">{q.inspection_date || q.inspectionDate}</td>
+                      <td className="p-2">{q.cleanliness}</td>
+                      <td className="p-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          (q.result || 'LOLOS_QC').includes('LOLOS') ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {q.result || 'LOLOS_QC'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.qc_inspections || fetchedData.qc_inspections.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris inspeksi mutu di sheet 'qc_inspections'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'MAINTENANCES' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">No. Kamar</th>
+                    <th className="p-2">Gedung</th>
+                    <th className="p-2">Kendala / Masalah</th>
+                    <th className="p-2">Urgensi</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2">Pelapor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.maintenances || []).map((m, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{m.room_number || m.roomNumber}</td>
+                      <td className="p-2">{m.building}</td>
+                      <td className="p-2 text-slate-800 dark:text-slate-200 max-w-xs truncate">{m.issue}</td>
+                      <td className="p-2">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800">{m.urgency}</span>
+                      </td>
+                      <td className="p-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700">{m.status}</span>
+                      </td>
+                      <td className="p-2 text-slate-500">{m.reporter}</td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.maintenances || fetchedData.maintenances.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada data tiket perbaikan di sheet 'maintenances'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'ORDERS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Tamu</th>
+                    <th className="p-2">No. Kamar</th>
+                    <th className="p-2">Menu</th>
+                    <th className="p-2">Porsi</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2">Total Harga</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.breakfast_orders || []).map((o, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{o.guest_name || o.guestName}</td>
+                      <td className="p-2">{o.room_number || o.roomNumber}</td>
+                      <td className="p-2">{o.menu_name || o.menuName}</td>
+                      <td className="p-2">{o.portions} Porsi</td>
+                      <td className="p-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800">{o.status}</span>
+                      </td>
+                      <td className="p-2 font-mono">Rp {Number(o.total_price || o.totalPrice || 0).toLocaleString('id-ID')}</td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.breakfast_orders || fetchedData.breakfast_orders.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris pesanan makan di sheet 'breakfast_orders'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'WORK_SESSIONS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Nama Petugas</th>
+                    <th className="p-2">Role</th>
+                    <th className="p-2">Waktu Masuk</th>
+                    <th className="p-2">Waktu Keluar</th>
+                    <th className="p-2">Durasi Kerja</th>
+                    <th className="p-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.work_sessions || []).map((w, i) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{w.user_name || w.userName}</td>
+                      <td className="p-2">{w.user_role || w.userRole}</td>
+                      <td className="p-2 font-mono text-[11px]">{w.login_time || w.loginTime}</td>
+                      <td className="p-2 font-mono text-[11px]">{w.logout_time || w.logoutTime || 'Sedang Bertugas'}</td>
+                      <td className="p-2">{w.duration_formatted || w.durationFormatted || '-'}</td>
+                      <td className="p-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700">{w.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.work_sessions || fetchedData.work_sessions.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris sesi kerja di sheet 'work_sessions'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
             {activePreviewTab === 'RAW' && (
               <pre className="p-3 font-mono text-[11px] text-slate-700 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap">
                 {JSON.stringify(fetchedData.raw, null, 2)}
@@ -839,47 +2038,93 @@ function writeObjectsToSheet(ss, sheetName, items) {
         </div>
       )}
 
-      {/* 5. Panduan Langkah demi Langkah */}
+      {/* 6. Panduan Lengkap Konfigurasi & Auto-Provisioning */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-3">
           <div className="flex items-center space-x-2">
             <i className="fa-solid fa-circle-question text-emerald-600 text-sm"></i>
             <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-              Panduan Lengkap Konfigurasi Google Spreadsheet &amp; Apps Script
+              Panduan Konfigurasi Google Spreadsheet &amp; Apps Script
             </h3>
           </div>
 
-          <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
+          <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveGuideTab('AUTO')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${activeGuideTab === 'AUTO' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400'}`}
+            >
+              🚀 Cara Otomatis (Cepat)
+            </button>
             <button
               type="button"
               onClick={() => setActiveGuideTab('STEP1')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition ${activeGuideTab === 'STEP1' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${activeGuideTab === 'STEP1' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
             >
               1. Buat Sheet
             </button>
             <button
               type="button"
               onClick={() => setActiveGuideTab('STEP2')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition ${activeGuideTab === 'STEP2' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${activeGuideTab === 'STEP2' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
             >
               2. Apps Script
             </button>
             <button
               type="button"
               onClick={() => setActiveGuideTab('STEP3')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition ${activeGuideTab === 'STEP3' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${activeGuideTab === 'STEP3' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
             >
               3. Deploy Web App
             </button>
             <button
               type="button"
               onClick={() => setActiveGuideTab('SCRIPT')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition ${activeGuideTab === 'SCRIPT' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${activeGuideTab === 'SCRIPT' ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-2xs' : 'text-slate-600 dark:text-slate-400'}`}
             >
               Kode Skrip
             </button>
           </div>
         </div>
+
+        {activeGuideTab === 'AUTO' && (
+          <div className="space-y-3 animate-in fade-in">
+            <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-300 dark:border-emerald-700/60 space-y-3">
+              <div className="flex items-center space-x-2 text-emerald-900 dark:text-emerald-200">
+                <i className="fa-solid fa-sparkles text-emerald-600 text-base"></i>
+                <h4 className="font-extrabold text-sm">
+                  Metode Auto-Provisioning (Hanya 3 Langkah Praktis):
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-1.5 shadow-2xs">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 font-bold flex items-center justify-center text-xs">1</span>
+                  <h5 className="font-bold text-xs text-slate-800 dark:text-slate-200">Buat File Kosong</h5>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Buka <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-emerald-600 font-bold underline">sheets.new</a>. Biarkan dokumen kosong (cukup ada <em>Sheet1</em> bawaan). Anda tidak perlu membuat tab atau kolom apapun!
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-1.5 shadow-2xs">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 font-bold flex items-center justify-center text-xs">2</span>
+                  <h5 className="font-bold text-xs text-slate-800 dark:text-slate-200">Pasang &amp; Deploy Skrip</h5>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Buka <strong>Extensions &gt; Apps Script</strong>, tempelkan kode skrip dari tab <em>Kode Skrip</em>, lalu Deploy sebagai <strong>Web App</strong> dengan akses <strong>Anyone</strong>. Salin URL-nya ke form di atas.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-1.5 shadow-2xs">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 font-bold flex items-center justify-center text-xs">3</span>
+                  <h5 className="font-bold text-xs text-slate-800 dark:text-slate-200">Klik Inisialisasi Otomatis</h5>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Klik tombol <strong>Inisialisasi Otomatis</strong> di atas. Sistem akan mandiri membuat 8 lembar kerja, menyusun header hijau berformat rapi, dan membekukan baris pertama.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {activeGuideTab === 'STEP1' && (
           <div className="space-y-3 animate-in fade-in">
@@ -951,7 +2196,7 @@ function writeObjectsToSheet(ss, sheetName, items) {
         {activeGuideTab === 'SCRIPT' && (
           <div className="space-y-2 animate-in fade-in">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">File: Code.gs</span>
+              <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">File: Code.gs (Versi Auto-Provisioning &amp; Real-Time Sync)</span>
               <button
                 type="button"
                 onClick={handleCopyScript}
@@ -968,14 +2213,14 @@ function writeObjectsToSheet(ss, sheetName, items) {
         )}
       </div>
 
-      {/* 6. Riwayat Log Sinkronisasi */}
+      {/* 7. Riwayat Log Sinkronisasi */}
       {syncLogs.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2.5">
             <div className="flex items-center space-x-2">
               <i className="fa-solid fa-clock-rotate-left text-slate-500"></i>
               <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                Log Riwayat Sinkronisasi Spreadsheet Sesi Ini
+                Log Riwayat Sinkronisasi &amp; Auto-Provisioning Sesi Ini
               </h3>
             </div>
             <button
@@ -1025,15 +2270,79 @@ function writeObjectsToSheet(ss, sheetName, items) {
 
       <ActionConfirmModal
         isOpen={showPushConfirm}
-        title="Kirim Data ke Google Spreadsheet"
-        subtitle="Konfirmasi Sinkronisasi Keluar"
-        message="Apakah Anda yakin ingin mengekspor seluruh data aktif (Gedung, Kamar, Transaksi, Petugas) ke Google Spreadsheet? Baris data pada sheet terkait akan diperbarui."
-        confirmText="Ya, Kirim ke Spreadsheet"
+        title="Kirim Seluruh Data ke Google Spreadsheet"
+        subtitle="Sinkronisasi Seluruh 13 Tabel Aplikasi"
+        message="Apakah Anda yakin ingin mengekspor seluruh data aktif (Gedung, Kamar, Katalog Tipe Kamar & Tarif, Aula, Katering & Menu, Reservasi Tamu, Petugas, Perawatan, Inspeksi QC, Presensi Kerja, Pengaturan Instansi, dan Audit Log) ke Google Spreadsheet? Seluruh baris data pada sheet terkait akan diperbarui dan diselaraskan."
+        confirmText="Ya, Kirim Semua Data ke Spreadsheet"
         variant="primary"
         icon="fa-cloud-arrow-up"
         onClose={() => setShowPushConfirm(false)}
         onConfirm={handlePushDataToSpreadsheet}
       />
+
+      {/* Modal Konfirmasi Auto-Provisioning */}
+      {showProvisionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-start space-x-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center text-xl shrink-0 font-bold">
+                <i className="fa-solid fa-wand-magic-sparkles"></i>
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-base">
+                  Inisialisasi Otomatis (Auto-Provisioning)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Membangun struktur database lengkap ke Google Spreadsheet Anda.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs space-y-2">
+              <p className="text-slate-700 dark:text-slate-300">
+                Sistem akan secara otomatis menjalankan:
+              </p>
+              <ul className="space-y-1 text-slate-600 dark:text-slate-400 list-disc list-inside">
+                <li>Mendeteksi &amp; membuat 13 lembar kerja lengkap: <strong>buildings</strong>, <strong>rooms</strong>, <strong>room_capacity_rates</strong> (katalog tipe kamar &amp; tarif), <strong>meeting_rooms</strong>, <strong>breakfast_menu_items</strong>, <strong>transactions</strong>, <strong>users</strong>, <strong>maintenances</strong>, <strong>qc_inspections</strong>, <strong>breakfast_orders</strong>, <strong>work_sessions</strong>, <strong>app_settings</strong>, <strong>system_logs</strong>.</li>
+                <li>Menyusun baris pertama (header) dengan format baku, teks tebal, dan warna hijau Kemenag.</li>
+                <li>Membekukan baris header (freeze row 1) dan menyesuaikan lebar kolom.</li>
+                <li>Membersihkan tab bawaan kosong jika tidak digunakan.</li>
+              </ul>
+            </div>
+
+            {/* Checklist Pengisian Data Awal */}
+            <label className="flex items-center space-x-2.5 p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={populateSeedOnProvision}
+                onChange={(e) => setPopulateSeedOnProvision(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-300 cursor-pointer"
+              />
+              <span className="text-xs font-bold text-emerald-950 dark:text-emerald-200">
+                Sekaligus isi data master sistem saat ini ke lembar kerja yang baru dibuat
+              </span>
+            </label>
+
+            <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setShowProvisionModal(false)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteAutoProvision}
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl text-xs shadow-md transition flex items-center space-x-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
+                <span>Jalankan Auto-Provisioning Sekarang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
