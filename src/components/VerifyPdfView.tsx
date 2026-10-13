@@ -289,7 +289,7 @@ export function VerifyPdfView() {
           u.role.toLowerCase() === signatoryRole.toLowerCase()
         );
 
-        const hasUniqueQr = Boolean(signerUser?.signatureUrl) || Boolean(supabaseCheck.data?.qr_code_hash) || Boolean(verifiedLocalLog?.qrCodeHash);
+        const hasUniqueQr = Boolean(signerUser?.signatureUrl) || Boolean(signerUser?.qrCodeUrl) || Boolean(verifiedLocalLog?.qrCodeHash);
         
         if (!hasUniqueQr) {
           setVerificationResult({

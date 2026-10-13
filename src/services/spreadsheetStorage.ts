@@ -62,6 +62,11 @@ export function getSpreadsheetConfig(): SpreadsheetConfigInfo {
     source = 'environment';
   }
 
+  const defaultWebUrl = 'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
+  if (!webAppUrl) {
+    webAppUrl = defaultWebUrl;
+  }
+
   if (!sheetId && envSheetId) {
     sheetId = envSheetId;
   }
@@ -193,13 +198,91 @@ export async function testSpreadsheetConnection(testUrl: string): Promise<{ succ
 }
 
 /**
- * BACA SELURUH DATABASE DARI GOOGLE SPREADSHEET (VIA SERVER PROXY ATAU DIRECT WEB APP)
- * Berfungsi sebagai Single Source of Truth utama menggantikan Supabase
+ * Contoh fungsi untuk mengambil data dari Google Sheet melalui Web App URL
+ */
+export async function fetchFromGoogleSheet(sheetName: string): Promise<any[]> {
+  const webAppUrl = 
+    (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_SHEET_WEBAPP_URL) ||
+    (typeof process !== 'undefined' && (process.env.VITE_SHEET_WEBAPP_URL || process.env.GOOGLE_SHEETS_WEBAPP_URL)) ||
+    getSpreadsheetConfig().webAppUrl ||
+    'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
+
+  if (!webAppUrl) {
+    console.error("VITE_SHEET_WEBAPP_URL belum diatur!");
+    return [];
+  }
+  
+  try {
+    const response = await fetch(`${webAppUrl}?sheet=${encodeURIComponent(sheetName)}`);
+    const result = await response.json();
+    if (Array.isArray(result.data)) {
+      return result.data;
+    }
+    if (result.data && typeof result.data === 'object') {
+      const matchKey = Object.keys(result.data).find(
+        k => k.toLowerCase() === sheetName.toLowerCase() || k.replace(/_/g, '').toLowerCase() === sheetName.replace(/_/g, '').toLowerCase()
+      );
+      if (matchKey && Array.isArray(result.data[matchKey])) {
+        return result.data[matchKey];
+      }
+    }
+    if (Array.isArray(result)) {
+      return result;
+    }
+    return result.data || [];
+  } catch (error) {
+    console.error(`Gagal mengambil data dari sheet ${sheetName}:`, error);
+    // Coba via server proxy
+    try {
+      const proxyRes = await fetch(`/api/sheets/database?sheet=${encodeURIComponent(sheetName)}`);
+      if (proxyRes.ok) {
+        const json = await proxyRes.json();
+        const d = json.data;
+        if (Array.isArray(d)) return d;
+        if (d && typeof d === 'object') {
+          const matchKey = Object.keys(d).find(
+            k => k.toLowerCase() === sheetName.toLowerCase() || k.replace(/_/g, '').toLowerCase() === sheetName.replace(/_/g, '').toLowerCase()
+          );
+          if (matchKey && Array.isArray(d[matchKey])) return d[matchKey];
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+}
+
+/**
+ * BACA SELURUH DATABASE DARI GOOGLE SPREADSHEET (VIA DIRECT WEB APP ATAU SERVER PROXY)
+ * Berfungsi sebagai Single Source of Truth utama
  */
 export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorageDatabase | null> {
   const cfg = getSpreadsheetConfig();
+  const webAppUrl = 
+    (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_SHEET_WEBAPP_URL) ||
+    cfg.webAppUrl ||
+    'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
 
-  // 1. Coba ambil melalui endpoint backend proxy /api/sheets/database
+  // 1. Ambil langsung dari Web App URL Google Apps Script yang sudah dideploy
+  if (webAppUrl) {
+    try {
+      const directRes = await fetch(webAppUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' }
+      });
+
+      if (directRes.ok) {
+        const json = await directRes.json();
+        const d = json.data || json;
+        if (d && typeof d === 'object') {
+          return normalizeSpreadsheetPayload(d);
+        }
+      }
+    } catch (directErr) {
+      console.warn('Direct fetch to Google Apps Script failed, mencoba via server proxy:', directErr);
+    }
+  }
+
+  // 2. Fallback melalui endpoint backend proxy /api/sheets/database
   try {
     const proxyRes = await fetch('/api/sheets/database', {
       method: 'GET',
@@ -216,27 +299,7 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
       }
     }
   } catch (e) {
-    console.warn('Proxy /api/sheets/database tidak merespons, mencoba langsung via Web App URL:', e);
-  }
-
-  // 2. Jika proxy server tidak tersedia atau belum ada data, coba langsung fetch ke Web App URL
-  if (cfg.webAppUrl) {
-    try {
-      const directRes = await fetch(cfg.webAppUrl, {
-        method: 'GET',
-        headers: { Accept: 'application/json' }
-      });
-
-      if (directRes.ok) {
-        const json = await directRes.json();
-        const d = json.data || json;
-        if (d && typeof d === 'object') {
-          return normalizeSpreadsheetPayload(d);
-        }
-      }
-    } catch (directErr) {
-      console.warn('Direct fetch to Google Apps Script failed:', directErr);
-    }
+    console.warn('Proxy /api/sheets/database tidak merespons:', e);
   }
 
   return null;
@@ -370,23 +433,55 @@ export async function deleteBuildingInSpreadsheetDirect(buildingId: string, buil
 
 /**
  * Helper normalisasi payload dari Google Spreadsheet menjadi CompleteStorageDatabase
- * Melakukan pemetaan field snake_case dan camelCase untuk seluruh tabel & katalog
+ * Melakukan pemetaan field snake_case dan camelCase untuk seluruh tabel & katalog,
+ * serta menyaring sheet konflik/duplikat secara otomatis.
  */
 export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
+  if (!d || typeof d !== 'object') {
+    return {
+      schemaVersion: 4,
+      appName: 'SIM-Akomodasi UPT Asrama Haji Jakarta',
+      exportedAt: new Date().toISOString(),
+      appSettings: null,
+      users: [],
+      buildings: [],
+      rooms: [],
+      meetingRooms: [],
+      roomCapacityRates: [],
+      breakfastMenuItems: [],
+      transactions: [],
+      maintenances: [],
+      qcInspections: [],
+      breakfastOrders: [],
+      workSessions: [],
+      auditLogs: [],
+      chatChannels: [],
+      chatMessages: [],
+      passwordResetRequests: []
+    };
+  }
+
+  // Bersihkan key konflik (seperti users_conflict...) agar tidak digunakan
+  for (const k of Object.keys(d)) {
+    if (k.toLowerCase().includes('conflict')) {
+      delete d[k];
+    }
+  }
+
   // 1. Normalisasi Katalog Tipe Kamar & Tarif Kapasitas
   const rawRates = Array.isArray(d.roomCapacityRates) ? d.roomCapacityRates : (Array.isArray(d.room_capacity_rates) ? d.room_capacity_rates : []);
   const normalizedRates = rawRates.map((r: any) => ({
     id: String(r.id || `rcr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`),
     roomType: r.roomType || r.room_type || 'Standar',
     bedType: r.bedType || r.bed_type || 'Double Bed',
-    capacityPax: Number(r.capacityPax || r.capacity_pax || 2),
-    pricePerNight: Number(r.pricePerNight || r.price_per_night || 0),
+    capacityPax: Number(r.capacityPax || r.capacity_pax || r.capacityNumber || r.capacity_number || 2),
+    pricePerNight: Number(r.pricePerNight || r.price_per_night || r.tarif || r.harga || 0),
     description: r.description || '',
     facilities: Array.isArray(r.facilities) ? r.facilities : (typeof r.facilities === 'string' && r.facilities ? r.facilities.split(',').map((s: string) => s.trim()) : []),
     isActive: r.isActive !== undefined ? Boolean(r.isActive) : (r.is_active !== undefined ? (String(r.is_active).toLowerCase() === 'true' || r.is_active === 1 || r.is_active === true) : true),
   }));
 
-  // 2. Normalisasi Katalog Menu Sarapan & Katering Koperasi
+  // 2. Normalisasi Katalog Menu Sarapan & Katering Koperasi (Bila kosong return [])
   const rawMenus = Array.isArray(d.breakfastMenuItems) ? d.breakfastMenuItems : (Array.isArray(d.breakfast_menu_items) ? d.breakfast_menu_items : []);
   const normalizedMenus = rawMenus.map((m: any) => ({
     id: String(m.id || `menu-${Date.now()}`),
@@ -398,45 +493,66 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     allergens: m.allergens || '',
   }));
 
-  // 3. Normalisasi Unit Kamar
+  // 3. Normalisasi Master Unit Kamar (Dukungan CamelCase & snake_case)
   const rawRooms = Array.isArray(d.rooms) ? d.rooms : [];
-  const normalizedRooms = rawRooms.map((r: any) => ({
-    id: String(r.id || ''),
-    roomNumber: String(r.roomNumber || r.room_number || ''),
-    building: r.building || '',
-    floor: Number(r.floor || 1),
-    type: r.type || 'Standar',
-    bedType: r.bedType || r.bed_type || undefined,
-    capacity: String(r.capacity || '2 Orang'),
-    capacityNumber: r.capacityNumber !== undefined ? Number(r.capacityNumber) : (r.capacity_number !== undefined ? Number(r.capacity_number) : undefined),
-    status: r.status || 'KOSONG',
-    qcStatus: r.qcStatus || r.qc_status || 'LOLOS_QC',
-    pricePerNight: Number(r.pricePerNight || r.price_per_night || 0),
-    notes: r.notes || '',
-    activeTxId: r.activeTxId || r.active_tx_id || null,
-    activeMaintId: r.activeMaintId || r.active_maint_id || null,
-  }));
+  const normalizedRooms = rawRooms.map((r: any, idx: number) => {
+    const roomNumber = String(r.roomNumber || r.room_number || r.no_kamar || r.nomor_kamar || '').trim();
+    const building = String(r.building || r.gedung || '').trim();
+    const id = String(r.id || `room-${building.replace(/[^a-zA-Z0-9]/g, '')}-${roomNumber || idx + 1}`);
+    const floor = Number(r.floor || r.lantai || 1);
+    const type = String(r.type || r.room_type || r.roomType || 'Standar').trim();
+    const bedType = r.bedType || r.bed_type || undefined;
+    const capacityNumber = r.capacityNumber !== undefined 
+      ? Number(r.capacityNumber) 
+      : (r.capacity_number !== undefined 
+          ? Number(r.capacity_number) 
+          : (r.capacityPax !== undefined ? Number(r.capacityPax) : (r.capacity_pax !== undefined ? Number(r.capacity_pax) : undefined)));
+    const capacity = String(r.capacity || r.kapasitas || (capacityNumber ? `${capacityNumber} Bed` : '2 Orang'));
+    const status = (r.status || r.room_status || 'KOSONG').toString().toUpperCase();
+    const qcStatus = (r.qcStatus || r.qc_status || 'LOLOS_QC').toString().toUpperCase();
+    const pricePerNight = Number(r.pricePerNight || r.price_per_night || r.tarif || r.harga || 0);
+    const activeTxId = r.activeTxId || r.active_tx_id || null;
+    const activeMaintId = r.activeMaintId || r.active_maint_id || null;
+    const notes = String(r.notes || r.catatan || '');
+
+    return {
+      id,
+      roomNumber,
+      building,
+      floor,
+      type,
+      bedType,
+      capacity,
+      capacityNumber,
+      status: (['KOSONG', 'TERISI', 'BOOKED', 'MAINTENANCE'].includes(status) ? status : 'KOSONG') as any,
+      qcStatus: (['LOLOS_QC', 'PERLU_INSPEKSI', 'PERLU_PERBAIKAN', 'MENUNGGU_QC'].includes(qcStatus) ? qcStatus : 'LOLOS_QC') as any,
+      pricePerNight,
+      notes,
+      activeTxId,
+      activeMaintId,
+    };
+  });
 
   // 4. Normalisasi Ruang Pertemuan / Aula
   const rawMeeting = Array.isArray(d.meetingRooms) ? d.meetingRooms : (Array.isArray(d.meeting_rooms) ? d.meeting_rooms : []);
   const normalizedMeeting = rawMeeting.map((m: any) => ({
     id: String(m.id || ''),
     name: m.name || '',
-    building: m.building || '',
-    floor: Number(m.floor || 1),
-    capacity: String(m.capacity || '100 - 1500 Orang'),
-    dailyRate: Number(m.dailyRate || m.rate_full_day || 0),
-    sessionRate: Number(m.sessionRate || m.rate_half_day || 0),
+    building: m.building || m.gedung || '',
+    floor: Number(m.floor || m.lantai || 1),
+    capacity: String(m.capacity || m.kapasitas || '100 - 1500 Orang'),
+    dailyRate: Number(m.dailyRate || m.rate_full_day || m.rateFullDay || 0),
+    sessionRate: Number(m.sessionRate || m.rate_half_day || m.rateHalfDay || 0),
     status: m.status || 'TERSEDIA',
     facilities: Array.isArray(m.facilities) ? m.facilities : (typeof m.amenities === 'string' && m.amenities ? m.amenities.split(',').map((s: string) => s.trim()) : []),
   }));
 
-  // 5. Normalisasi Inspeksi QC
+  // 5. Normalisasi Inspeksi QC (Bila baru ada header & data kosong return [])
   const rawQc = Array.isArray(d.qcInspections) ? d.qcInspections : (Array.isArray(d.qc_inspections) ? d.qc_inspections : []);
   const normalizedQc = rawQc.map((q: any) => ({
     id: String(q.id || `qc-${Date.now()}`),
     roomId: String(q.roomId || q.room_id || ''),
-    building: q.building || '',
+    building: q.building || q.gedung || '',
     roomNumber: String(q.roomNumber || q.room_number || ''),
     inspectorId: String(q.inspectorId || q.inspector_id || ''),
     inspectorName: q.inspectorName || q.inspector_name || 'Petugas QC',
@@ -450,7 +566,7 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     notes: q.notes || '',
   }));
 
-  // 6. Normalisasi Sesi Jam Kerja Petugas
+  // 6. Normalisasi Sesi Jam Kerja Petugas (Bila kosong return [])
   const rawWork = Array.isArray(d.workSessions) ? d.workSessions : (Array.isArray(d.work_sessions) ? d.work_sessions : []);
   const normalizedWork = rawWork.map((w: any) => ({
     id: String(w.id || `ws-${Date.now()}`),
@@ -483,31 +599,131 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     };
   }
 
-  // 8. Normalisasi Log Audit
+  // 8. Normalisasi Log Audit (Bila kosong return [])
   const rawAudit = Array.isArray(d.auditLogs) ? d.auditLogs : (Array.isArray(d.system_logs) ? d.system_logs : []);
-
-  // 9. Normalisasi Pesanan Sarapan
-  const rawOrders = Array.isArray(d.breakfastOrders) ? d.breakfastOrders : (Array.isArray(d.breakfast_orders) ? d.breakfast_orders : []);
-
-  // 10. Normalisasi Data Pengguna
-  const normalizedUsers = (Array.isArray(d.users) ? d.users : []).map((u: any) => ({
-    id: String(u.id || ''),
-    username: String(u.username || ''),
-    fullName: String(u.fullName || u.full_name || u.username || ''),
-    role: u.role || 'Resepsionis',
-    password: String(u.password || '12345'),
-    department: typeof u.department === 'string' ? u.department : (u.department ? String(u.department) : 'Operasional'),
-    supervisorId: u.supervisorId || u.supervisor_id || undefined,
-    assignedBuilding: String(u.assignedBuilding || u.assigned_building || 'Semua Gedung'),
-    phone: String(u.phone || '-'),
-    status: String(u.status || 'Aktif'),
-    email: u.email ? String(u.email) : undefined,
-    nip: u.nip ? String(u.nip) : undefined,
-    isOwner: Boolean(u.isOwner ?? u.is_owner ?? false),
-    signatureUrl: u.signatureUrl || u.signature_url || undefined,
-    qrCodeUrl: u.qrCodeUrl || u.qr_code_url || undefined,
-    signatureHistory: Array.isArray(u.signatureHistory || u.signature_history) ? (u.signatureHistory || u.signature_history) : []
+  const normalizedAudit = rawAudit.map((a: any) => ({
+    id: String(a.id || `log-${Date.now()}`),
+    timestamp: a.timestamp || new Date().toISOString(),
+    user: a.user || a.username || 'Sistem',
+    action: a.action || 'SISTEM',
+    details: a.details || a.detail || '',
   }));
+
+  // 9. Normalisasi Pesanan Sarapan & Katering (Bila kosong return [])
+  const rawOrders = Array.isArray(d.breakfastOrders) ? d.breakfastOrders : (Array.isArray(d.breakfast_orders) ? d.breakfast_orders : []);
+  const normalizedOrders = rawOrders.map((o: any) => ({
+    id: String(o.id || `ord-${Date.now()}`),
+    roomNumber: String(o.roomNumber || o.room_number || ''),
+    building: String(o.building || o.gedung || ''),
+    guestName: String(o.guestName || o.guest_name || ''),
+    menuName: String(o.menuName || o.menu_name || ''),
+    portions: Number(o.portions || o.porsi || 1),
+    days: Number(o.days || o.hari || 1),
+    startDate: o.startDate || o.order_date || o.orderDate || new Date().toISOString().split('T')[0],
+    deliveryTime: o.deliveryTime || o.delivery_time || '06:30',
+    status: o.status || 'DIPROSES',
+    totalPrice: Number(o.totalPrice || o.total_price || 0),
+    notes: o.notes || o.catatan || '',
+  }));
+
+  // 10. Normalisasi Transaksi / Reservasi Tamu (Bila kosong return [])
+  const rawTransactions = Array.isArray(d.transactions) ? d.transactions : [];
+  const normalizedTransactions = rawTransactions.map((t: any) => ({
+    id: String(t.id || `tx-${Date.now()}`),
+    roomNumber: String(t.roomNumber || t.room_number || ''),
+    building: String(t.building || t.gedung || ''),
+    guestName: String(t.guestName || t.guest_name || t.nama_tamu || ''),
+    category: t.category || t.kategori || 'INDIVIDU',
+    status: t.status || 'CHECKED_IN',
+    startDate: t.startDate || t.start_date || new Date().toISOString().split('T')[0],
+    endDate: t.endDate || t.end_date || undefined,
+    duration: Number(t.duration || t.durasi || 1),
+    phone: String(t.phone || t.no_hp || ''),
+    email: t.email ? String(t.email) : undefined,
+    notes: t.notes || t.catatan || '',
+    totalAmount: Number(t.totalAmount || t.total_amount || t.total_biaya || 0),
+    paymentStatus: t.paymentStatus || t.payment_status || 'LUNAS',
+    groupName: t.groupName || t.group_name || undefined,
+  }));
+
+  // 11. Normalisasi Perawatan / Maintenance (Bila kosong return [])
+  const rawMaintenances = Array.isArray(d.maintenances) ? d.maintenances : [];
+  const normalizedMaintenances = rawMaintenances.map((m: any) => ({
+    id: String(m.id || `maint-${Date.now()}`),
+    roomNumber: String(m.roomNumber || m.room_number || ''),
+    building: String(m.building || m.gedung || ''),
+    issue: String(m.issue || m.kerusakan || ''),
+    urgency: m.urgency || 'SEDANG',
+    status: m.status || 'DILAPORKAN',
+    reportedUser: m.reportedUser || m.reporter || m.pelapor || 'Resepsionis',
+    reportTime: m.reportTime || m.created_at || m.createdAt || new Date().toISOString(),
+    resolvedTime: m.resolvedTime || m.resolved_at || m.resolvedAt || undefined,
+    technicianNotes: m.technicianNotes || m.notes || m.catatan || '',
+  }));
+
+  // 12. Normalisasi Data Pengguna (fullName / name, assignedBuilding / building, password default)
+  const rawUsers = Array.isArray(d.users) ? d.users : [];
+  const normalizedUsers = rawUsers
+    .filter((u: any) => u && typeof u === 'object')
+    .map((u: any, idx: number) => {
+      const username = String(u.username || u.user_name || '').trim();
+      const fullName = String(u.fullName || u.full_name || u.name || username || 'Petugas').trim();
+      const assignedBuilding = String(u.assignedBuilding || u.assigned_building || u.building || 'Semua Gedung').trim();
+      const role = u.role || 'Resepsionis';
+      const password = String(u.password || '12345');
+      const department = typeof u.department === 'string' ? u.department : (u.department ? String(u.department) : 'Operasional');
+      const supervisorId = u.supervisorId || u.supervisor_id || undefined;
+      const phone = String(u.phone || '-');
+      const status = String(u.status || 'Aktif');
+      const email = u.email ? String(u.email) : undefined;
+      const nip = u.nip ? String(u.nip) : undefined;
+      const id = String(u.id || `user-${username.toLowerCase().replace(/[^a-z0-9]/g, '') || idx + 1}`);
+
+      return {
+        id,
+        username,
+        fullName,
+        role,
+        password,
+        department,
+        supervisorId,
+        assignedBuilding,
+        phone,
+        status,
+        email,
+        nip,
+        isOwner: Boolean(u.isOwner ?? u.is_owner ?? false),
+        signatureUrl: u.signatureUrl || u.signature_url || undefined,
+        qrCodeUrl: u.qrCodeUrl || u.qr_code_url || undefined,
+        signatureHistory: Array.isArray(u.signatureHistory || u.signature_history) ? (u.signatureHistory || u.signature_history) : []
+      };
+    });
+
+  // 13. Normalisasi Master Gedung
+  const rawBuildings = Array.isArray(d.buildings) ? d.buildings : [];
+  const normalizedBuildings = rawBuildings
+    .filter((b: any) => b && typeof b === 'object')
+    .map((b: any, idx: number) => {
+      const name = String(b.name || b.nama || `Gedung ${String.fromCharCode(65 + idx)}`).trim();
+      const code = String(b.code || b.kode || name.charAt(0)).trim();
+      const id = String(b.id || `bld-${code.toLowerCase() || idx + 1}`);
+      const floors = Number(b.floors || b.lantai || 3);
+      const totalRooms = Number(b.totalRooms || b.total_rooms || b.jumlah_kamar || 0);
+      const category = b.category || b.kategori || 'PENGINAPAN';
+      const status = (b.status || 'AKTIF').toString().toUpperCase() === 'NONAKTIF' ? 'NONAKTIF' : 'AKTIF';
+      const description = String(b.description || b.deskripsi || '');
+
+      return {
+        id,
+        name,
+        code,
+        floors,
+        totalRooms,
+        category,
+        status: status as 'AKTIF' | 'NONAKTIF',
+        description,
+      };
+    });
 
   return {
     schemaVersion: 4,
@@ -515,17 +731,17 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     exportedAt: new Date().toISOString(),
     appSettings: settingsObj,
     users: normalizedUsers,
-    buildings: Array.isArray(d.buildings) ? d.buildings : [],
+    buildings: normalizedBuildings,
     rooms: normalizedRooms,
     meetingRooms: normalizedMeeting,
     roomCapacityRates: normalizedRates,
     breakfastMenuItems: normalizedMenus,
-    transactions: Array.isArray(d.transactions) ? d.transactions : [],
-    maintenances: Array.isArray(d.maintenances) ? d.maintenances : [],
+    transactions: normalizedTransactions,
+    maintenances: normalizedMaintenances,
     qcInspections: normalizedQc,
-    breakfastOrders: rawOrders,
+    breakfastOrders: normalizedOrders,
     workSessions: normalizedWork,
-    auditLogs: rawAudit,
+    auditLogs: normalizedAudit,
     chatChannels: Array.isArray(d.chatChannels) ? d.chatChannels : [],
     chatMessages: Array.isArray(d.chatMessages) ? d.chatMessages : [],
     passwordResetRequests: Array.isArray(d.passwordResetRequests) ? d.passwordResetRequests : []

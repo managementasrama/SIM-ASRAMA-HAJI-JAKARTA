@@ -17,11 +17,14 @@ interface SheetReportItem {
 
 interface InspectionResponse {
   ok: boolean;
-  overallStatus: 'READY' | 'NEEDS_PROVISIONING';
+  overallStatus: 'READY' | 'NEEDS_PROVISIONING' | 'LEGACY_SCRIPT';
+  isLegacyAppsScript?: boolean;
+  legacyNotice?: string | null;
   totalExpected: number;
   totalReady: number;
   totalMissingSheets: number;
   sheetReports: SheetReportItem[];
+  conflictSheetsFound?: string[];
   inspectedAt: string;
 }
 
@@ -59,6 +62,7 @@ export function SpreadsheetIntegrationView() {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isForbiddenError, setIsForbiddenError] = useState(false);
   const [showWhyMissingGuide, setShowWhyMissingGuide] = useState(true);
+  const [isCleaningConflicts, setIsCleaningConflicts] = useState(false);
 
   // Status Inspeksi Skema Lembar Kerja
   const [inspectionResult, setInspectionResult] = useState<InspectionResponse | null>(null);
@@ -181,6 +185,36 @@ export function SpreadsheetIntegrationView() {
     } catch (_) {}
   };
 
+  // Bersihkan sheet konflik / duplikat (seperti users_conflict...) secara otomatis
+  const handleCleanConflicts = async () => {
+    const targetUrl = scriptUrl.trim();
+    if (!targetUrl) {
+      showToast('Masukkan URL Web App terlebih dahulu!', 'warning');
+      return;
+    }
+    setIsCleaningConflicts(true);
+    setSyncStatus('Sedang membersihkan sheet konflik/duplikat di Spreadsheet...');
+    try {
+      const res = await fetch('/api/sheets/clean-conflicts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webAppUrl: targetUrl })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('Sheet konflik berhasil dibersihkan dari Google Spreadsheet!', 'success');
+        addLog('CONFIG', 'Sheet duplikat/konflik berhasil dibersihkan.', true);
+        await handleInspectSchema();
+      } else {
+        throw new Error(data.error || 'Gagal membersihkan sheet konflik');
+      }
+    } catch (err: any) {
+      showToast(`Gagal membersihkan sheet konflik: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsCleaningConflicts(false);
+    }
+  };
+
   // 1. Deteksi & Periksa Struktur Sheet dan Kolom Header
   const handleInspectSchema = async (overrideUrl?: string) => {
     const targetUrl = overrideUrl || scriptUrl.trim();
@@ -220,13 +254,16 @@ export function SpreadsheetIntegrationView() {
       setInspectionResult(json);
       setIsConnected(true);
 
+      const isLegacy = json.isLegacyAppsScript || json.overallStatus === 'LEGACY_SCRIPT';
       const msg = json.overallStatus === 'READY'
         ? `Seluruh struktur tabel lengkap! (${json.totalReady}/${json.totalExpected} lembar kerja siap digunakan)`
+        : isLegacy
+        ? `Lembar kerja di Google Spreadsheet Anda sebenarnya sudah ada (12 sheet)! Perbarui kode di Extensions > Apps Script dan Deploy Versi Baru agar ke-9 tabel lainnya terbaca.`
         : `Ditemukan ${json.totalMissingSheets} lembar kerja belum dibuat. Klik "Inisialisasi Otomatis" untuk menyusunnya.`;
 
       setSyncStatus(msg);
       addLog('CONFIG', msg, json.overallStatus === 'READY');
-      showToast(msg, json.overallStatus === 'READY' ? 'success' : 'info');
+      showToast(msg, json.overallStatus === 'READY' ? 'success' : isLegacy ? 'warning' : 'info');
     } catch (err: any) {
       console.warn('Gagal memanggil endpoint inspeksi server, mencoba direct fetch:', err);
       // Fallback direct request
@@ -643,17 +680,18 @@ export function SpreadsheetIntegrationView() {
 
       const updatedDb = {
         ...currentDb,
-        buildings: (fetchedData.buildings && fetchedData.buildings.length > 0) ? fetchedData.buildings : (normalizedFromSheet.buildings.length > 0 ? normalizedFromSheet.buildings : currentDb.buildings),
+        buildings: (normalizedFromSheet.buildings && normalizedFromSheet.buildings.length > 0) ? normalizedFromSheet.buildings : currentDb.buildings,
         rooms: (normalizedFromSheet.rooms && normalizedFromSheet.rooms.length > 0) ? normalizedFromSheet.rooms : currentDb.rooms,
         meetingRooms: (normalizedFromSheet.meetingRooms && normalizedFromSheet.meetingRooms.length > 0) ? normalizedFromSheet.meetingRooms : currentDb.meetingRooms,
         roomCapacityRates: (normalizedFromSheet.roomCapacityRates && normalizedFromSheet.roomCapacityRates.length > 0) ? normalizedFromSheet.roomCapacityRates : currentDb.roomCapacityRates,
         breakfastMenuItems: (normalizedFromSheet.breakfastMenuItems && normalizedFromSheet.breakfastMenuItems.length > 0) ? normalizedFromSheet.breakfastMenuItems : currentDb.breakfastMenuItems,
-        transactions: (fetchedData.transactions && fetchedData.transactions.length > 0) ? fetchedData.transactions : currentDb.transactions,
-        users: (fetchedData.users && fetchedData.users.length > 0) ? fetchedData.users : currentDb.users,
-        maintenances: (fetchedData.maintenances && fetchedData.maintenances.length > 0) ? fetchedData.maintenances : currentDb.maintenances,
+        transactions: (normalizedFromSheet.transactions && normalizedFromSheet.transactions.length > 0) ? normalizedFromSheet.transactions : currentDb.transactions,
+        users: (normalizedFromSheet.users && normalizedFromSheet.users.length > 0) ? normalizedFromSheet.users : currentDb.users,
+        maintenances: (normalizedFromSheet.maintenances && normalizedFromSheet.maintenances.length > 0) ? normalizedFromSheet.maintenances : currentDb.maintenances,
         qcInspections: (normalizedFromSheet.qcInspections && normalizedFromSheet.qcInspections.length > 0) ? normalizedFromSheet.qcInspections : currentDb.qcInspections,
-        breakfastOrders: (fetchedData.breakfast_orders && fetchedData.breakfast_orders.length > 0) ? fetchedData.breakfast_orders : currentDb.breakfastOrders,
+        breakfastOrders: (normalizedFromSheet.breakfastOrders && normalizedFromSheet.breakfastOrders.length > 0) ? normalizedFromSheet.breakfastOrders : currentDb.breakfastOrders,
         workSessions: (normalizedFromSheet.workSessions && normalizedFromSheet.workSessions.length > 0) ? normalizedFromSheet.workSessions : currentDb.workSessions,
+        auditLogs: (normalizedFromSheet.auditLogs && normalizedFromSheet.auditLogs.length > 0) ? normalizedFromSheet.auditLogs : currentDb.auditLogs,
         appSettings: normalizedFromSheet.appSettings || currentDb.appSettings,
         exportedAt: new Date().toISOString()
       };
@@ -714,12 +752,12 @@ export function SpreadsheetIntegrationView() {
  * ==============================================================================
  * KODE RESMI GOOGLE APPS SCRIPT: INTEGRASI & AUTO-PROVISIONING SIM ASRAMA HAJI
  * Pasang skrip ini di Google Spreadsheet: Menu Extensions > Apps Script
- * Dilengkapi fitur: Menu OnOpen Otomatis, Auto-Create 13 Sheet & Header Row
+ * Dilengkapi fitur: Menu OnOpen Otomatis, Auto-Create 13 Sheet & Header Row,
+ * Pembersihan Sheet Konflik Otomatis, & Toleransi Nama Kolom CamelCase / snake_case.
  * ==============================================================================
  */
 
 // 0. MENU OTOMATIS SAAT SPREADSHEET DIBUKA (UI MENU GOOGLE SPREADSHEET)
-// Begitu skrip disimpan dan file Spreadsheet di-refresh, akan muncul menu baru di atas:
 function onOpen() {
   try {
     var ui = SpreadsheetApp.getUi();
@@ -727,6 +765,7 @@ function onOpen() {
       .addItem("⚡ Buat Semua 13 Sheet & Header Otomatis", "menuAutoProvisionAllSheets")
       .addItem("⬆️ Isi Data Master Awal (Seed Data)", "menuProvisionWithSeedData")
       .addSeparator()
+      .addItem("🧹 Bersihkan Sheet Konflik Otomatis", "menuCleanConflictSheets")
       .addItem("📊 Cek Status & Inspeksi Semua Sheet", "menuInspectAllSheets")
       .addToUi();
   } catch (_) {}
@@ -742,6 +781,12 @@ function menuProvisionWithSeedData() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var rep = autoProvisionAllSheets(ss, getDefaultSchema(), true, getDefaultSeedData());
   SpreadsheetApp.getUi().alert("✅ Berhasil! Seluruh 13 lembar kerja dan data master awal asrama haji telah dimuat ke Google Spreadsheet.");
+}
+
+function menuCleanConflictSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var deleted = cleanConflictSheets(ss);
+  SpreadsheetApp.getUi().alert("🧹 Berhasil! Sebanyak " + deleted + " lembar kerja duplikat/konflik telah dibersihkan.");
 }
 
 function menuInspectAllSheets() {
@@ -761,23 +806,44 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Helper pembacaan aman per lembar kerja agar sheet kosong / error tidak menggagalkan seluruh respon
+    var safeRead = function(name) {
+      try {
+        return readSheetAsObjects(ss, name);
+      } catch (err) {
+        return [];
+      }
+    };
+
+    // Dukungan permintaan data lembar spesifik via parameter URL ?sheet=nama_sheet
+    if (e && e.parameter && e.parameter.sheet) {
+      var requestedSheet = e.parameter.sheet;
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        sheet: requestedSheet,
+        data: safeRead(requestedSheet)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var sheetsList = inspectAllSheets(ss).sheets;
     var result = {
       status: "success",
       generatedAt: new Date().toISOString(),
+      sheets: sheetsList,
       data: {
-        buildings: readSheetAsObjects(ss, "buildings"),
-        rooms: readSheetAsObjects(ss, "rooms"),
-        meeting_rooms: readSheetAsObjects(ss, "meeting_rooms"),
-        room_capacity_rates: readSheetAsObjects(ss, "room_capacity_rates"),
-        breakfast_menu_items: readSheetAsObjects(ss, "breakfast_menu_items"),
-        transactions: readSheetAsObjects(ss, "transactions"),
-        users: readSheetAsObjects(ss, "users"),
-        maintenances: readSheetAsObjects(ss, "maintenances"),
-        qc_inspections: readSheetAsObjects(ss, "qc_inspections"),
-        breakfast_orders: readSheetAsObjects(ss, "breakfast_orders"),
-        work_sessions: readSheetAsObjects(ss, "work_sessions"),
-        app_settings: readSheetAsObjects(ss, "app_settings"),
-        system_logs: readSheetAsObjects(ss, "system_logs")
+        buildings: safeRead("buildings"),
+        rooms: safeRead("rooms"),
+        meeting_rooms: safeRead("meeting_rooms"),
+        room_capacity_rates: safeRead("room_capacity_rates"),
+        breakfast_menu_items: safeRead("breakfast_menu_items"),
+        transactions: safeRead("transactions"),
+        users: safeRead("users"),
+        maintenances: safeRead("maintenances"),
+        qc_inspections: safeRead("qc_inspections"),
+        breakfast_orders: safeRead("breakfast_orders"),
+        work_sessions: safeRead("work_sessions"),
+        app_settings: safeRead("app_settings"),
+        system_logs: safeRead("system_logs")
       }
     };
 
@@ -799,6 +865,16 @@ function doPost(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var action = payload.action || "SAVE_ALL";
 
+    // AKSI 0: PEMBERSIHAN SHEET KONFLIK (misal: users_conflict...)
+    if (action === "CLEAN_CONFLICT_SHEETS") {
+      var deletedCount = cleanConflictSheets(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Pembersihan selesai! Sebanyak " + deletedCount + " sheet konflik telah dihapus.",
+        deletedCount: deletedCount
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // AKSI A: INSPEKSI STRUKTUR LEMBAR KERJA & HEADER
     if (action === "INSPECT_SCHEMA") {
       return ContentService.createTextOutput(JSON.stringify(inspectAllSheets(ss)))
@@ -811,6 +887,7 @@ function doPost(e) {
       var populateData = Boolean(payload.populateData);
       var dataObj = payload.data || {};
 
+      cleanConflictSheets(ss); // Bersihkan sheet konflik saat provisioning
       var provisionReport = autoProvisionAllSheets(ss, schema, populateData, dataObj);
 
       return ContentService.createTextOutput(JSON.stringify({
@@ -822,13 +899,15 @@ function doPost(e) {
     }
 
     // AKSI C: SIMPAN / SINKRONISASI SELURUH DATA (SAVE_ALL)
-    // 1. Pastikan seluruh 13 lembar kerja & header selalu otomatis terbuat
+    cleanConflictSheets(ss); // Bersihkan sheet konflik
+
+    // 1. Pastikan seluruh 13 lembar kerja & header selalu terbuat jika belum ada
     var defaultSchema = getDefaultSchema();
     var schemaKeys = Object.keys(defaultSchema);
     for (var k = 0; k < schemaKeys.length; k++) {
       var sKey = schemaKeys[k];
       var sDef = defaultSchema[sKey];
-      var targetSheet = ss.getSheetByName(sDef.sheetName);
+      var targetSheet = getSheetCaseInsensitive(ss, sDef.sheetName);
       if (!targetSheet) {
         targetSheet = ss.insertSheet(sDef.sheetName);
         targetSheet.getRange(1, 1, 1, sDef.headers.length).setValues([sDef.headers]);
@@ -841,7 +920,7 @@ function doPost(e) {
       }
     }
 
-    // 2. Tulis data ke masing-masing sheet (tetap menulis header jika data kosong)
+    // 2. Tulis data ke masing-masing sheet (tetap menulis baris header meski data kosong [])
     var bldList = payload.buildings || [];
     writeObjectsToSheet(ss, "buildings", Array.isArray(bldList) ? bldList : [], ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"]);
 
@@ -903,14 +982,56 @@ function doPost(e) {
   }
 }
 
+// FUNGSI PEMBERSIHAN SHEET KONFLIK (misal: users_conflict...)
+function cleanConflictSheets(ss) {
+  var sheets = ss.getSheets();
+  var deleted = 0;
+  for (var i = 0; i < sheets.length; i++) {
+    var s = sheets[i];
+    var sName = s.getName();
+    if (sName.toLowerCase().indexOf("conflict") !== -1) {
+      try {
+        ss.deleteSheet(s);
+        deleted++;
+      } catch (_) {}
+    }
+  }
+  return deleted;
+}
+
+// HELPER PENCARI SHEET FLEKSIBEL (Case-Insensitive & Mengabaikan Underscore)
+function getSheetCaseInsensitive(ss, sheetName) {
+  var direct = ss.getSheetByName(sheetName);
+  if (direct) return direct;
+  var sheets = ss.getSheets();
+  var targetNorm = sheetName.replace(/_/g, "").toLowerCase();
+  for (var i = 0; i < sheets.length; i++) {
+    var s = sheets[i];
+    var sName = s.getName();
+    if (sName.toLowerCase().indexOf("conflict") !== -1) continue; // Abaikan sheet conflict
+    if (sName.replace(/_/g, "").toLowerCase() === targetNorm) {
+      return s;
+    }
+  }
+  return null;
+}
+
 // FUNGSI INSPEKSI STRUKTUR SELURUH SHEET
 function inspectAllSheets(ss) {
   var allSheets = ss.getSheets();
   var reports = [];
+  var conflictSheets = [];
 
   for (var i = 0; i < allSheets.length; i++) {
     var sheet = allSheets[i];
     var sheetName = sheet.getName();
+
+    // Saring sheet konflik
+    if (sheetName.toLowerCase().indexOf("conflict") !== -1) {
+      conflictSheets.push(sheetName);
+      continue;
+    }
+
     var lastCol = sheet.getLastColumn();
     var headers = [];
 
@@ -932,8 +1053,9 @@ function inspectAllSheets(ss) {
 
   return {
     status: "success",
-    totalSheets: allSheets.length,
+    totalSheets: reports.length,
     sheets: reports,
+    conflictSheets: conflictSheets,
     inspectedAt: new Date().toISOString()
   };
 }
@@ -942,11 +1064,6 @@ function inspectAllSheets(ss) {
 function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
   var created = [];
   var updated = [];
-  var allSheetNames = [];
-  var sheets = ss.getSheets();
-  for (var s = 0; s < sheets.length; s++) {
-    allSheetNames.push(sheets[s].getName());
-  }
 
   var keys = Object.keys(schema);
   for (var i = 0; i < keys.length; i++) {
@@ -955,7 +1072,7 @@ function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
     var sheetName = tableDef.sheetName || key;
     var headers = tableDef.headers || [];
 
-    var sheet = ss.getSheetByName(sheetName);
+    var sheet = getSheetCaseInsensitive(ss, sheetName);
 
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
@@ -1003,7 +1120,6 @@ function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
       }
     }
 
-    // Auto-fit lebar kolom
     try {
       sheet.autoResizeColumns(1, headers.length);
     } catch (_) {}
@@ -1068,11 +1184,18 @@ function getDefaultSeedData() {
   };
 }
 
-// HELPER MEMBACA SHEET MENJADI ARRAY OF OBJECTS
+// HELPER MEMBACA SHEET MENJADI ARRAY OF OBJECTS (Toleran CamelCase & snake_case)
 function readSheetAsObjects(ss, sheetName) {
-  var sheet = ss.getSheetByName(sheetName);
+  var sheet = getSheetCaseInsensitive(ss, sheetName);
   if (!sheet) return [];
-  var data = sheet.getDataRange().getValues();
+  if (sheet.getName().toLowerCase().indexOf("conflict") !== -1) return [];
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  // Jika sheet kosong atau hanya ada header (baris 1), kembalikan array kosong [] secara anggun
+  if (lastRow <= 1 || lastCol < 1) return [];
+
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   if (data.length <= 1) return [];
 
   var headers = data[0];
@@ -1082,20 +1205,53 @@ function readSheetAsObjects(ss, sheetName) {
     var obj = {};
     var hasContent = false;
     for (var j = 0; j < headers.length; j++) {
-      var key = String(headers[j]).trim();
-      if (key) {
-        obj[key] = row[j];
-        if (row[j] !== "" && row[j] !== null) hasContent = true;
+      var rawKey = String(headers[j]).trim();
+      if (!rawKey) continue;
+
+      var val = row[j];
+      if (val instanceof Date) {
+        val = val.toISOString();
+      }
+
+      // 1. Simpan key asli
+      obj[rawKey] = val;
+
+      // 2. Simpan camelCase key
+      var camelKey = rawKey.replace(/_([a-z])/g, function(g) { return g[1].toUpperCase(); });
+      obj[camelKey] = val;
+
+      // 3. Simpan snake_case key
+      var snakeKey = rawKey.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+      obj[snakeKey] = val;
+
+      if (val !== "" && val !== null && val !== undefined) {
+        hasContent = true;
       }
     }
-    if (hasContent) rows.push(obj);
+
+    // Normalisasi khusus kolom users: fullName <-> name, assignedBuilding <-> building
+    if (obj.name && !obj.fullName) {
+      obj.fullName = obj.name;
+      obj.full_name = obj.name;
+    }
+    if (obj.building && !obj.assignedBuilding) {
+      obj.assignedBuilding = obj.building;
+      obj.assigned_building = obj.building;
+    }
+    if (!obj.password) {
+      obj.password = "12345";
+    }
+
+    if (hasContent) {
+      rows.push(obj);
+    }
   }
   return rows;
 }
 
-// HELPER MENULIS ARRAY OF OBJECTS KE SHEET
+// HELPER MENULIS ARRAY OF OBJECTS KE SHEET (Toleran field CamelCase & snake_case)
 function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
-  var sheet = ss.getSheetByName(sheetName);
+  var sheet = getSheetCaseInsensitive(ss, sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
   } else {
@@ -1107,14 +1263,26 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
 
   var output = [headers];
 
-  if (items && Array.isArray(items)) {
+  if (items && Array.isArray(items) && items.length > 0) {
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       var row = [];
       for (var j = 0; j < headers.length; j++) {
         var hName = headers[j];
         var camelName = hName.replace(/_([a-z])/g, function(g) { return g[1].toUpperCase(); });
-        var val = item[hName] !== undefined ? item[hName] : item[camelName];
+        var snakeName = hName.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+
+        var val = item[hName] !== undefined ? item[hName] : (item[camelName] !== undefined ? item[camelName] : item[snakeName]);
+
+        // Alias tambahan untuk users & rooms
+        if (val === undefined || val === null) {
+          if (hName === "full_name" || camelName === "fullName") val = item.name || item.fullName || item.full_name;
+          else if (hName === "assigned_building" || camelName === "assignedBuilding") val = item.building || item.assignedBuilding;
+          else if (hName === "room_number" || camelName === "roomNumber") val = item.no_kamar || item.nomor_kamar;
+          else if (hName === "price_per_night" || camelName === "pricePerNight") val = item.tarif || item.harga;
+          else if (hName === "capacity_pax" || camelName === "capacityPax") val = item.capacityNumber || item.capacity_number || item.capacity;
+        }
+
         if (val === undefined || val === null) val = "";
         else if (Array.isArray(val)) val = val.join(", ");
         else if (typeof val === "boolean") val = val ? "true" : "false";
@@ -1453,49 +1621,145 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
               </span>
             </div>
 
-            {/* Grid Kartu Tabel */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-              {inspectionResult.sheetReports.map((report) => (
-                <div 
-                  key={report.key}
-                  className={`p-3 rounded-xl border transition-all ${
-                    report.status === 'READY'
-                      ? 'bg-white dark:bg-slate-800/90 border-emerald-300 dark:border-emerald-700/60 shadow-xs'
-                      : report.status === 'MISSING_HEADERS'
-                      ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60'
-                      : 'bg-rose-50/60 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <div>
-                      <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold text-xs block">
-                        {report.sheetName}
-                      </span>
-                      <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">
-                        {report.label}
-                      </h4>
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      report.status === 'READY'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
-                        : report.status === 'MISSING_HEADERS'
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
-                        : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
-                    }`}>
-                      {report.status === 'READY' ? 'Siap' : report.status === 'MISSING_HEADERS' ? 'Header Kurang' : 'Belum Dibuat'}
-                    </span>
+            {/* Banner Khusus Sheet Konflik / Duplikat Terdeteksi */}
+            {inspectionResult.conflictSheetsFound && inspectionResult.conflictSheetsFound.length > 0 && (
+              <div className="p-3.5 sm:p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start space-x-3 text-xs">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 mt-0.5">
+                    <i className="fa-solid fa-broom"></i>
                   </div>
-
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
-                    {report.description}
-                  </p>
-
-                  <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                    <span>{report.expectedHeaders.length} Kolom Baku</span>
-                    <span>{report.exists ? 'Sheet Ada' : 'Perlu Dibuat'}</span>
+                  <div>
+                    <h4 className="font-bold text-amber-950 dark:text-amber-200">
+                      Terdeteksi {inspectionResult.conflictSheetsFound.length} Sheet Konflik / Duplikat ({inspectionResult.conflictSheetsFound.join(', ')})
+                    </h4>
+                    <p className="text-amber-800/80 dark:text-amber-300/80 text-[11px] mt-0.5 leading-relaxed">
+                      Sistem telah otomatis mengabaikan sheet konflik ini agar sinkronisasi tetap berjalan lancar. Anda dapat menghapusnya permanen dari Google Spreadsheet dengan 1-klik di samping.
+                    </p>
                   </div>
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={handleCleanConflicts}
+                  disabled={isCleaningConflicts}
+                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 shrink-0 cursor-pointer"
+                >
+                  <i className={`fa-solid ${isCleaningConflicts ? 'fa-spinner fa-spin' : 'fa-trash-can'}`}></i>
+                  <span>{isCleaningConflicts ? 'Sedang Menghapus...' : 'Bersihkan Sheet Konflik'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Banner Khusus Skrip Versi Lama Terdeteksi */}
+            {(inspectionResult.isLegacyAppsScript || inspectionResult.overallStatus === 'LEGACY_SCRIPT') && (
+              <div className="p-4 rounded-xl bg-gradient-to-r from-sky-50 to-blue-50 dark:from-sky-950/40 dark:to-blue-950/40 border border-sky-300 dark:border-sky-700 flex flex-col sm:flex-row items-start justify-between gap-4 shadow-xs">
+                <div className="flex items-start space-x-3.5 text-xs">
+                  <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold shrink-0 mt-0.5 text-lg shadow-sm">
+                    <i className="fa-solid fa-code-branch"></i>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="px-2 py-0.5 bg-sky-600 text-white font-extrabold text-[10px] rounded-md tracking-wider uppercase">
+                        Informasi Struktur
+                      </span>
+                      <h4 className="font-bold text-sky-950 dark:text-sky-100 text-sm">
+                        Lembar Kerja Anda Sudah Ada di Spreadsheet! Perbarui Kode Google Apps Script (Code.gs)
+                      </h4>
+                    </div>
+                    <p className="text-sky-900/90 dark:text-sky-200/90 leading-relaxed text-xs">
+                      Di Google Spreadsheet fisik Anda, ke-12 lembar kerja sebenarnya <strong>sudah ada</strong>. Notifikasi <em>"9 lembar kerja belum dibuat"</em> muncul karena Web App Google Apps Script Anda saat ini masih menjalankan <strong>versi skrip lama</strong> yang baru mengekspos 4 tabel (<em>buildings</em>, <em>rooms</em>, <em>transactions</em>, <em>users</em>).
+                    </p>
+                    <div className="pt-1 flex flex-wrap gap-2 items-center text-xs">
+                      <span className="font-bold text-sky-950 dark:text-sky-100">Langkah Pembaruan (1 Menit):</span>
+                      <span className="bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-800 text-slate-700 dark:text-slate-300 font-medium">
+                        1. Salin kode terbaru di tab <strong>Panduan &amp; Kode Script</strong>
+                      </span>
+                      <span className="bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-800 text-slate-700 dark:text-slate-300 font-medium">
+                        2. Tempel di <code>Extensions &gt; Apps Script</code> &amp; Save
+                      </span>
+                      <span className="bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 font-bold">
+                        3. Klik Deploy &gt; Manage deployments &gt; Edit (Pensil) &gt; Version: New version &gt; Deploy!
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveGuideTab('SCRIPT');
+                    handleCopyScript();
+                    const el = document.getElementById('apps-script-guide-box');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs shadow transition flex items-center space-x-2 shrink-0 cursor-pointer self-stretch sm:self-center justify-center"
+                >
+                  <i className="fa-solid fa-copy"></i>
+                  <span>Salin Kode &amp; Buka Panduan</span>
+                </button>
+              </div>
+            )}
+
+            {/* Grid Kartu Tabel */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              {inspectionResult.sheetReports.map((report) => {
+                const isLegacy = inspectionResult.isLegacyAppsScript || inspectionResult.overallStatus === 'LEGACY_SCRIPT';
+                return (
+                  <div 
+                    key={report.key}
+                    className={`p-3 rounded-xl border transition-all ${
+                      report.status === 'READY'
+                        ? 'bg-white dark:bg-slate-800/90 border-emerald-300 dark:border-emerald-700/60 shadow-xs'
+                        : report.status === 'MISSING_HEADERS'
+                        ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60'
+                        : isLegacy
+                        ? 'bg-sky-50/60 dark:bg-sky-950/30 border-sky-300 dark:border-sky-800/60'
+                        : 'bg-rose-50/60 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-1">
+                      <div>
+                        <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold text-xs block">
+                          {report.sheetName}
+                        </span>
+                        <h4 className="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5">
+                          {report.label}
+                        </h4>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        report.status === 'READY'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                          : report.status === 'MISSING_HEADERS'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                          : isLegacy
+                          ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-300'
+                          : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                      }`}>
+                        {report.status === 'READY' 
+                          ? 'Siap' 
+                          : report.status === 'MISSING_HEADERS' 
+                          ? 'Header Kurang' 
+                          : isLegacy 
+                          ? 'Perlu Update Script' 
+                          : 'Belum Dibuat'}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
+                      {report.description}
+                    </p>
+
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span>{report.expectedHeaders.length} Kolom Baku</span>
+                      <span>
+                        {report.exists 
+                          ? 'Sheet Ada' 
+                          : isLegacy 
+                          ? 'Ada di Sheet (Update Script)' 
+                          : 'Perlu Dibuat'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2176,7 +2440,7 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
       )}
 
       {/* 6. Panduan Lengkap Konfigurasi & Auto-Provisioning */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+      <div id="apps-script-guide-box" className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-3">
           <div className="flex items-center space-x-2">
             <i className="fa-solid fa-circle-question text-emerald-600 text-sm"></i>

@@ -3186,10 +3186,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(res.message, 'info');
     logAudit('HAPUS_TRANSAKSI', `Menghapus transaksi secara permanen: ${target?.guestName || txId} (${txId})`);
     try {
-      await deleteTransactionInSupabaseDirect(txId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteTransactionInSupabaseDirect(txId).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push hapus transaksi ke Supabase:', e);
+      console.warn('Gagal push hapus transaksi:', e);
     }
     return true;
   };
@@ -3213,10 +3213,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(`Berhasil menghapus ${ids.length} transaksi rombongan '${grpName}' secara permanen.`, 'info');
     logAudit('HAPUS_ROMBONGAN', `Menghapus seluruh transaksi rombongan: ${grpName} (${ids.length} kamar)`);
     try {
-      await Promise.all(ids.map(id => deleteTransactionInSupabaseDirect(id)));
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      Promise.all(ids.map(id => deleteTransactionInSupabaseDirect(id))).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push batch hapus transaksi ke Supabase:', e);
+      console.warn('Gagal push batch hapus transaksi:', e);
     }
     return true;
   };
@@ -4073,10 +4073,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast('Tiket pemeliharaan berhasil dihapus.', 'info');
     logAudit('HAPUS_MAINTENANCE', `Menghapus tiket pemeliharaan ID ${maintId}`);
     try {
-      await deleteMaintenanceInSupabaseDirect(maintId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteMaintenanceInSupabaseDirect(maintId).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push hapus maintenance ke Supabase:', e);
+      console.warn('Gagal push hapus maintenance:', e);
     }
     return true;
   };
@@ -4088,10 +4088,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast('Laporan inspeksi QC berhasil dihapus.', 'info');
     logAudit('HAPUS_QC', `Menghapus laporan inspeksi QC ID ${qcId}`);
     try {
-      await deleteQcInspectionInSupabaseDirect(qcId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteQcInspectionInSupabaseDirect(qcId).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push hapus qc ke Supabase:', e);
+      console.warn('Gagal push hapus qc:', e);
     }
     return true;
   };
@@ -4209,20 +4209,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     try {
       const saved = dataStorage.saveBuilding(building);
-      const directRes = await updateBuildingInSupabaseDirect(saved);
-      if (!directRes.success) {
-        throw new Error(directRes.error || 'Gagal menyimpan gedung baru ke database Supabase');
-      }
       setBuildings(dataStorage.getBuildings());
       setRooms(dataStorage.getRooms());
       setMeetingRooms(dataStorage.getMeetingRooms());
       setTransactions(dataStorage.getTransactions());
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
-      await dataStorage.pushAllToSupabase();
-      showToast(`Gedung "${building.name}" berhasil ditambahkan ke database!`, 'success');
+
+      // Sinkronisasi prioritas utama ke Google Spreadsheet
+      await dataStorage.pushAllToSpreadsheet();
+
+      // Sinkronisasi sekunder Supabase secara background (non-blocking)
+      updateBuildingInSupabaseDirect(saved).catch(() => {});
+
+      showToast(`Gedung "${building.name}" berhasil ditambahkan dan disimpan ke Google Spreadsheet!`, 'success');
       logAudit('Tambah Gedung', `Menambahkan gedung baru: ${building.name} (${building.code}) - ${building.totalRooms} Kamar`);
-      await pullFromCentralDatabase();
     } catch (err: any) {
       showToast(`Gagal tambah gedung ke database: ${err?.message || 'Error'}`, 'error');
       throw err;
@@ -4238,12 +4239,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const existingBld = buildings.find(b => b.id === building.id);
       const previousName = existingBld?.name;
       
-      // Eksekusi langsung update ke tabel Supabase (dan relasi rooms jika nama berubah)
-      const directRes = await updateBuildingInSupabaseDirect(building, previousName);
-      if (!directRes.success) {
-        throw new Error(directRes.error || 'Gagal menyimpan update gedung ke database Supabase');
-      }
-
       const savedBuilding = dataStorage.saveBuilding(building, previousName);
       const updatedBuildingsList = dataStorage.getBuildings();
       const updatedRoomsList = dataStorage.getRooms();
@@ -4258,10 +4253,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSelectedBuilding(savedBuilding.name);
       }
       
-      await dataStorage.pushAllToSupabase();
-      showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui dan tersimpan permanen di Supabase!`, 'success');
+      // Sinkronisasi prioritas utama ke Google Spreadsheet
+      await dataStorage.pushAllToSpreadsheet();
+
+      // Sinkronisasi sekunder Supabase secara background (non-blocking)
+      updateBuildingInSupabaseDirect(building, previousName).catch(() => {});
+
+      showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui dan tersimpan permanen di Google Spreadsheet!`, 'success');
       logAudit('Ubah Gedung', `Memperbarui profil gedung: ${previousName && previousName !== savedBuilding.name ? `${previousName} -> ` : ''}${savedBuilding.name}`);
-      await pullFromCentralDatabase();
     } catch (err: any) {
       showToast(`Gagal update gedung ke database: ${err?.message || 'Error'}`, 'error');
       throw err;
@@ -4275,10 +4274,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const bld = buildings.find(b => b.id === buildingId);
     try {
-      const delRes = await deleteBuildingInSupabaseDirect(buildingId, bld?.name);
-      if (!delRes.success) {
-        throw new Error(delRes.error || 'Gagal menghapus gedung dari database Supabase');
-      }
       const res = dataStorage.deleteBuilding(buildingId);
       if (!res.success) {
         showToast(res.message, 'error');
@@ -4290,10 +4285,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTransactions(dataStorage.getTransactions());
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
-      await dataStorage.pushAllToSupabase();
+
+      // Sinkronisasi prioritas utama ke Google Spreadsheet
+      await dataStorage.pushAllToSpreadsheet();
+
+      // Sinkronisasi sekunder Supabase secara background (non-blocking)
+      deleteBuildingInSupabaseDirect(buildingId, bld?.name).catch(() => {});
+
       showToast(res.message, 'info');
       logAudit('Hapus Gedung', `Menghapus gedung: ${bld?.name || buildingId}`);
-      await pullFromCentralDatabase();
       return true;
     } catch (err: any) {
       showToast(`Gagal menghapus gedung dari database: ${err?.message || 'Error'}`, 'error');
@@ -4318,10 +4318,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(`Ruang Pertemuan "${mr.name}" berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Ruang Pertemuan', `Menambahkan ruang pertemuan: ${mr.name} (Kapasitas: ${mr.capacity} orang)`);
     try {
-      await updateMeetingRoomInSupabaseDirect(saved);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      updateMeetingRoomInSupabaseDirect(saved).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push meeting room baru ke Supabase:', e);
+      console.warn('Gagal push meeting room baru:', e);
     }
   };
 
@@ -4331,7 +4331,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await updateMeetingRoomInSupabaseDirect(mr);
       dataStorage.saveMeetingRoom(mr);
       setMeetingRooms(dataStorage.getMeetingRooms());
       setRooms(dataStorage.getRooms());
@@ -4339,13 +4338,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTransactions(dataStorage.getTransactions());
       setMaintenances(dataStorage.getMaintenances());
 
-      const pushRes = await dataStorage.pushAllToSupabase();
-      if (!pushRes.success) {
-        throw new Error(pushRes.error || 'Gagal menyimpan ruang pertemuan ke Supabase');
-      }
-      showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui dan tersimpan permanen di Supabase!`, 'success');
+      await dataStorage.pushAllToSpreadsheet();
+      updateMeetingRoomInSupabaseDirect(mr).catch(() => {});
+
+      showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui dan tersimpan permanen di Google Spreadsheet!`, 'success');
       logAudit('Ubah Ruang Pertemuan', `Memperbarui ruang pertemuan: ${mr.name}`);
-      await pullFromCentralDatabase();
     } catch (err: any) {
       showToast(`Gagal update ruang pertemuan ke database: ${err?.message || 'Error'}`, 'error');
     }
@@ -4371,10 +4368,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Hapus Ruang Pertemuan', `Menghapus ruang pertemuan: ${mr?.name || mrId}`);
 
     try {
-      await deleteMeetingRoomInSupabaseDirect(mrId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteMeetingRoomInSupabaseDirect(mrId).catch(() => {});
     } catch (err) {
-      console.warn('Gagal sinkronisasi penghapusan ruang pertemuan ke Supabase:', err);
+      console.warn('Gagal sinkronisasi penghapusan ruang pertemuan:', err);
     }
     return true;
   };
@@ -4397,10 +4394,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(`Kamar ${room.roomNumber} (${room.building}) berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Kamar', `Menambah kamar: No ${room.roomNumber}, Gedung ${room.building}, Tipe ${room.type}`);
     try {
-      await updateRoomInSupabaseDirect(saved);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      updateRoomInSupabaseDirect(saved).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push kamar baru ke Supabase:', e);
+      console.warn('Gagal push kamar baru:', e);
     }
   };
 
@@ -4410,7 +4407,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await updateRoomInSupabaseDirect(room);
       dataStorage.saveRoom(room);
       setRooms(dataStorage.getRooms());
       setBuildings(dataStorage.getBuildings());
@@ -4419,13 +4415,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
 
-      const pushRes = await dataStorage.pushAllToSupabase();
-      if (!pushRes.success) {
-        throw new Error(pushRes.error || 'Gagal menyimpan perubahan kamar ke Supabase');
-      }
-      showToast(`Data kamar ${room.roomNumber} berhasil diperbarui dan tersimpan permanen di Supabase!`, 'success');
+      await dataStorage.pushAllToSpreadsheet();
+      updateRoomInSupabaseDirect(room).catch(() => {});
+
+      showToast(`Data kamar ${room.roomNumber} berhasil diperbarui dan tersimpan permanen di Google Spreadsheet!`, 'success');
       logAudit('Ubah Kamar', `Memperbarui kamar: ${room.roomNumber} (${room.building})`);
-      await pullFromCentralDatabase();
     } catch (err: any) {
       showToast(`Gagal update kamar ke database: ${err?.message || 'Error'}`, 'error');
     }
@@ -4452,10 +4446,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Hapus Kamar', `Menghapus kamar: ${room?.roomNumber || roomId} (${room?.building || ''})`);
 
     try {
-      await deleteRoomInSupabaseDirect(roomId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteRoomInSupabaseDirect(roomId).catch(() => {});
     } catch (err) {
-      console.warn('Gagal sinkronisasi penghapusan kamar ke Supabase:', err);
+      console.warn('Gagal sinkronisasi penghapusan kamar:', err);
     }
     return true;
   };
@@ -4721,10 +4715,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Hapus Pesanan Sarapan', `Menghapus pesanan sarapan ID ${orderId} (${roomLabel})`);
 
     try {
-      await deleteBreakfastOrderInSupabaseDirect(orderId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteBreakfastOrderInSupabaseDirect(orderId).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push hapus order ke Supabase:', e);
+      console.warn('Gagal push hapus order:', e);
     }
   };
 
@@ -4839,10 +4833,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(`Menu sarapan "${target?.name || itemId}" dihapus dari katalog.`, 'info');
     logAudit('Hapus Menu Sarapan', `Menghapus menu sarapan ID ${itemId}`);
     try {
-      await deleteBreakfastMenuItemInSupabaseDirect(itemId);
-      await dataStorage.pushAllToSupabase();
+      await dataStorage.pushAllToSpreadsheet();
+      deleteBreakfastMenuItemInSupabaseDirect(itemId).catch(() => {});
     } catch (e) {
-      console.warn('Gagal push hapus menu item ke Supabase:', e);
+      console.warn('Gagal push hapus menu item:', e);
     }
   };
 

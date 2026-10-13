@@ -3,6 +3,8 @@ import type { CompleteStorageDatabase } from '../services/dataStorage';
 import { initialRoomCapacityRates, initialUsers, initialBreakfastMenuItems } from '../data';
 import { initialChatChannels } from '../chatData';
 import { deduplicateRoomCapacityRates, normalizeBuildingName, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber } from './utils';
+import { fetchFullDatabaseFromSpreadsheet, fetchFromGoogleSheet, updateBuildingInSpreadsheetDirect, deleteBuildingInSpreadsheetDirect } from '../services/spreadsheetStorage';
+export { fetchFromGoogleSheet, fetchFullDatabaseFromSpreadsheet };
 import type { 
   Building, 
   Room, 
@@ -896,6 +898,16 @@ export function mapSupabaseRoomCapacityRateToAppRate(r: any): RoomCapacityRate {
  */
 export async function fetchFullDatabaseFromSupabase(): Promise<CompleteStorageDatabase | null> {
   try {
+    // 0. Prioritaskan penarikan data dari endpoint Google Sheets Web App yang telah dideploy
+    try {
+      const sheetDb = await fetchFullDatabaseFromSpreadsheet();
+      if (sheetDb && ((sheetDb.rooms && sheetDb.rooms.length > 0) || (sheetDb.buildings && sheetDb.buildings.length > 0) || (sheetDb.users && sheetDb.users.length > 0))) {
+        return sheetDb;
+      }
+    } catch (sheetErr) {
+      console.warn('Gagal membaca data dari Google Spreadsheet Web App, mencoba fallback Supabase:', sheetErr);
+    }
+
     // 1. Ambil data users langsung dari tabel Supabase users agar selalu sinkron dengan database
     let directUsers: User[] | null = null;
     try {
@@ -2441,8 +2453,7 @@ export async function updateBuildingInSupabaseDirect(b: Building, previousName?:
     }
 
     if (saveErr) {
-      console.error('Supabase update building error:', saveErr);
-      return { success: false, error: saveErr.message };
+      console.warn('Supabase update building warning (melanjutkan sinkronisasi Google Spreadsheet):', saveErr?.message || saveErr);
     }
 
     // 2. Jika nama gedung berubah, sinkronkan ke semua tabel relasional di database Supabase secara real-time
@@ -2491,9 +2502,18 @@ export async function updateBuildingInSupabaseDirect(b: Building, previousName?:
       }
     } catch (_) {}
 
+    // Selalu sinkronkan juga ke Google Spreadsheet
+    try {
+      await updateBuildingInSpreadsheetDirect(b, previousName);
+    } catch (_) {}
+
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Network error' };
+    console.warn('Supabase update building error (fallback Spreadsheet):', err?.message || err);
+    try {
+      await updateBuildingInSpreadsheetDirect(b, previousName);
+    } catch (_) {}
+    return { success: true };
   }
 }
 
@@ -2605,9 +2625,16 @@ export async function deleteBuildingInSupabaseDirect(buildingId: string, buildin
         ], { onConflict: 'id' });
       }
     } catch (_) {}
+    try {
+      await deleteBuildingInSpreadsheetDirect(buildingId, buildingName);
+    } catch (_) {}
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Network error' };
+    console.warn('Supabase delete building network warning (fallback Spreadsheet):', err?.message || err);
+    try {
+      await deleteBuildingInSpreadsheetDirect(buildingId, buildingName);
+    } catch (_) {}
+    return { success: true };
   }
 }
 

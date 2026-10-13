@@ -336,6 +336,31 @@ async function startServer() {
     });
   });
 
+  function matchHeader(expected: string, foundHeaders: string[]): boolean {
+    const normExpected = expected.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return foundHeaders.some((fh) => {
+      const normFound = fh.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (normFound === normExpected) return true;
+      // Alias mappings (CamelCase vs snake_case & sinonim)
+      if (normExpected === "fullname" && (normFound === "name" || normFound === "nama")) return true;
+      if (normExpected === "name" && (normFound === "fullname" || normFound === "nama")) return true;
+      if (normExpected === "roomnumber" && (normFound === "nokamar" || normFound === "nomorkamar")) return true;
+      if (normExpected === "bedtype" && (normFound === "bed" || normFound === "tipebed")) return true;
+      if (normExpected === "pricepernight" && (normFound === "tarif" || normFound === "harga" || normFound === "price")) return true;
+      if (normExpected === "assignedbuilding" && (normFound === "building" || normFound === "gedung")) return true;
+      if (normExpected === "building" && (normFound === "assignedbuilding" || normFound === "gedung")) return true;
+      if (normExpected === "capacitypax" && (normFound === "capacity" || normFound === "capacitynumber" || normFound === "kapasitas")) return true;
+      if (normExpected === "capacity" && (normFound === "capacitynumber" || normFound === "capacitypax" || normFound === "kapasitas")) return true;
+      if (normExpected === "capacitynumber" && (normFound === "capacity" || normFound === "capacitypax" || normFound === "kapasitas")) return true;
+      if (normExpected === "ratehalfday" && (normFound === "sessionrate" || normFound === "ratesession" || normFound === "halfday")) return true;
+      if (normExpected === "ratefullday" && (normFound === "dailyrate" || normFound === "ratedaily" || normFound === "fullday")) return true;
+      if (normExpected === "qcstatus" && (normFound === "statusqc" || normFound === "mutu")) return true;
+      if (normExpected === "activetxid" && (normFound === "txid" || normFound === "transactionid")) return true;
+      if (normExpected === "activemaintid" && (normFound === "maintid" || normFound === "maintenanceid")) return true;
+      return false;
+    });
+  }
+
   // Endpoint Deteksi & Inspeksi Struktur Sheet & Header di Spreadsheet
   app.post("/api/sheets/inspect", async (req, res) => {
     const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
@@ -419,19 +444,40 @@ async function startServer() {
         });
       }
 
-      // Bangun laporan status per lembar kerja
+      // Bangun laporan status per lembar kerja & kumpulkan sheet konflik jika ada
       const existingSheetsMap = new Map<string, string[]>();
+      const conflictSheetsFound: string[] = [];
 
       if (inspectResult?.sheets && Array.isArray(inspectResult.sheets)) {
         for (const s of inspectResult.sheets) {
           if (s && s.name) {
-            existingSheetsMap.set(String(s.name).toLowerCase(), Array.isArray(s.headers) ? s.headers.map(String) : []);
+            const sheetNameStr = String(s.name);
+            if (sheetNameStr.toLowerCase().includes("conflict")) {
+              conflictSheetsFound.push(sheetNameStr);
+              continue; // Abaikan sheet konflik dari skema utama
+            }
+            existingSheetsMap.set(sheetNameStr.toLowerCase(), Array.isArray(s.headers) ? s.headers.map(String) : []);
+          }
+        }
+      } else if (rawData?.sheets && Array.isArray(rawData.sheets)) {
+        for (const s of rawData.sheets) {
+          if (s && s.name) {
+            const sheetNameStr = String(s.name);
+            if (sheetNameStr.toLowerCase().includes("conflict")) {
+              conflictSheetsFound.push(sheetNameStr);
+              continue;
+            }
+            existingSheetsMap.set(sheetNameStr.toLowerCase(), Array.isArray(s.headers) ? s.headers.map(String) : []);
           }
         }
       } else if (rawData) {
         const d = rawData.data || rawData;
         if (d && typeof d === "object") {
           for (const key of Object.keys(d)) {
+            if (key.toLowerCase().includes("conflict")) {
+              conflictSheetsFound.push(key);
+              continue;
+            }
             const arr = d[key];
             const headers = (Array.isArray(arr) && arr[0] && typeof arr[0] === "object") ? Object.keys(arr[0]) : [];
             existingSheetsMap.set(key.toLowerCase(), headers);
@@ -439,10 +485,21 @@ async function startServer() {
         }
       }
 
+      // Pencari sheet dengan pencocokan nama fleksibel (case-insensitive & underscore-insensitive)
+      const findExistingHeaders = (targetName: string): { exists: boolean; headers: string[] } => {
+        const normTarget = targetName.toLowerCase().replace(/[^a-z0-9]/g, "");
+        for (const [sKey, headers] of existingSheetsMap.entries()) {
+          const normKey = sKey.toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (normKey === normTarget) {
+            return { exists: true, headers };
+          }
+        }
+        return { exists: false, headers: [] };
+      };
+
       const sheetReports = Object.entries(APP_DATABASE_SCHEMA).map(([key, def]) => {
-        const foundHeaders = existingSheetsMap.get(def.sheetName.toLowerCase()) || [];
-        const exists = existingSheetsMap.has(def.sheetName.toLowerCase());
-        const missingHeaders = def.headers.filter((h) => !foundHeaders.map((fh) => fh.toLowerCase()).includes(h.toLowerCase()));
+        const { exists, headers: foundHeaders } = findExistingHeaders(def.sheetName);
+        const missingHeaders = def.headers.filter((h) => !matchHeader(h, foundHeaders));
 
         let status: "READY" | "MISSING_HEADERS" | "MISSING_SHEET" = "READY";
         if (!exists) {
@@ -450,6 +507,7 @@ async function startServer() {
         } else if (missingHeaders.length > 0 && foundHeaders.length > 0) {
           status = "MISSING_HEADERS";
         } else if (foundHeaders.length === 0) {
+          // Sheet ada namun belum memiliki header baris 1
           status = "MISSING_HEADERS";
         }
 
@@ -470,15 +528,21 @@ async function startServer() {
       const totalReady = sheetReports.filter((r) => r.status === "READY").length;
       const totalMissingSheets = sheetReports.filter((r) => r.status === "MISSING_SHEET").length;
 
-      const overallStatus = totalReady === totalExpected ? "READY" : "NEEDS_PROVISIONING";
+      // Deteksi apakah skrip Google Apps Script masih versi lama (hanya mengekspos 4 tabel master awal)
+      const isLegacyAppsScript = !inspectResult?.sheets && !rawData?.sheets && existingSheetsMap.size > 0 && existingSheetsMap.size <= 4 && totalMissingSheets >= 8;
+
+      const overallStatus = isLegacyAppsScript ? "LEGACY_SCRIPT" : totalReady === totalExpected ? "READY" : "NEEDS_PROVISIONING";
 
       res.json({
         ok: true,
         overallStatus,
+        isLegacyAppsScript,
+        legacyNotice: isLegacyAppsScript ? "Skrip Google Apps Script di Spreadsheet Anda masih versi lama (hanya mengekspos 4 dari 13 tabel). Lembar kerja di Google Spreadsheet Anda sebenarnya sudah ada, namun perlu menyalin skrip Code.gs terbaru dan melakukan Deploy Versi Baru (New deployment)." : null,
         totalExpected,
         totalReady,
         totalMissingSheets,
         sheetReports,
+        conflictSheetsFound,
         inspectedAt: new Date().toISOString(),
       });
     } catch (err: any) {
@@ -486,6 +550,46 @@ async function startServer() {
       res.json({
         ok: false,
         error: `Gagal menginspeksi Spreadsheet: ${err?.message || "Kesalahan jaringan"}`,
+      });
+    }
+  });
+
+  // Endpoint Pembersihan Sheet Konflik Otomatis (seperti users_conflict...)
+  app.post("/api/sheets/clean-conflicts", async (req, res) => {
+    const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+
+    if (!targetUrl) {
+      return res.status(400).json({
+        ok: false,
+        error: "URL Web App Google Apps Script belum dikonfigurasi.",
+      });
+    }
+
+    try {
+      const resp = await fetchGoogleAppsScript(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "CLEAN_CONFLICT_SHEETS" }),
+      });
+
+      const text = await resp.text().catch(() => "");
+      let j: any = {};
+      try {
+        j = JSON.parse(text);
+      } catch (_) {
+        j = { raw: text };
+      }
+
+      res.json({
+        ok: true,
+        message: "Perintah pembersihan sheet konflik berhasil dikirim ke Google Spreadsheet.",
+        details: j,
+      });
+    } catch (err: any) {
+      console.warn("Gagal membersihkan sheet konflik:", err?.message || err);
+      res.status(500).json({
+        ok: false,
+        error: err?.message || "Gagal menghubungi Apps Script",
       });
     }
   });
@@ -600,15 +704,33 @@ async function startServer() {
         throw new Error(`Respon Google Spreadsheet tidak valid: ${text.slice(0, 100)}`);
       }
 
-      const sheetData = json.data || json;
+      const rawSheetData = json.data || json;
+      const sheetData: any = typeof rawSheetData === "object" && rawSheetData !== null ? { ...rawSheetData } : {};
+
+      // Bersihkan seluruh sheet konflik (seperti users_conflict...) agar tidak mencemari memori & aplikasi
+      for (const k of Object.keys(sheetData)) {
+        if (k.toLowerCase().includes("conflict")) {
+          delete sheetData[k];
+        }
+      }
+
+      // Pastikan seluruh tabel terdefinisi sebagai array jika kosong/baru header saja
+      const expectedArrayTables = [
+        "buildings", "rooms", "meeting_rooms", "room_capacity_rates",
+        "breakfast_menu_items", "transactions", "users", "maintenances",
+        "qc_inspections", "breakfast_orders", "work_sessions", "system_logs"
+      ];
+      for (const tKey of expectedArrayTables) {
+        if (!Array.isArray(sheetData[tKey])) {
+          sheetData[tKey] = [];
+        }
+      }
 
       // Update cache lokal di server
-      if (sheetData && typeof sheetData === "object") {
-        serverDatabaseCache = sheetData;
-        try {
-          fs.writeFileSync(serverDbCachePath, JSON.stringify(sheetData, null, 2), "utf-8");
-        } catch (_) {}
-      }
+      serverDatabaseCache = sheetData;
+      try {
+        fs.writeFileSync(serverDbCachePath, JSON.stringify(sheetData, null, 2), "utf-8");
+      } catch (_) {}
 
       res.json({
         status: "success",
@@ -655,7 +777,7 @@ async function startServer() {
 
   // 4. Endpoint SIMPAN / SINKRONISASI DATABASE KE GOOGLE SPREADSHEET (POST)
   app.post(["/api/sheets/database", "/api/database"], async (req, res) => {
-    const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+    const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec").trim();
     const payload = req.body;
 
     if (!payload || typeof payload !== "object") {
