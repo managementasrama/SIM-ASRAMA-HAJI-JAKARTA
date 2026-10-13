@@ -1,4 +1,3 @@
-import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase';
 import { ChatChannel, ChatMessage, WorkSession } from '../types';
 
 export interface OnlinePresenceInfo {
@@ -26,8 +25,8 @@ export type RealtimeEventType =
   | 'chat:channel'
   | 'chat:clear'
   | 'chat:typing'
-  | 'config:supabase'
-  | 'config:reset';
+  | 'config:reset'
+  | 'database:sync';
 
 export interface RealtimeEventPayload {
   type: RealtimeEventType;
@@ -42,7 +41,6 @@ class RealtimeService {
   private clientId: string;
   private listeners: Set<RealtimeEventListener> = new Set();
   private broadcastChannel: BroadcastChannel | null = null;
-  private supabaseChannel: any = null;
   private eventSource: EventSource | null = null;
   private reconnectTimer: any = null;
   private isInitialized = false;
@@ -74,52 +72,7 @@ class RealtimeService {
       console.warn('BroadcastChannel warning:', e);
     }
 
-    // 2. Supabase Realtime Broadcast & Presence Channel (cross-device / cloud)
-    try {
-      if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-        this.supabaseChannel = supabase.channel('sim-haji-realtime-v2', {
-          config: {
-            broadcast: { self: false },
-            presence: { key: this.clientId },
-          },
-        });
-
-        this.supabaseChannel
-          .on('broadcast', { event: 'realtime_event' }, ({ payload }: { payload: RealtimeEventPayload }) => {
-            if (!payload || payload.senderClientId === this.clientId) return;
-            this.handleIncomingEvent(payload);
-          })
-          .on('presence', { event: 'sync' }, () => {
-            try {
-              const state = this.supabaseChannel.presenceState();
-              const now = Date.now();
-              Object.values(state).forEach((list: any) => {
-                if (Array.isArray(list)) {
-                  list.forEach((p: any) => {
-                    if (p && p.userId) {
-                      const key = `${p.userId}___${p.clientId || 'sb'}`;
-                      this.presencesMap.set(key, {
-                        ...p,
-                        lastSeenMs: now,
-                      });
-                    }
-                  });
-                }
-              });
-              this.notifyListeners({
-                type: 'presence:sync',
-                payload: this.getActivePresences(),
-                timestamp: now,
-              });
-            } catch (_) {}
-          })
-          .subscribe();
-      }
-    } catch (e) {
-      console.warn('Supabase Realtime channel warning:', e);
-    }
-
-    // 3. Server-Sent Events (SSE) Stream to Express Server (/api/realtime/stream)
+    // 2. Server-Sent Events (SSE) Stream to Express Server (/api/realtime/stream)
     this.connectSSE();
   }
 
@@ -151,40 +104,11 @@ class RealtimeService {
 
   private handleIncomingEvent(event: RealtimeEventPayload) {
     const now = Date.now();
-    if (event.type === 'config:supabase') {
-      const cfg = event.payload;
-      if (cfg?.url && cfg?.anonKey && typeof window !== 'undefined') {
-        const curUrl = localStorage.getItem('CUSTOM_SUPABASE_URL');
-        const curKey = localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
-        if (curUrl !== cfg.url || curKey !== cfg.anonKey) {
-          localStorage.setItem('CUSTOM_SUPABASE_URL', cfg.url);
-          localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cfg.anonKey);
-          setTimeout(() => {
-            window.location.reload();
-          }, 800);
-        }
-      }
-    } else if (event.type === 'config:reset' && typeof window !== 'undefined') {
-      localStorage.removeItem('CUSTOM_SUPABASE_URL');
-      localStorage.removeItem('CUSTOM_SUPABASE_ANON_KEY');
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
+    if (event.type === 'config:reset' && typeof window !== 'undefined') {
+      window.location.reload();
     }
 
     if (event.type === 'init' && event.payload) {
-      if (event.payload.supabaseConfig?.isCustom && event.payload.supabaseConfig?.url && event.payload.supabaseConfig?.anonKey && typeof window !== 'undefined') {
-        const cfg = event.payload.supabaseConfig;
-        const curUrl = localStorage.getItem('CUSTOM_SUPABASE_URL');
-        const curKey = localStorage.getItem('CUSTOM_SUPABASE_ANON_KEY');
-        if (curUrl !== cfg.url || curKey !== cfg.anonKey) {
-          localStorage.setItem('CUSTOM_SUPABASE_URL', cfg.url);
-          localStorage.setItem('CUSTOM_SUPABASE_ANON_KEY', cfg.anonKey);
-          setTimeout(() => {
-            window.location.reload();
-          }, 400);
-        }
-      }
       if (Array.isArray(event.payload.presences)) {
         event.payload.presences.forEach((p: OnlinePresenceInfo) => {
           if (p && p.userId) {
@@ -287,27 +211,7 @@ class RealtimeService {
       this.broadcastChannel?.postMessage(eventObj);
     } catch (_) {}
 
-    // 3. Broadcast via Supabase Realtime
-    try {
-      if (this.supabaseChannel) {
-        this.supabaseChannel.send({
-          type: 'broadcast',
-          event: 'realtime_event',
-          payload: eventObj,
-        });
-        if (type === 'presence:heartbeat' && payload?.userId) {
-          this.supabaseChannel.track({
-            ...payload,
-            clientId: this.clientId,
-            lastSeenMs: Date.now(),
-          });
-        } else if (type === 'presence:leave') {
-          this.supabaseChannel.untrack();
-        }
-      }
-    } catch (_) {}
-
-    // 4. Send to Express Server SSE Hub
+    // 3. Send to Express Server SSE Hub
     try {
       fetch('/api/realtime/event', {
         method: 'POST',

@@ -489,12 +489,32 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
   // 9. Normalisasi Pesanan Sarapan
   const rawOrders = Array.isArray(d.breakfastOrders) ? d.breakfastOrders : (Array.isArray(d.breakfast_orders) ? d.breakfast_orders : []);
 
+  // 10. Normalisasi Data Pengguna
+  const normalizedUsers = (Array.isArray(d.users) ? d.users : []).map((u: any) => ({
+    id: String(u.id || ''),
+    username: String(u.username || ''),
+    fullName: String(u.fullName || u.full_name || u.username || ''),
+    role: u.role || 'Resepsionis',
+    password: String(u.password || '12345'),
+    department: typeof u.department === 'string' ? u.department : (u.department ? String(u.department) : 'Operasional'),
+    supervisorId: u.supervisorId || u.supervisor_id || undefined,
+    assignedBuilding: String(u.assignedBuilding || u.assigned_building || 'Semua Gedung'),
+    phone: String(u.phone || '-'),
+    status: String(u.status || 'Aktif'),
+    email: u.email ? String(u.email) : undefined,
+    nip: u.nip ? String(u.nip) : undefined,
+    isOwner: Boolean(u.isOwner ?? u.is_owner ?? false),
+    signatureUrl: u.signatureUrl || u.signature_url || undefined,
+    qrCodeUrl: u.qrCodeUrl || u.qr_code_url || undefined,
+    signatureHistory: Array.isArray(u.signatureHistory || u.signature_history) ? (u.signatureHistory || u.signature_history) : []
+  }));
+
   return {
     schemaVersion: 4,
     appName: d.appName || 'SIM-Akomodasi UPT Asrama Haji Jakarta',
     exportedAt: new Date().toISOString(),
     appSettings: settingsObj,
-    users: Array.isArray(d.users) ? d.users : [],
+    users: normalizedUsers,
     buildings: Array.isArray(d.buildings) ? d.buildings : [],
     rooms: normalizedRooms,
     meetingRooms: normalizedMeeting,

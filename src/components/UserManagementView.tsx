@@ -274,11 +274,11 @@ export function UserManagementView() {
       // Query Search
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchName = user.fullName.toLowerCase().includes(q);
-        const matchUser = user.username.toLowerCase().includes(q);
-        const matchPhone = user.phone?.toLowerCase().includes(q);
-        const matchDept = user.department?.toLowerCase().includes(q);
-        const matchRole = user.role?.toLowerCase().includes(q);
+        const matchName = String(user.fullName || '').toLowerCase().includes(q);
+        const matchUser = String(user.username || '').toLowerCase().includes(q);
+        const matchPhone = String(user.phone || '').toLowerCase().includes(q);
+        const matchDept = String(user.department || '').toLowerCase().includes(q);
+        const matchRole = String(user.role || '').toLowerCase().includes(q);
         if (!matchName && !matchUser && !matchPhone && !matchDept && !matchRole) {
           return false;
         }
@@ -286,12 +286,13 @@ export function UserManagementView() {
 
       // Role filter
       if (roleFilter !== 'ALL') {
+        const rStr = String(user.role || '');
         if (roleFilter === 'ADMIN_GROUP' && !isSuperAdmin(user.role)) return false;
-        if (roleFilter === 'RECEP_GROUP' && !user.role.includes('Resepsionis')) return false;
+        if (roleFilter === 'RECEP_GROUP' && !rStr.includes('Resepsionis')) return false;
         if (roleFilter === 'FINANCE_GROUP' && !isKeuanganRole(user.role, user.department)) return false;
-        if (roleFilter === 'QC_GROUP' && !user.role.includes('QC') && !user.role.includes('Quality')) return false;
-        if (roleFilter === 'TEK_GROUP' && !user.role.includes('Teknisi')) return false;
-        if (roleFilter === 'KOP_GROUP' && !user.role.includes('Koperasi')) return false;
+        if (roleFilter === 'QC_GROUP' && !rStr.includes('QC') && !rStr.includes('Quality')) return false;
+        if (roleFilter === 'TEK_GROUP' && !rStr.includes('Teknisi')) return false;
+        if (roleFilter === 'KOP_GROUP' && !rStr.includes('Koperasi')) return false;
       }
 
       // Status filter

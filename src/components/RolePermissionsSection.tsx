@@ -658,8 +658,8 @@ export function RolePermissionsSection({
     return users.filter(u => {
       // Division filter
       if (selectedDivision !== 'SEMUA') {
-        const role = (u.role || '').toLowerCase();
-        const dept = (u.department || '').toLowerCase();
+        const role = String(u.role || '').toLowerCase();
+        const dept = String(u.department || '').toLowerCase();
         if (selectedDivision === 'KEUANGAN') {
           if (!role.includes('keuangan') && !role.includes('bendahara') && !dept.includes('keuangan')) return false;
         } else if (selectedDivision === 'RESEPSIONIS') {
@@ -678,10 +678,10 @@ export function RolePermissionsSection({
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchName = (u.fullName || '').toLowerCase().includes(q);
-        const matchUser = (u.username || '').toLowerCase().includes(q);
-        const matchRole = (u.role || '').toLowerCase().includes(q);
-        const matchDept = (u.department || '').toLowerCase().includes(q);
+        const matchName = String(u.fullName || '').toLowerCase().includes(q);
+        const matchUser = String(u.username || '').toLowerCase().includes(q);
+        const matchRole = String(u.role || '').toLowerCase().includes(q);
+        const matchDept = String(u.department || '').toLowerCase().includes(q);
         if (!matchName && !matchUser && !matchRole && !matchDept) return false;
       }
 

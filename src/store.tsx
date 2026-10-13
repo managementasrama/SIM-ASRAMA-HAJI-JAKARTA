@@ -66,8 +66,9 @@ export function formatHMS(totalSeconds: number): string {
 }
 
 // Role Authorization Helpers
-export function isSuperAdmin(role?: string): boolean {
-  return role === 'Super Admin' || role === 'Admin';
+export function isSuperAdmin(role?: any): boolean {
+  const str = String(role || '');
+  return str === 'Super Admin' || str === 'Admin';
 }
 export function isManagerTeknisi(role?: string): boolean {
   return role === 'Manager Teknisi' || isSuperAdmin(role);
@@ -104,10 +105,18 @@ export function isQcRole(role?: string): boolean {
 export function isKoperasiRole(role?: string): boolean {
   return role === 'Petugas Koperasi' || role === 'Manager Koperasi' || role === 'Koperasi' || isSuperAdmin(role);
 }
-export function isKeuanganRole(role?: string, department?: string): boolean {
+export function isKeuanganRole(role?: any, department?: any): boolean {
   if (!role && !department) return false;
-  const lower = (role || '').toLowerCase();
-  const deptLower = (department || '').toLowerCase();
+  const parseStr = (val: any): string => {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'string') return val.toLowerCase();
+    if (typeof val === 'object') {
+      return String(val.name || val.title || val.label || val.department || val.role || '').toLowerCase();
+    }
+    return String(val).toLowerCase();
+  };
+  const lower = parseStr(role);
+  const deptLower = parseStr(department);
   return isSuperAdmin(role) || 
          lower.includes('keuangan') || 
          lower.includes('bendahara') || 

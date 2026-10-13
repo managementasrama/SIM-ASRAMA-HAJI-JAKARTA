@@ -5,7 +5,6 @@ import { formatIndonesianDate, getRealTodayDate, addDaysToDateStr, generateQrCod
 import { findRoomRate, OFFICIAL_VA_CONFIG } from '../data';
 import { calculateMeetingRoomPricing } from './pricingCalculator';
 import { dataStorage } from '../services/dataStorage';
-import { recordPdfDownloadLogToSupabase } from './supabase';
 
 function drawOfficialEmblemBadge(doc: jsPDF, x: number, y: number, size: number) {
   const cx = x + size / 2;
@@ -121,7 +120,6 @@ export async function renderInvoicePdfContent(
         qrCodeHash: 'QR-VERIFIED',
         hasQrAndSignature: true
       });
-      recordPdfDownloadLogToSupabase(auditEntry).catch(() => {});
     } catch (e) {}
   } else {
     // Jika TIDAK ADA QR & TTD: tidak masuk ke log unduh PDF ber-QR dan tidak dapat diverifikasi
@@ -1463,8 +1461,8 @@ export function getReportSignatory(
 
     // 2. Cari di database user terdaftar untuk akun Manager yang bersangkutan
     const foundUser = registeredUsers.find(u => {
-      const uRole = (u.role || '').toLowerCase();
-      const uDept = (u.department || '').toLowerCase();
+      const uRole = String(u.role || '').toLowerCase();
+      const uDept = String(u.department || '').toLowerCase();
       return roleKeywords.every(kw => uRole.includes(kw.toLowerCase()) || uDept.includes(kw.toLowerCase()));
     });
 
@@ -1586,7 +1584,6 @@ export async function downloadReportPdfDirect(
           qrCodeHash: 'QR-VERIFIED',
           hasQrAndSignature: true
         });
-        recordPdfDownloadLogToSupabase(logEntry).catch(() => {});
       } catch (e) {}
     } else {
       // Jika TIDAK ADA QR & TTD: tidak masuk ke log unduh PDF ber-QR dan tidak dapat diverifikasi

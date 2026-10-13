@@ -34,41 +34,16 @@ import { initialChatChannels, initialChatMessages } from '../chatData';
 import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber } from '../lib/utils';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
 import { 
-  supabase, 
-  syncFullDatabaseToSupabase, 
-  fetchFullDatabaseFromSupabase, 
-  testSupabaseConnection, 
-  updateTransactionInSupabaseDirect,
-  updateRoomInSupabaseDirect,
-  updateUserInSupabaseDirect,
-  updateMeetingRoomInSupabaseDirect,
-  updateMaintenanceInSupabaseDirect,
-  updateBuildingInSupabaseDirect,
-  updateRoomCapacityRateInSupabaseDirect,
-  deleteRoomInSupabaseDirect,
-  deleteBuildingInSupabaseDirect,
-  deleteMeetingRoomInSupabaseDirect,
-  deleteTransactionInSupabaseDirect,
-  deleteUserInSupabaseDirect,
-  deleteRoomCapacityRateInSupabaseDirect,
-  deleteMaintenanceInSupabaseDirect,
-  deleteQcInspectionInSupabaseDirect,
-  deleteBreakfastOrderInSupabaseDirect,
-  deleteBreakfastMenuItemInSupabaseDirect,
-  clearAuditLogsInSupabaseDirect,
-  clearWorkSessionsInSupabaseDirect,
-  upsertWorkSessionInSupabaseDirect,
-  upsertChatMessageInSupabaseDirect,
-  clearChatMessagesInSupabaseDirect,
-  type SupabaseSyncState 
-} from '../lib/supabase';
-import { 
   fetchFullDatabaseFromSpreadsheet, 
   syncFullDatabaseToSpreadsheet, 
   updateBuildingInSpreadsheetDirect, 
   deleteBuildingInSpreadsheetDirect, 
-  getSpreadsheetConfig 
+  getSpreadsheetConfig,
+  type SpreadsheetSyncState
 } from './spreadsheetStorage';
+
+// Alias tipe untuk kompatibilitas ke belakang
+export type SupabaseSyncState = SpreadsheetSyncState;
 
 export type StorageNamespace = 'LOCAL' | 'PROD' | 'DEMO';
 
@@ -186,8 +161,8 @@ export class DataStorageService {
       } catch (_) {}
     }
     this.getDatabase();
-    // Inisialisasi pengecekan koneksi Supabase di background
-    this.checkInitialSupabaseConnection();
+    // Inisialisasi pengecekan koneksi Google Spreadsheet di background
+    this.checkInitialSpreadsheetConnection();
   }
 
   public onSyncEvent(listener: (event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) => void): () => void {
@@ -222,20 +197,19 @@ export class DataStorageService {
     }
     const dbToPush = this.pendingSyncDb || this.getDatabase();
     this.pendingSyncDb = null;
-    return this.pushAllToSupabase(dbToPush);
+    return this.pushAllToSpreadsheet(dbToPush);
   }
 
-  private async checkInitialSupabaseConnection() {
+  private async checkInitialSpreadsheetConnection() {
     try {
-      const res = await testSupabaseConnection();
-      if (res.success) {
+      const cfg = getSpreadsheetConfig();
+      if (cfg.isConfigured) {
         this.syncStatus = 'connected';
         if (!this.lastSyncTime) {
           this.lastSyncTime = new Date().toISOString();
         }
       } else {
-        this.syncStatus = 'error';
-        this.syncError = res.message;
+        this.syncStatus = 'idle';
       }
     } catch (_) {}
   }
@@ -256,57 +230,54 @@ export class DataStorageService {
     return this.lastSyncTime;
   }
 
-  public getSupabaseSyncState(): SupabaseSyncState {
+  public getSpreadsheetSyncState(): SpreadsheetSyncState {
+    const cfg = getSpreadsheetConfig();
     return {
       status: this.syncStatus,
       lastSyncTime: this.lastSyncTime,
       errorMessage: this.syncError,
-      isConfigured: true,
+      isConfigured: cfg.isConfigured,
       isSyncing: this.syncStatus === 'syncing',
       lastSyncedAt: this.lastSyncTime,
       lastError: this.syncError
     };
   }
 
+  // Alias ke SupabaseSyncState untuk kompatibilitas UI
+  public getSupabaseSyncState(): SpreadsheetSyncState {
+    return this.getSpreadsheetSyncState();
+  }
+
   /**
-   * Hidrasi data terbaru dari Supabase Cloud saat aplikasi dibuka secara aman (non-destructive)
-   * Jika forceCloudOverwrite = true, maka seluruh data dari Database Pusat (Supabase) akan menjadi acuan utama.
+   * Hidrasi data terbaru dari Google Spreadsheet saat aplikasi dibuka secara aman (non-destructive)
    */
-  public async hydrateFromSupabase(_forceCloudOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
+  public async hydrateFromSpreadsheet(_forceCloudOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
     try {
       this.syncStatus = 'syncing';
+      this.notifySyncListeners({ status: 'syncing', db: this.getDatabase() });
 
-      // 1. Prioritaskan pembacaan langsung dari Google Spreadsheet
-      let cloudDb: CompleteStorageDatabase | null = null;
+      let sheetDb: CompleteStorageDatabase | null = null;
       try {
-        const sheetDb = await fetchFullDatabaseFromSpreadsheet();
-        if (sheetDb && (
-          (sheetDb.buildings && sheetDb.buildings.length > 0) || 
-          (sheetDb.rooms && sheetDb.rooms.length > 0) || 
-          (sheetDb.transactions && sheetDb.transactions.length > 0)
-        )) {
-          cloudDb = sheetDb;
-        }
+        sheetDb = await fetchFullDatabaseFromSpreadsheet();
       } catch (sheetErr) {
-        console.warn('Gagal membaca data dari Google Spreadsheet, beralih ke sumber cadangan:', sheetErr);
+        console.warn('Gagal membaca data dari Google Spreadsheet:', sheetErr);
       }
 
-      // 2. Jika Spreadsheet belum memiliki data, baca dari database cloud cadangan
-      if (!cloudDb) {
-        cloudDb = await fetchFullDatabaseFromSupabase();
-      }
-      if (cloudDb) {
-        // Pertahankan sesi aktif & pesan chat yang baru saja dibuat di memori lokal namun belum masuk snapshot cloud
+      if (sheetDb) {
+        // Gabungkan cerdas dengan master data / cache lokal agar data katalog & relasi tetap lengkap
+        const base = this.cache || generateInitialDatabase(false);
+        const mergedDb = this.mergeDatabases(base, sheetDb, _forceCloudOverwrite);
+
+        // Pertahankan sesi aktif & pesan chat memori
         if (this.cache) {
           const wsMap = new Map<string, WorkSession>();
-          for (const s of (cloudDb.workSessions || [])) {
+          for (const s of (mergedDb.workSessions || [])) {
             if (s && s.id) wsMap.set(s.id, s);
           }
           for (const s of (this.cache.workSessions || [])) {
             if (!s || !s.id) continue;
             const remoteS = wsMap.get(s.id);
             if (!remoteS) {
-              // Hanya pertahankan jika sesi masih baru/aktif
               if (s.status === 'AKTIF') wsMap.set(s.id, s);
             } else if (s.status === 'SELESAI' && remoteS.status !== 'SELESAI') {
               wsMap.set(s.id, s);
@@ -316,50 +287,39 @@ export class DataStorageService {
               wsMap.set(s.id, { ...remoteS, ...s });
             }
           }
-          cloudDb.workSessions = Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
-
-          const chMap = new Map<string, ChatChannel>();
-          for (const ch of initialChatChannels) chMap.set(ch.id, { ...ch });
-          for (const ch of (this.cache.chatChannels || [])) {
-            if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
-          }
-          for (const ch of (cloudDb.chatChannels || [])) {
-            if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
-          }
-          cloudDb.chatChannels = Array.from(chMap.values());
-
-          const msgMap = new Map<string, ChatMessage>();
-          for (const m of (this.cache.chatMessages || [])) {
-            if (m && m.id) msgMap.set(m.id, m);
-          }
-          for (const m of (cloudDb.chatMessages || [])) {
-            if (!m || !m.id) continue;
-            const prev = msgMap.get(m.id);
-            if (!prev) {
-              msgMap.set(m.id, m);
-            } else {
-              const readSet = new Set([...(prev.readBy || []), ...(m.readBy || [])]);
-              msgMap.set(m.id, { ...prev, ...m, readBy: Array.from(readSet) });
-            }
-          }
-          cloudDb.chatMessages = Array.from(msgMap.values());
+          mergedDb.workSessions = Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
         }
 
-        this.cache = cloudDb;
+        this.cache = mergedDb;
         this.lastSyncTime = new Date().toISOString();
         this.syncStatus = 'connected';
         this.syncError = null;
         this.hasHydratedFromCloud = true;
-        return cloudDb;
+        this.notifySyncListeners({ status: 'connected', db: mergedDb });
+
+        // Jika ada tabel di Spreadsheet yang masih kosong (misal meeting_rooms atau roomCapacityRates),
+        // dorong snapshot lengkap ini ke Spreadsheet di background agar lembar & data lengkap terbentuk
+        syncFullDatabaseToSpreadsheet(mergedDb).catch(() => {});
+
+        return mergedDb;
       }
+
       this.syncStatus = 'connected';
       this.hasHydratedFromCloud = true;
-      return null;
+      const current = this.getDatabase();
+      this.notifySyncListeners({ status: 'connected', db: current });
+      return current;
     } catch (err: any) {
       this.syncStatus = 'error';
-      this.syncError = err?.message || 'Gagal mengambil data dari Supabase';
+      this.syncError = err?.message || 'Gagal mengambil data dari Google Spreadsheet';
+      this.notifySyncListeners({ status: 'error', db: this.getDatabase(), error: this.syncError });
       return null;
     }
+  }
+
+  // Alias kompatibilitas
+  public async hydrateFromSupabase(forceOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
+    return this.hydrateFromSpreadsheet(forceOverwrite);
   }
 
   /**
@@ -512,38 +472,44 @@ export class DataStorageService {
   }
 
   /**
-   * Sinkronisasi data ke Google Spreadsheet dan basis data cloud
+   * Sinkronisasi seluruh basis data ke Google Spreadsheet
    */
-  public async pushAllToSupabase(customDb?: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
+  public async pushAllToSpreadsheet(customDb?: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
     const db = customDb || this.getDatabase();
     this.syncStatus = 'syncing';
     this.notifySyncListeners({ status: 'syncing', db });
 
-    // 1. Sinkronkan ke Google Spreadsheet
     try {
-      await syncFullDatabaseToSpreadsheet(db);
-    } catch (sheetErr) {
-      console.warn('Gagal push ke Google Spreadsheet:', sheetErr);
+      const res = await syncFullDatabaseToSpreadsheet(db);
+      if (res.success) {
+        this.syncStatus = 'connected';
+        this.lastSyncTime = new Date().toISOString();
+        this.syncError = null;
+        this.notifySyncListeners({ status: 'connected', db });
+        return { success: true };
+      } else {
+        this.syncStatus = 'error';
+        this.syncError = res.error || 'Gagal menyimpan ke Google Spreadsheet';
+        this.notifySyncListeners({ status: 'error', db, error: this.syncError });
+        return res;
+      }
+    } catch (err: any) {
+      this.syncStatus = 'error';
+      this.syncError = err?.message || 'Gagal menghubungi Google Spreadsheet';
+      this.notifySyncListeners({ status: 'error', db, error: this.syncError });
+      return { success: false, error: this.syncError };
     }
+  }
 
-    // 2. Sinkronkan ke database server
-    const res = await syncFullDatabaseToSupabase(db);
-    if (res.success) {
-      this.syncStatus = 'connected';
-      this.lastSyncTime = new Date().toISOString();
-      this.syncError = null;
-      this.notifySyncListeners({ status: 'connected', db });
-    } else {
-      this.syncStatus = 'connected'; // Tetap terhubung karena data di-cache/tersimpan di Spreadsheet & server
-      this.notifySyncListeners({ status: 'connected', db });
-    }
-    return { success: true };
+  // Alias kompatibilitas
+  public async pushAllToSupabase(customDb?: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
+    return this.pushAllToSpreadsheet(customDb);
   }
 
   /**
-   * Mengirim data ke Google Spreadsheet & Server secara instan setiap ada perubahan
+   * Mengirim data ke Google Spreadsheet secara ter-debounce instan setiap ada perubahan
    */
-  private triggerSupabaseSync(db: CompleteStorageDatabase) {
+  public triggerSpreadsheetSync(db: CompleteStorageDatabase) {
     this.pendingSyncDb = db;
     this.syncStatus = 'syncing';
     this.notifySyncListeners({ status: 'syncing', db });
@@ -553,29 +519,31 @@ export class DataStorageService {
       this.syncDebounceTimer = null;
     }
 
-    const payload = this.pendingSyncDb || db;
-    this.pendingSyncDb = null;
+    this.syncDebounceTimer = setTimeout(async () => {
+      const payload = this.pendingSyncDb || db;
+      this.pendingSyncDb = null;
 
-    (async () => {
       try {
-        this.syncStatus = 'syncing';
-        // Simpan ke Google Spreadsheet
-        syncFullDatabaseToSpreadsheet(payload).catch(() => {});
-        const res = await syncFullDatabaseToSupabase(payload);
+        const res = await syncFullDatabaseToSpreadsheet(payload);
         if (res.success) {
           this.syncStatus = 'connected';
           this.lastSyncTime = new Date().toISOString();
           this.syncError = null;
           this.notifySyncListeners({ status: 'connected', db: payload });
         } else {
-          this.syncStatus = 'connected';
+          this.syncStatus = 'connected'; // Server cache aman
           this.notifySyncListeners({ status: 'connected', db: payload });
         }
       } catch (err: any) {
         this.syncStatus = 'connected';
         this.notifySyncListeners({ status: 'connected', db: payload });
       }
-    })();
+    }, 500);
+  }
+
+  // Alias kompatibilitas
+  public triggerSupabaseSync(db: CompleteStorageDatabase) {
+    this.triggerSpreadsheetSync(db);
   }
 
   public setNamespace(_ns: any): CompleteStorageDatabase {
@@ -642,10 +610,10 @@ export class DataStorageService {
 
     this.cache = updated;
 
-    // Sinkronisasi langsung detik itu juga (real-time) ke Database Supabase (tanpa penyimpanan cache lokal)
+    // Sinkronisasi langsung ke Google Spreadsheet & Server Database Cache
     const shouldSkipCloud = Boolean(options && typeof options === 'object' && options.skipCloudSync);
     if (!shouldSkipCloud) {
-      this.triggerSupabaseSync(updated);
+      this.triggerSpreadsheetSync(updated);
     }
   }
 
@@ -690,10 +658,6 @@ export class DataStorageService {
     newUsers[idx] = updatedUser;
 
     this.saveDatabase({ ...db, users: newUsers });
-    updateUserInSupabaseDirect(updatedUser).then(res => {
-      if (!res.success) console.warn('Gagal update user ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update user error:', err));
     return updatedUser;
   }
 
@@ -721,7 +685,6 @@ export class DataStorageService {
     if (newUsers.length === initialLen) return false;
 
     this.saveDatabase({ ...db, users: newUsers });
-    deleteUserInSupabaseDirect(userId).catch(err => console.warn('Supabase delete user err:', err));
     return true;
   }
 
@@ -1089,9 +1052,6 @@ export class DataStorageService {
       users,
       meetingRooms
     });
-    updateBuildingInSupabaseDirect(buildingWithId, previousBuildingName).catch(err => {
-      console.warn('Supabase update building background info:', err);
-    });
     updateBuildingInSpreadsheetDirect(buildingWithId, previousBuildingName).catch(() => {});
     return buildingWithId;
   }
@@ -1141,7 +1101,6 @@ export class DataStorageService {
       rooms: updatedRooms, 
       meetingRooms: updatedMeetingRooms 
     });
-    deleteBuildingInSupabaseDirect(buildingId, bld.name).catch(err => console.warn('Supabase delete building err:', err));
     deleteBuildingInSpreadsheetDirect(buildingId, bld.name).catch(() => {});
     return { 
       success: true, 
@@ -1238,10 +1197,6 @@ export class DataStorageService {
     });
 
     this.saveDatabase({ ...db, meetingRooms: updated, rooms: updatedRooms, buildings });
-    updateMeetingRoomInSupabaseDirect(mrWithId).then(res => {
-      if (!res.success) console.warn('Gagal update meeting room ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update meeting room error:', err));
     return mrWithId;
   }
 
@@ -1275,7 +1230,6 @@ export class DataStorageService {
     });
 
     this.saveDatabase({ ...db, meetingRooms: updatedMR, rooms: updatedRooms, buildings });
-    deleteMeetingRoomInSupabaseDirect(meetingRoomId).catch(err => console.warn('Supabase delete meeting room err:', err));
     return { success: true, message: `Ruang Pertemuan '${mr.name}' berhasil dihapus dari database.` };
   }
 
@@ -1419,10 +1373,6 @@ export class DataStorageService {
       qcInspections,
       meetingRooms
     });
-    updateRoomInSupabaseDirect(roomWithId).then(res => {
-      if (!res.success) console.warn('Gagal update kamar ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update room error:', err));
     return roomWithId;
   }
 
@@ -1463,7 +1413,6 @@ export class DataStorageService {
     );
 
     this.saveDatabase({ ...db, rooms: updatedRooms, buildings, meetingRooms: updatedMeetingRooms });
-    deleteRoomInSupabaseDirect(roomId).catch(err => console.warn('Supabase delete room err:', err));
     return { success: true, message: `Kamar ${room.roomNumber} (${room.building}) berhasil dihapus.` };
   }
 
@@ -1515,10 +1464,6 @@ export class DataStorageService {
     const updatedRates = [...remainingRates, rateWithId];
 
     this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
-    updateRoomCapacityRateInSupabaseDirect(rateWithId).then(res => {
-      if (!res.success) console.warn('Gagal update rate ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update rate error:', err));
     return rateWithId;
   }
 
@@ -1532,7 +1477,6 @@ export class DataStorageService {
 
     const updatedRates = rates.filter(r => r.id !== rateId);
     this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
-    deleteRoomCapacityRateInSupabaseDirect(rateId).catch(err => console.warn('Supabase delete rate err:', err));
     return { success: true, message: `Konfigurasi '${item.roomType} - ${item.bedType}' berhasil dihapus dari database.` };
   }
 
@@ -1600,11 +1544,6 @@ export class DataStorageService {
     }
 
     this.saveDatabase({ ...db, transactions: updatedTxs });
-    updateTransactionInSupabaseDirect(tx).then(res => {
-      if (!res.success) console.warn('Gagal update transaksi ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update transaction error:', err));
-
     return tx;
   }
 
@@ -1643,7 +1582,6 @@ export class DataStorageService {
     const updatedOrders = (db.breakfastOrders || []).filter(o => o.transactionId !== txId && o.id !== `BO-TX-${txId}`);
 
     this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
-    deleteTransactionInSupabaseDirect(txId).catch(err => console.warn('Supabase delete transaction err:', err));
     return { success: true, message: `Transaksi '${targetTx.guestName}' (${txId}) berhasil dihapus secara permanen.` };
   }
 
@@ -1669,9 +1607,6 @@ export class DataStorageService {
     });
 
     this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
-    txIds.forEach(id => {
-      deleteTransactionInSupabaseDirect(id).catch(() => {});
-    });
     return { success: true, count: txIds.length };
   }
 
@@ -1695,11 +1630,6 @@ export class DataStorageService {
     }
 
     this.saveDatabase({ ...db, maintenances: updated });
-    updateMaintenanceInSupabaseDirect(m).then(res => {
-      if (!res.success) console.warn('Gagal update maintenance ke Supabase:', res.error);
-      else this.hydrateFromSupabase(true).catch(() => {});
-    }).catch(err => console.warn('Supabase update maintenance error:', err));
-
     return m;
   }
 
@@ -1707,7 +1637,6 @@ export class DataStorageService {
     const db = this.getDatabase();
     const updated = (db.maintenances || []).filter(m => m.id !== maintId);
     this.saveDatabase({ ...db, maintenances: updated });
-    deleteMaintenanceInSupabaseDirect(maintId).catch(err => console.warn('Supabase delete maint err:', err));
     return true;
   }
 
@@ -1747,7 +1676,6 @@ export class DataStorageService {
     const db = this.getDatabase();
     this.cache = { ...db, auditLogs: [] };
     this.saveDatabase({ ...db, auditLogs: [] });
-    clearAuditLogsInSupabaseDirect().catch(err => console.warn('Supabase clear audit err:', err));
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('sim_haji_audit_logs_cleared', {}));
     }
@@ -1774,7 +1702,6 @@ export class DataStorageService {
     }
 
     this.saveDatabase({ ...db, workSessions: updated });
-    upsertWorkSessionInSupabaseDirect(session).catch(err => console.warn('Supabase upsert work session err:', err));
     return session;
   }
 
@@ -1782,7 +1709,6 @@ export class DataStorageService {
     const db = this.getDatabase();
     this.cache = { ...db, workSessions: [] };
     this.saveDatabase({ ...db, workSessions: [] });
-    clearWorkSessionsInSupabaseDirect().catch(err => console.warn('Supabase clear work sessions err:', err));
   }
 
   // ==========================================
@@ -1812,7 +1738,6 @@ export class DataStorageService {
     const db = this.getDatabase();
     const updated = (db.qcInspections || []).filter(q => q.id !== qcId);
     this.saveDatabase({ ...db, qcInspections: updated });
-    deleteQcInspectionInSupabaseDirect(qcId).catch(err => console.warn('Supabase delete qc err:', err));
     return true;
   }
 
@@ -1899,8 +1824,6 @@ export class DataStorageService {
       chatMessages: updatedMessages, 
       chatChannels: updatedChannels 
     });
-    const targetCh = updatedChannels.find(c => c.id === msg.channelId) || channelObj;
-    upsertChatMessageInSupabaseDirect(msg, targetCh).catch(err => console.warn('Supabase upsert chat msg err:', err));
     return msg;
   }
 
@@ -1914,7 +1837,6 @@ export class DataStorageService {
       this.cache = { ...db, chatMessages: [] };
       this.saveDatabase({ ...db, chatMessages: [] });
     }
-    clearChatMessagesInSupabaseDirect(channelId).catch(err => console.warn('Supabase clear chat err:', err));
   }
 
   // ==========================================
@@ -1933,7 +1855,6 @@ export class DataStorageService {
     };
     const updatedDb = { ...db, appSettings: newSettings };
     this.saveDatabase(updatedDb);
-    syncFullDatabaseToSupabase(updatedDb).catch(err => console.warn('Gagal sinkronisasi appSettings ke Supabase:', err));
     return newSettings;
   }
 
@@ -2054,8 +1975,8 @@ export class DataStorageService {
 
     this.cache = initDb;
     this.saveDatabase(initDb);
-    // Segera dorong reset bersih ke Database Supabase Pusat
-    this.pushAllToSupabase(initDb).catch(() => {});
+    // Segera dorong reset bersih ke Google Spreadsheet
+    this.pushAllToSpreadsheet(initDb).catch(() => {});
     return initDb;
   }
 
@@ -2086,7 +2007,6 @@ export class DataStorageService {
     const items = db.breakfastMenuItems || [];
     const filtered = items.filter(m => m.id !== itemId);
     this.saveDatabase({ ...db, breakfastMenuItems: filtered });
-    deleteBreakfastMenuItemInSupabaseDirect(itemId).catch(err => console.warn('Supabase delete menu item err:', err));
     return true;
   }
 
@@ -2143,7 +2063,6 @@ export class DataStorageService {
       breakfastOrders: filtered,
       transactions: txUpdated ? updatedTxs : db.transactions
     });
-    deleteBreakfastOrderInSupabaseDirect(orderId).catch(err => console.warn('Supabase delete order err:', err));
     return true;
   }
 

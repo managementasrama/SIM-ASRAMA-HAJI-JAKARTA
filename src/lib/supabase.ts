@@ -607,22 +607,22 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
  */
 export function mapSupabaseUserToAppUser(u: any): User {
   return {
-    id: u.id,
-    username: u.username,
-    fullName: u.full_name || u.fullName || u.username,
-    role: u.role,
-    password: u.password || '12345',
-    department: u.department || 'Operasional',
+    id: String(u.id || ''),
+    username: String(u.username || ''),
+    fullName: String(u.full_name || u.fullName || u.username || ''),
+    role: u.role || 'Resepsionis',
+    password: String(u.password || '12345'),
+    department: typeof u.department === 'string' ? u.department : (u.department ? String(u.department) : 'Operasional'),
     supervisorId: u.supervisor_id || u.supervisorId || undefined,
-    assignedBuilding: u.assigned_building || u.assignedBuilding || 'Semua Gedung',
-    phone: u.phone || '-',
-    status: u.status || 'Aktif',
-    email: u.email || undefined,
-    nip: u.nip || undefined,
-    isOwner: u.is_owner ?? u.isOwner ?? false,
+    assignedBuilding: String(u.assigned_building || u.assignedBuilding || 'Semua Gedung'),
+    phone: String(u.phone || '-'),
+    status: String(u.status || 'Aktif'),
+    email: u.email ? String(u.email) : undefined,
+    nip: u.nip ? String(u.nip) : undefined,
+    isOwner: Boolean(u.is_owner ?? u.isOwner ?? false),
     signatureUrl: u.signature_url || u.signatureUrl || undefined,
     qrCodeUrl: u.qr_code_url || u.qrCodeUrl || undefined,
-    signatureHistory: u.signature_history || u.signatureHistory || []
+    signatureHistory: Array.isArray(u.signature_history || u.signatureHistory) ? (u.signature_history || u.signatureHistory) : []
   };
 }
 

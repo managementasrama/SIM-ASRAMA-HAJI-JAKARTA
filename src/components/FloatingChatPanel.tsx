@@ -1201,9 +1201,9 @@ export function FloatingChatPanel() {
                   if (!newChatSearch.trim()) return true;
                   const q = newChatSearch.toLowerCase();
                   return (
-                    u.fullName.toLowerCase().includes(q) ||
-                    u.role.toLowerCase().includes(q) ||
-                    (u.department || '').toLowerCase().includes(q)
+                    String(u.fullName || '').toLowerCase().includes(q) ||
+                    String(u.role || '').toLowerCase().includes(q) ||
+                    String(u.department || '').toLowerCase().includes(q)
                   );
                 })
                 .map(u => {

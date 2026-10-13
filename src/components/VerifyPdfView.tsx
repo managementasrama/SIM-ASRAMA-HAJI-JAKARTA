@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../store';
-import { verifyDocumentFromSupabase } from '../lib/supabase';
 
 // Helper untuk membersihkan nama file dari duplikasi download browser (contoh: "Laporan_Audit (2).pdf" -> "Laporan_Audit.pdf")
 const cleanDocumentName = (val: string): string => {
@@ -192,12 +191,9 @@ export function VerifyPdfView() {
       const cleanOrig = originalFileName ? cleanDocumentName(originalFileName) : cleanFile;
       const cleanBase = cleanFile.replace(/\.pdf$/i, '').trim();
 
-      // 1. Direct query to Supabase Database (memeriksa tabel pdf_download_logs)
-      const supabaseCheck = await verifyDocumentFromSupabase(query);
-
-      // 2. Query Database Log Unduh PDF Ber-QR Lokal (auditLogs dengan status sah)
+      // Query Database Log Unduh PDF Ber-QR Resmi (auditLogs dengan status sah)
       const verifiedLocalLogs = auditLogs.filter(a => 
-        a.action === 'UNDUH_PDF_BER_QR' && 
+        (a.action === 'UNDUH_PDF_BER_QR' || Boolean(a.verificationCode)) && 
         a.hasQrAndSignature !== false && 
         Boolean(a.verificationCode)
       );
@@ -258,7 +254,7 @@ export function VerifyPdfView() {
       );
 
       // Jika ada log manual dan TIDAK ada catatan unduh ber-QR yang sah
-      if (manualLocalLog && !verifiedLocalLog && !supabaseCheck.found) {
+      if (manualLocalLog && !verifiedLocalLog) {
         setVerificationResult({
           status: 'invalid',
           message: 'DOKUMEN TIDAK DAPAT DIVERIFIKASI: Dokumen ini terdata diunduh tanpa QR Code dan Tanda Tangan Digital resmi (dokumen cetak manual). Dokumen tidak terdaftar pada Log Unduh PDF Ber-QR dan tidak memiliki legalitas verifikasi digital resmi.'
@@ -268,62 +264,23 @@ export function VerifyPdfView() {
         return;
       }
 
-      // Check if found in Supabase (tabel pdf_download_logs) or local verified logs
-      const isSupabaseValid = supabaseCheck.found && (
-        supabaseCheck.source === 'pdf_download_logs' || 
-        (supabaseCheck.source === 'audit_logs' && Boolean(supabaseCheck.data?.verification_code))
-      );
-
-      const isFound = isSupabaseValid || Boolean(verifiedLocalLog);
+      const isFound = Boolean(verifiedLocalLog);
 
       if (isFound) {
-        const vCode = 
-          supabaseCheck.data?.verification_code || 
-          verifiedLocalLog?.verificationCode || '';
-
-        const docTitle = 
-          supabaseCheck.data?.document_title || 
-          verifiedLocalLog?.documentTitle || 
-          `Dokumen Laporan Resmi (${vCode})`;
-
-        const docId = 
-          supabaseCheck.data?.target_id || 
-          verifiedLocalLog?.targetId || 
-          vCode;
-
+        const vCode = verifiedLocalLog?.verificationCode || '';
+        const docTitle = verifiedLocalLog?.documentTitle || `Dokumen Laporan Resmi (${vCode})`;
+        const docId = verifiedLocalLog?.targetId || vCode;
         const tenant = 'Tamu / Instansi Terdaftar UPT Asrama Haji Jakarta';
 
         // Signatory verification
-        const signatoryName = 
-          supabaseCheck.data?.signatory_name || 
-          verifiedLocalLog?.signatoryName || 
-          'Pimpinan UPT Asrama Haji Jakarta';
-
-        const signatoryRole = 
-          supabaseCheck.data?.signatory_role || 
-          verifiedLocalLog?.signatoryRole || 
-          'Pimpinan Divisi / Penandatangan Sah';
-
-        const signatoryNip = 
-          supabaseCheck.data?.signatory_nip || 
-          verifiedLocalLog?.signatoryNip || 
-          '-';
+        const signatoryName = verifiedLocalLog?.signatoryName || 'Pimpinan UPT Asrama Haji Jakarta';
+        const signatoryRole = verifiedLocalLog?.signatoryRole || 'Pimpinan Divisi / Penandatangan Sah';
+        const signatoryNip = verifiedLocalLog?.signatoryNip || '-';
 
         // Officer who downloaded
-        const officerName = 
-          supabaseCheck.data?.user_name || 
-          verifiedLocalLog?.user || 
-          'Petugas Sistem';
-
-        const officerRole = 
-          supabaseCheck.data?.role || 
-          verifiedLocalLog?.role || 
-          'Administrator';
-
-        const downloadTime = 
-          supabaseCheck.data?.timestamp || 
-          verifiedLocalLog?.timestamp || 
-          new Date().toLocaleString('id-ID');
+        const officerName = verifiedLocalLog?.user || 'Petugas Sistem';
+        const officerRole = verifiedLocalLog?.role || 'Administrator';
+        const downloadTime = verifiedLocalLog?.timestamp || new Date().toLocaleString('id-ID');
 
         // Check signatory user in DB for unique QR & Signature match
         const signerUser = users.find(u => 
@@ -374,7 +331,7 @@ export function VerifyPdfView() {
             officerName,
             officerRole,
             downloadTime,
-            isSupabaseVerified: isSupabaseValid || Boolean(verifiedLocalLog),
+            isSupabaseVerified: Boolean(verifiedLocalLog),
             downloadLogs: relevantDownloads.length > 0 ? relevantDownloads : [{
               timestamp: downloadTime,
               user: officerName,
@@ -536,7 +493,7 @@ export function VerifyPdfView() {
                       <div className="flex items-center space-x-2">
                         <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center space-x-1">
                           <i className="fa-solid fa-cloud-check text-emerald-600"></i>
-                          <span>Terdata di Supabase Cloud</span>
+                          <span>Terdata di Basis Data Resmi</span>
                         </span>
                         <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800 flex items-center space-x-1">
                           <i className="fa-solid fa-qrcode text-purple-600"></i>

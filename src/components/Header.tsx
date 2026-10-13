@@ -108,17 +108,17 @@ export function Header() {
     { 
       name: 'Administrator (Super Admin & Admin)', 
       color: 'text-emerald-600 font-bold', 
-      users: users.filter(u => isSuperAdmin(u.role) || u.username.toLowerCase() === 'admin') 
+      users: users.filter(u => isSuperAdmin(u.role) || String(u.username || '').toLowerCase() === 'admin') 
     },
-    { name: 'Divisi Resepsionis', color: 'text-blue-600', users: users.filter(u => u.role.includes('Resepsionis')) },
+    { name: 'Divisi Resepsionis', color: 'text-blue-600', users: users.filter(u => String(u.role || '').includes('Resepsionis')) },
     { 
       name: 'Divisi Keuangan & Perbendaharaan', 
       color: 'text-emerald-700 font-bold', 
       users: users.filter(u => isKeuanganRole(u.role, u.department)) 
     },
-    { name: 'Divisi Quality Control', color: 'text-teal-600', users: users.filter(u => u.role.includes('QC') || u.role.includes('Quality')) },
-    { name: 'Divisi Teknisi', color: 'text-amber-600', users: users.filter(u => u.role.includes('Teknisi')) },
-    { name: 'Divisi Koperasi', color: 'text-orange-600', users: users.filter(u => u.role.includes('Koperasi')) },
+    { name: 'Divisi Quality Control', color: 'text-teal-600', users: users.filter(u => String(u.role || '').includes('QC') || String(u.role || '').includes('Quality')) },
+    { name: 'Divisi Teknisi', color: 'text-amber-600', users: users.filter(u => String(u.role || '').includes('Teknisi')) },
+    { name: 'Divisi Koperasi', color: 'text-orange-600', users: users.filter(u => String(u.role || '').includes('Koperasi')) },
   ];
 
   return (

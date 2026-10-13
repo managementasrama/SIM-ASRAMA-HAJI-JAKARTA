@@ -91,7 +91,7 @@ export function SpreadsheetIntegrationView() {
   const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [syncLogs, setSyncLogs] = useState<Array<{ time: string; type: 'FETCH' | 'PUSH' | 'CONFIG' | 'PROVISION'; message: string; success: boolean }>>([]);
 
-  // Ambil konfigurasi tersimpan saat pertama kali dibuka
+  // Ambil konfigurasi tersimpan saat pertama kali dibuka (dari localStorage dan backend server)
   useEffect(() => {
     try {
       const savedUrl = localStorage.getItem('CUSTOM_SHEET_WEBAPP_URL');
@@ -110,6 +110,21 @@ export function SpreadsheetIntegrationView() {
         setLastSyncTime(savedLastTime);
       }
     } catch (_) {}
+
+    // Selalu sinkronkan dengan status konfigurasi di server backend
+    fetch('/api/sheets-config')
+      .then(res => res.json())
+      .then(cfg => {
+        if (cfg && cfg.webAppUrl) {
+          setScriptUrl(prev => prev || cfg.webAppUrl);
+          setIsConnected(true);
+          setSyncStatus('Terkonfigurasi dengan Google Spreadsheet (Server)');
+          if (cfg.sheetId) {
+            setSheetDocUrl(prev => prev || cfg.sheetId);
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const addLog = (type: 'FETCH' | 'PUSH' | 'CONFIG' | 'PROVISION', message: string, success: boolean) => {
@@ -259,8 +274,9 @@ export function SpreadsheetIntegrationView() {
     setIsAutoProvisioning(true);
     setSyncStatus('Sedang otomatis membuat lembar kerja & menyusun baris header tabel di Spreadsheet...');
 
+    let payloadData: any = {};
     try {
-      const payloadData = populateSeedOnProvision ? {
+      payloadData = populateSeedOnProvision ? {
         buildings: buildings.map(b => ({
           id: b.id,
           name: b.name,
@@ -698,9 +714,41 @@ export function SpreadsheetIntegrationView() {
  * ==============================================================================
  * KODE RESMI GOOGLE APPS SCRIPT: INTEGRASI & AUTO-PROVISIONING SIM ASRAMA HAJI
  * Pasang skrip ini di Google Spreadsheet: Menu Extensions > Apps Script
- * Dilengkapi fitur: Auto-Detect, Auto-Create Sheet, Auto-Format Header Row
+ * Dilengkapi fitur: Menu OnOpen Otomatis, Auto-Create 13 Sheet & Header Row
  * ==============================================================================
  */
+
+// 0. MENU OTOMATIS SAAT SPREADSHEET DIBUKA (UI MENU GOOGLE SPREADSHEET)
+// Begitu skrip disimpan dan file Spreadsheet di-refresh, akan muncul menu baru di atas:
+function onOpen() {
+  try {
+    var ui = SpreadsheetApp.getUi();
+    ui.createMenu("🕌 SIM Asrama Haji")
+      .addItem("⚡ Buat Semua 13 Sheet & Header Otomatis", "menuAutoProvisionAllSheets")
+      .addItem("⬆️ Isi Data Master Awal (Seed Data)", "menuProvisionWithSeedData")
+      .addSeparator()
+      .addItem("📊 Cek Status & Inspeksi Semua Sheet", "menuInspectAllSheets")
+      .addToUi();
+  } catch (_) {}
+}
+
+function menuAutoProvisionAllSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rep = autoProvisionAllSheets(ss, getDefaultSchema(), false, {});
+  SpreadsheetApp.getUi().alert("✅ Berhasil! " + rep.totalCreated + " lembar kerja baru dibuat dan " + rep.totalUpdated + " disesuaikan dengan header baku (Warna Hijau Emerald Kemenag).");
+}
+
+function menuProvisionWithSeedData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rep = autoProvisionAllSheets(ss, getDefaultSchema(), true, getDefaultSeedData());
+  SpreadsheetApp.getUi().alert("✅ Berhasil! Seluruh 13 lembar kerja dan data master awal asrama haji telah dimuat ke Google Spreadsheet.");
+}
+
+function menuInspectAllSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rep = inspectAllSheets(ss);
+  SpreadsheetApp.getUi().alert("📊 Hasil Inspeksi: Terdeteksi " + rep.totalSheets + " lembar kerja aktif di spreadsheet.");
+}
 
 // 1. FUNGSI UNTUK MEMBACA DATA ATAU STATUS DARI SPREADSHEET (GET REQUEST)
 function doGet(e) {
@@ -774,54 +822,73 @@ function doPost(e) {
     }
 
     // AKSI C: SIMPAN / SINKRONISASI SELURUH DATA (SAVE_ALL)
-    if (payload.buildings && Array.isArray(payload.buildings)) {
-      writeObjectsToSheet(ss, "buildings", payload.buildings, ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"]);
+    // 1. Pastikan seluruh 13 lembar kerja & header selalu otomatis terbuat
+    var defaultSchema = getDefaultSchema();
+    var schemaKeys = Object.keys(defaultSchema);
+    for (var k = 0; k < schemaKeys.length; k++) {
+      var sKey = schemaKeys[k];
+      var sDef = defaultSchema[sKey];
+      var targetSheet = ss.getSheetByName(sDef.sheetName);
+      if (!targetSheet) {
+        targetSheet = ss.insertSheet(sDef.sheetName);
+        targetSheet.getRange(1, 1, 1, sDef.headers.length).setValues([sDef.headers]);
+        var hr = targetSheet.getRange(1, 1, 1, sDef.headers.length);
+        hr.setFontWeight("bold");
+        hr.setFontColor("#ffffff");
+        hr.setBackground("#059669");
+        targetSheet.setFrozenRows(1);
+        try { targetSheet.autoResizeColumns(1, sDef.headers.length); } catch (_) {}
+      }
     }
-    if (payload.rooms && Array.isArray(payload.rooms)) {
-      writeObjectsToSheet(ss, "rooms", payload.rooms, ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"]);
-    }
-    var mRooms = payload.meetingRooms || payload.meeting_rooms;
-    if (mRooms && Array.isArray(mRooms)) {
-      writeObjectsToSheet(ss, "meeting_rooms", mRooms, ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"]);
-    }
-    var rRates = payload.roomCapacityRates || payload.room_capacity_rates;
-    if (rRates && Array.isArray(rRates)) {
-      writeObjectsToSheet(ss, "room_capacity_rates", rRates, ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"]);
-    }
-    var bMenus = payload.breakfastMenuItems || payload.breakfast_menu_items;
-    if (bMenus && Array.isArray(bMenus)) {
-      writeObjectsToSheet(ss, "breakfast_menu_items", bMenus, ["id", "name", "category", "price", "description", "is_available", "allergens"]);
-    }
-    if (payload.transactions && Array.isArray(payload.transactions)) {
-      writeObjectsToSheet(ss, "transactions", payload.transactions, ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"]);
-    }
-    if (payload.users && Array.isArray(payload.users)) {
-      writeObjectsToSheet(ss, "users", payload.users, ["id", "username", "full_name", "role", "department", "status", "phone", "email"]);
-    }
-    if (payload.maintenances && Array.isArray(payload.maintenances)) {
-      writeObjectsToSheet(ss, "maintenances", payload.maintenances, ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"]);
-    }
-    var qcs = payload.qcInspections || payload.qc_inspections;
-    if (qcs && Array.isArray(qcs)) {
-      writeObjectsToSheet(ss, "qc_inspections", qcs, ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"]);
-    }
-    var bOrders = payload.breakfastOrders || payload.breakfast_orders;
-    if (bOrders && Array.isArray(bOrders)) {
-      writeObjectsToSheet(ss, "breakfast_orders", bOrders, ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"]);
-    }
-    var wSessions = payload.workSessions || payload.work_sessions;
-    if (wSessions && Array.isArray(wSessions)) {
-      writeObjectsToSheet(ss, "work_sessions", wSessions, ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"]);
-    }
-    var aSettings = payload.appSettings || payload.app_settings;
-    if (aSettings) {
-      var arrSettings = Array.isArray(aSettings) ? aSettings : [aSettings];
-      writeObjectsToSheet(ss, "app_settings", arrSettings, ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"]);
-    }
-    var sysLogs = payload.auditLogs || payload.system_logs;
-    if (sysLogs && Array.isArray(sysLogs)) {
-      writeObjectsToSheet(ss, "system_logs", sysLogs.slice(0, 100), ["id", "timestamp", "user", "action", "details"]);
-    }
+
+    // 2. Tulis data ke masing-masing sheet (tetap menulis header jika data kosong)
+    var bldList = payload.buildings || [];
+    writeObjectsToSheet(ss, "buildings", Array.isArray(bldList) ? bldList : [], ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"]);
+
+    var roomList = payload.rooms || [];
+    writeObjectsToSheet(ss, "rooms", Array.isArray(roomList) ? roomList : [], ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"]);
+
+    var mRooms = payload.meetingRooms || payload.meeting_rooms || [];
+    writeObjectsToSheet(ss, "meeting_rooms", Array.isArray(mRooms) ? mRooms : [], ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"]);
+
+    var rRates = payload.roomCapacityRates || payload.room_capacity_rates || [];
+    writeObjectsToSheet(ss, "room_capacity_rates", Array.isArray(rRates) ? rRates : [], ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"]);
+
+    var bMenus = payload.breakfastMenuItems || payload.breakfast_menu_items || [];
+    writeObjectsToSheet(ss, "breakfast_menu_items", Array.isArray(bMenus) ? bMenus : [], ["id", "name", "category", "price", "description", "is_available", "allergens"]);
+
+    var txList = payload.transactions || [];
+    writeObjectsToSheet(ss, "transactions", Array.isArray(txList) ? txList : [], ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"]);
+
+    var userList = payload.users || [];
+    writeObjectsToSheet(ss, "users", Array.isArray(userList) ? userList : [], ["id", "username", "full_name", "role", "department", "status", "phone", "email"]);
+
+    var maintList = payload.maintenances || [];
+    writeObjectsToSheet(ss, "maintenances", Array.isArray(maintList) ? maintList : [], ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"]);
+
+    var qcs = payload.qcInspections || payload.qc_inspections || [];
+    writeObjectsToSheet(ss, "qc_inspections", Array.isArray(qcs) ? qcs : [], ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"]);
+
+    var bOrders = payload.breakfastOrders || payload.breakfast_orders || [];
+    writeObjectsToSheet(ss, "breakfast_orders", Array.isArray(bOrders) ? bOrders : [], ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"]);
+
+    var wSessions = payload.workSessions || payload.work_sessions || [];
+    writeObjectsToSheet(ss, "work_sessions", Array.isArray(wSessions) ? wSessions : [], ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"]);
+
+    var aSettings = payload.appSettings || payload.app_settings || [];
+    var arrSettings = Array.isArray(aSettings) ? aSettings : (aSettings ? [aSettings] : []);
+    writeObjectsToSheet(ss, "app_settings", arrSettings, ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"]);
+
+    var sysLogs = payload.auditLogs || payload.system_logs || [];
+    writeObjectsToSheet(ss, "system_logs", Array.isArray(sysLogs) ? sysLogs.slice(0, 100) : [], ["id", "timestamp", "user", "action", "details"]);
+
+    // Bersihkan lembar default "Sheet1" jika ada lembar tabel lain
+    try {
+      var defaultSheet = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1") || ss.getSheetByName("Lembar 1");
+      if (defaultSheet && ss.getSheets().length > 1 && defaultSheet.getLastRow() <= 1) {
+        ss.deleteSheet(defaultSheet);
+      }
+    } catch (_) {}
 
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
@@ -974,6 +1041,30 @@ function getDefaultSchema() {
     work_sessions: { sheetName: "work_sessions", headers: ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"] },
     app_settings: { sheetName: "app_settings", headers: ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"] },
     system_logs: { sheetName: "system_logs", headers: ["id", "timestamp", "user", "action", "details"] }
+  };
+}
+
+// DATA MASTER AWAL UNTUK INISIALISASI (SEED DATA ASRAMA HAJI)
+function getDefaultSeedData() {
+  return {
+    buildings: [
+      { id: "bld-1", name: "Gedung Mina", code: "MINA", floors: 4, total_rooms: 48, category: "PENGINAPAN", status: "AKTIF", description: "Gedung asrama jamaah dan penginapan umum utama" },
+      { id: "bld-2", name: "Gedung Arafah", code: "ARF", floors: 3, total_rooms: 36, category: "PENGINAPAN", status: "AKTIF", description: "Penginapan paviliun VIP & delegasi" },
+      { id: "bld-3", name: "Gedung Muzdalifah", code: "MZD", floors: 2, total_rooms: 24, category: "PENGINAPAN", status: "AKTIF", description: "Asrama reguler & transit jamaah" },
+      { id: "bld-4", name: "Gedung Madinah", code: "MDN", floors: 3, total_rooms: 30, category: "PENGINAPAN", status: "AKTIF", description: "Wisma penginapan syariah & bimbingan" }
+    ],
+    room_capacity_rates: [
+      { id: "rcr-1", room_type: "Ekonomi", bed_type: "4 Single Bed", capacity_pax: 4, price_per_night: 250000, description: "Kamar rombongan hemat ber-AC", facilities: "AC, Kamar Mandi Dalam, 4 Lemari", is_active: "true" },
+      { id: "rcr-2", room_type: "Standar", bed_type: "2 Single Bed", capacity_pax: 2, price_per_night: 350000, description: "Kamar nyaman twin bed ber-AC & TV", facilities: "AC, TV, Meja, Air Panas, WiFi", is_active: "true" },
+      { id: "rcr-3", room_type: "Superior", bed_type: "1 Double Bed", capacity_pax: 2, price_per_night: 450000, description: "Kamar keluarga luas dengan fasilitas lengkap", facilities: "AC, Smart TV, Kulkas Mini, Pemanas Air, WiFi", is_active: "true" }
+    ],
+    meeting_rooms: [
+      { id: "mr-1", name: "Aula Serbaguna Utama", building: "Gedung Mina", floor: 1, capacity: 500, rate_half_day: 3500000, rate_full_day: 6000000, status: "TERSEDIA", amenities: "Sound System, AC Sentral, Proyektor, Podium, Kursi 500 unit" },
+      { id: "mr-2", name: "Ruang Rapat Al-Haram", building: "Gedung Arafah", floor: 2, capacity: 50, rate_half_day: 1200000, rate_full_day: 2000000, status: "TERSEDIA", amenities: "Smart TV 75 inch, Sound, AC, Whiteboard, WiFi High-Speed" }
+    ],
+    app_settings: [
+      { organization_name: "UPT Asrama Haji Embarkasi Jakarta", sub_title: "Sistem Informasi Manajemen Penginapan & Aset", ministry_name: "Kementerian Agama Republik Indonesia", address: "Jl. Raya Pondok Gede No. 1, Jakarta Timur", phone: "(021) 8094444", email: "info@asramahaji-jakarta.kemenag.go.id", portal_url: "https://asramahaji-jakarta.kemenag.go.id", tag_title: "SIM Asrama Haji Jakarta" }
+    ]
   };
 }
 
@@ -1270,6 +1361,52 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
           </div>
         </div>
       )}
+
+      {/* Box Penjelasan & Solusi Cepat: Kenapa Sheet & Header Belum Muncul */}
+      <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-300 dark:border-emerald-700/60 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+        <div className="flex items-start space-x-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-base shrink-0 shadow-sm">
+            <i className="fa-solid fa-circle-question"></i>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-extrabold text-emerald-950 dark:text-emerald-100 text-sm sm:text-base">
+              Kenapa di Google Spreadsheet Belum Termuat Semua Sheet &amp; Headernya?
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+              Google Spreadsheet baru secara default <strong>hanya berisi 1 lembar kosong ("Sheet1")</strong>. Menempelkan kode skrip di Apps Script belum mengeksekusi pembuatan tabel sebelum diinstruksikan. Berikut 3 hal yang perlu diketahui:
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
+          <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
+            <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
+              <span>1️⃣ Jalankan Auto-Provisioning</span>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+              Cukup klik tombol hijau <strong>"Inisialisasi Otomatis (Auto-Provision)"</strong> di bawah. Seluruh 13 lembar kerja beserta baris header hijau emerald akan langsung dibuatkan otomatis dalam 3 detik!
+            </p>
+          </div>
+
+          <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
+            <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
+              <span>2️⃣ Menu Langsung di Spreadsheet</span>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+              Di lembar Google Spreadsheet Anda, cukup refresh halaman dan klik menu atas <strong>"🕌 SIM Asrama Haji" &gt; "⚡ Buat Semua 13 Sheet &amp; Header Otomatis"</strong>.
+            </p>
+          </div>
+
+          <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
+            <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
+              <span>3️⃣ Akses Deploy Harus "Anyone"</span>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+              Saat deploy Web App di Apps Script, pastikan <em>"Who has access"</em> disetel ke <strong>Anyone (Siapa saja)</strong> agar server tidak terhalang firewall Google (HTTP 403 Forbidden).
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* 3. Panel Khusus: Auto-Provisioning & Deteksi Struktur Tabel */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
