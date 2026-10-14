@@ -712,19 +712,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         targetActiveTxId = bookedTx.id;
       } else {
-        // Tidak ada transaksi aktif dan tidak ada maintenance berjalan
-        if (targetStatus === 'TERISI' || targetStatus === 'BOOKED') {
-          targetStatus = 'KOSONG';
-          targetActiveTxId = null;
-          if (targetQcStatus === 'LOLOS_QC') {
-            targetQcStatus = 'PERLU_INSPEKSI';
-          }
-        }
+        // Tidak ada transaksi aktif atau maintenance berjalan yang menimpa
         if (targetActiveTxId) {
           targetActiveTxId = null;
         }
-        if (targetStatus === 'MAINTENANCE' && !activeMaint) {
-          targetStatus = 'KOSONG';
+        if (targetActiveMaintId && !activeMaint) {
           targetActiveMaintId = null;
         }
       }
@@ -924,8 +916,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         message: reason ? `Sinkronisasi latar belakang (${reason})...` : 'Sinkronisasi latar belakang...'
       }));
 
-      // Tarik pembaruan dari Database Pusat
-      const cloudDb = await dataStorage.hydrateFromSupabase(true);
+      // Tarik pembaruan dari Database Pusat (mode non-destructive, utamakan data lokal)
+      const cloudDb = await dataStorage.hydrateFromSupabase(false);
       if (cloudDb) {
         setUsers(cloudDb.users);
         setBuildings(cloudDb.buildings || []);
@@ -970,22 +962,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Trigger background sync setiap kali pengguna kembali ke tab browser / fokus jendela
+  // Sinkronisasi latar belakang berkala setiap 5 menit (jika tidak ada antrean mutasi lokal)
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        triggerBackgroundSync('Fokus Tab Browser');
+    const timer = setInterval(() => {
+      if (!dataStorage.hasPendingSync() && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        triggerBackgroundSync('Interval Berkala 5 Menit');
       }
-    };
-    const handleWindowFocus = () => {
-      triggerBackgroundSync('Fokus Jendela');
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleWindowFocus);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
-    };
+    }, 300000);
+    return () => clearInterval(timer);
   }, []);
 
   const pullFromCentralDatabase = async () => {
@@ -1412,7 +1396,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (dataStorage.hasPendingSync()) {
           return;
         }
-        dataStorage.hydrateFromSpreadsheet(true).then((freshDb) => {
+        dataStorage.hydrateFromSpreadsheet(false).then((freshDb) => {
           if (freshDb) {
             if (Array.isArray(freshDb.buildings) && freshDb.buildings.length > 0) setBuildings(freshDb.buildings);
             if (Array.isArray(freshDb.rooms) && freshDb.rooms.length > 0) setRooms(freshDb.rooms);
@@ -3105,11 +3089,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastOrders(dataStorage.getBreakfastOrders());
     showToast(res.message, 'info');
     logAudit('HAPUS_TRANSAKSI', `Menghapus transaksi secara permanen: ${target?.guestName || txId} (${txId})`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push hapus transaksi:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus transaksi:', e));
     return true;
   };
 
@@ -3131,11 +3111,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastOrders(dataStorage.getBreakfastOrders());
     showToast(`Berhasil menghapus ${ids.length} transaksi rombongan '${grpName}' secara permanen.`, 'info');
     logAudit('HAPUS_ROMBONGAN', `Menghapus seluruh transaksi rombongan: ${grpName} (${ids.length} kamar)`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push batch hapus transaksi:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push batch hapus transaksi:', e));
     return true;
   };
 
@@ -3990,11 +3966,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRooms(dataStorage.getRooms());
     showToast('Tiket pemeliharaan berhasil dihapus.', 'info');
     logAudit('HAPUS_MAINTENANCE', `Menghapus tiket pemeliharaan ID ${maintId}`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push hapus maintenance:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus maintenance:', e));
     return true;
   };
 
@@ -4004,11 +3976,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast('Laporan inspeksi QC berhasil dihapus.', 'info');
     logAudit('HAPUS_QC', `Menghapus laporan inspeksi QC ID ${qcId}`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push hapus qc:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus qc:', e));
     return true;
   };
 
@@ -4128,10 +4096,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
 
-      // Sinkronisasi prioritas utama ke Google Spreadsheet
-      await dataStorage.pushAllToSpreadsheet();
+      // Sinkronisasi latar belakang instan (non-blocking)
+      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Push gedung baru notice:', e));
 
-      showToast(`Gedung "${building.name}" berhasil ditambahkan dan disimpan ke Google Spreadsheet!`, 'success');
+      showToast(`Gedung "${building.name}" berhasil ditambahkan dan disimpan ke database!`, 'success');
       logAudit('Tambah Gedung', `Menambahkan gedung baru: ${building.name} (${building.code}) - ${building.totalRooms} Kamar`);
     } catch (err: any) {
       showToast(`Gagal tambah gedung ke database: ${err?.message || 'Error'}`, 'error');
@@ -4162,10 +4130,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSelectedBuilding(savedBuilding.name);
       }
       
-      // Sinkronisasi prioritas utama ke Google Spreadsheet
-      await dataStorage.pushAllToSpreadsheet();
+      // Sinkronisasi latar belakang instan (non-blocking)
+      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Push update gedung notice:', e));
 
-      showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui dan tersimpan permanen di Google Spreadsheet!`, 'success');
+      showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui dan tersimpan permanen!`, 'success');
       logAudit('Ubah Gedung', `Memperbarui profil gedung: ${previousName && previousName !== savedBuilding.name ? `${previousName} -> ` : ''}${savedBuilding.name}`);
     } catch (err: any) {
       showToast(`Gagal update gedung ke database: ${err?.message || 'Error'}`, 'error');
@@ -4192,8 +4160,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
 
-      // Sinkronisasi prioritas utama ke Google Spreadsheet
-      await dataStorage.pushAllToSpreadsheet();
+      // Sinkronisasi latar belakang instan (non-blocking)
+      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Push hapus gedung notice:', e));
 
       showToast(res.message, 'info');
       logAudit('Hapus Gedung', `Menghapus gedung: ${bld?.name || buildingId}`);
@@ -4220,11 +4188,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMaintenances(dataStorage.getMaintenances());
     showToast(`Ruang Pertemuan "${mr.name}" berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Ruang Pertemuan', `Menambahkan ruang pertemuan: ${mr.name} (Kapasitas: ${mr.capacity} orang)`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push meeting room baru:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push meeting room baru:', e));
   };
 
   const updateMeetingRoom = async (mr: MeetingRoom) => {
@@ -4240,9 +4204,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTransactions(dataStorage.getTransactions());
       setMaintenances(dataStorage.getMaintenances());
 
-      await dataStorage.pushAllToSpreadsheet();
+      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push update meeting room:', e));
 
-      showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui dan tersimpan permanen di Google Spreadsheet!`, 'success');
+      showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui dan tersimpan permanen!`, 'success');
       logAudit('Ubah Ruang Pertemuan', `Memperbarui ruang pertemuan: ${mr.name}`);
     } catch (err: any) {
       showToast(`Gagal update ruang pertemuan ke database: ${err?.message || 'Error'}`, 'error');
@@ -4268,11 +4232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(res.message, 'info');
     logAudit('Hapus Ruang Pertemuan', `Menghapus ruang pertemuan: ${mr?.name || mrId}`);
 
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (err) {
-      console.warn('Gagal sinkronisasi penghapusan ruang pertemuan:', err);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(err => console.warn('Gagal sinkronisasi penghapusan ruang pertemuan:', err));
     return true;
   };
 
@@ -4293,11 +4253,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast(`Kamar ${room.roomNumber} (${room.building}) berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Kamar', `Menambah kamar: No ${room.roomNumber}, Gedung ${room.building}, Tipe ${room.type}`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push kamar baru:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push kamar baru:', e));
   };
 
   const updateRoom = async (room: Room) => {
@@ -4314,9 +4270,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
 
-      await dataStorage.pushAllToSpreadsheet();
+      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push update kamar:', e));
 
-      showToast(`Data kamar ${room.roomNumber} berhasil diperbarui dan tersimpan permanen di Google Spreadsheet!`, 'success');
+      showToast(`Data kamar ${room.roomNumber} berhasil diperbarui dan tersimpan permanen!`, 'success');
       logAudit('Ubah Kamar', `Memperbarui kamar: ${room.roomNumber} (${room.building})`);
     } catch (err: any) {
       showToast(`Gagal update kamar ke database: ${err?.message || 'Error'}`, 'error');
@@ -4343,11 +4299,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(res.message, 'info');
     logAudit('Hapus Kamar', `Menghapus kamar: ${room?.roomNumber || roomId} (${room?.building || ''})`);
 
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (err) {
-      console.warn('Gagal sinkronisasi penghapusan kamar:', err);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(err => console.warn('Gagal sinkronisasi penghapusan kamar:', err));
     return true;
   };
 
@@ -4580,11 +4532,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(`Pesanan sarapan ${roomLabel} berhasil dihapus permanen dan disinkronkan ke kamar.`, 'info');
     logAudit('Hapus Pesanan Sarapan', `Menghapus pesanan sarapan ID ${orderId} (${roomLabel})`);
 
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push hapus order:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus order:', e));
   };
 
   const updateBreakfastOrderStatusState = (orderId: string, status: BreakfastOrder['status']) => {
@@ -4699,11 +4647,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastMenuItems(prev => prev.filter(m => m.id !== itemId));
     showToast(`Menu sarapan "${target?.name || itemId}" dihapus dari katalog.`, 'info');
     logAudit('Hapus Menu Sarapan', `Menghapus menu sarapan ID ${itemId}`);
-    try {
-      await dataStorage.pushAllToSpreadsheet();
-    } catch (e) {
-      console.warn('Gagal push hapus menu item:', e);
-    }
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus menu item:', e));
   };
 
   const sendMaintenanceEmail = (params: any): EmailNotificationItem => {

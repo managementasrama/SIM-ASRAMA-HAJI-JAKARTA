@@ -340,113 +340,96 @@ export class DataStorageService {
   }
 
   /**
-   * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
-   */
-  /**
-   * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
+   * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir berbasis timestamp dan proteksi edit pengguna)
    */
   public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, _preferCloud: boolean = false): CompleteStorageDatabase {
-    // 1. Transactions
-    const txMap = new Map<string, Transaction>();
-    if (_preferCloud && (cloud.transactions || []).length > 0) {
-      (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-      (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-    } else {
-      (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-      (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    // Helper generik untuk menggabungkan entitas dengan identifikasi ID & timestamp updatedAt
+    function mergeEntityList<T extends { id?: string; updatedAt?: string; [key: string]: any }>(
+      localList: T[],
+      cloudList: T[],
+      preferCloud: boolean = false
+    ): T[] {
+      const map = new Map<string, T>();
+      // 1. Masukkan entitas dari cloud
+      for (const item of (cloudList || [])) {
+        if (item && item.id) {
+          map.set(String(item.id).trim(), item);
+        }
+      }
+      // 2. Bandingkan dengan entitas lokal
+      for (const item of (localList || [])) {
+        if (!item || !item.id) continue;
+        const key = String(item.id).trim();
+        const existingCloud = map.get(key);
+        if (!existingCloud) {
+          // Data dibuat di lokal dan belum ada di cloud: jangan pernah dihapus
+          map.set(key, item);
+        } else {
+          const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+          const cloudTime = existingCloud.updatedAt ? new Date(existingCloud.updatedAt).getTime() : 0;
+          if (localTime > cloudTime) {
+            // Lokal dimutasi lebih baru oleh pengguna: pertahankan data lokal
+            map.set(key, item);
+          } else if (cloudTime > localTime) {
+            // Cloud lebih baru: terapkan versi cloud
+            map.set(key, existingCloud);
+          } else {
+            // Waktu sama atau belum memiliki timestamp: utamakan lokal agar edit pengguna tidak terhapus
+            map.set(key, preferCloud ? existingCloud : item);
+          }
+        }
+      }
+      return Array.from(map.values());
     }
-    const mergedTransactions = Array.from(txMap.values());
+
+    // 1. Transactions
+    const mergedTransactions = mergeEntityList(local.transactions || [], cloud.transactions || [], _preferCloud);
 
     // 2. Users
-    const userMap = new Map<string, User>();
-    if (_preferCloud && (cloud.users || []).length > 0) {
-      (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-      (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-    } else {
-      (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-      (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-    }
-    const mergedUsers = Array.from(userMap.values());
+    const mergedUsers = mergeEntityList(local.users || [], cloud.users || [], _preferCloud);
 
     // 3. Maintenances
-    const maintMap = new Map<string, Maintenance>();
-    if (_preferCloud && (cloud.maintenances || []).length > 0) {
-      (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-      (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-    } else {
-      (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-      (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-    }
-    const mergedMaintenances = Array.from(maintMap.values());
+    const mergedMaintenances = mergeEntityList(local.maintenances || [], cloud.maintenances || [], _preferCloud);
 
     // 4. QC Inspections
-    const qcMap = new Map<string, QcInspection>();
-    if (_preferCloud && (cloud.qcInspections || []).length > 0) {
-      (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
-      (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
-    } else {
-      (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
-      (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
-    }
-    const mergedQc = Array.from(qcMap.values());
+    const mergedQc = mergeEntityList(local.qcInspections || [], cloud.qcInspections || [], _preferCloud);
 
     // 5. Breakfast Orders
-    const bOrdersMap = new Map<string, BreakfastOrder>();
-    if (_preferCloud && (cloud.breakfastOrders || []).length > 0) {
-      (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
-      (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
-    } else {
-      (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
-      (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
-    }
-    const mergedBreakfastOrders = Array.from(bOrdersMap.values());
+    const mergedBreakfastOrders = mergeEntityList(local.breakfastOrders || [], cloud.breakfastOrders || [], _preferCloud);
 
     // 6. Meeting Rooms
-    const mrMap = new Map<string, MeetingRoom>();
-    if (_preferCloud && (cloud.meetingRooms || []).length > 0) {
-      (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-      (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    } else {
-      (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-      (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    }
-    const mergedMeetingRooms = Array.from(mrMap.values());
+    const mergedMeetingRooms = mergeEntityList(local.meetingRooms || [], cloud.meetingRooms || [], _preferCloud);
 
-    // 7. Buildings
+    // 7. Buildings (Gedung) - Gabungkan ID dan Normalisasi Nama
     const bldByIdMap = new Map<string, Building>();
-    const processBuilding = (b: Building) => {
+    const processBuilding = (b: Building, isLocal: boolean) => {
       if (!b || !b.name) return;
       const normName = normalizeBuildingName(b.name);
       if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
       const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
-      bldByIdMap.set(idKey, { ...b, name: normName });
+      const existing = bldByIdMap.get(idKey);
+      if (!existing) {
+        bldByIdMap.set(idKey, { ...b, name: normName });
+      } else {
+        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        const exTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        if (bTime > exTime || (bTime === exTime && isLocal)) {
+          bldByIdMap.set(idKey, { ...existing, ...b, name: normName });
+        }
+      }
     };
+    (cloud.buildings || []).forEach(b => processBuilding(b, false));
+    (local.buildings || []).forEach(b => processBuilding(b, true));
 
-    if (_preferCloud && (cloud.buildings || []).length > 0) {
-      (local.buildings || []).forEach(processBuilding);
-      (cloud.buildings || []).forEach(processBuilding);
-    } else {
-      (cloud.buildings || []).forEach(processBuilding);
-      (local.buildings || []).forEach(processBuilding);
-    }
     const bldByNameMap = new Map<string, Building>();
     Array.from(bldByIdMap.values()).forEach(b => {
       bldByNameMap.set(b.name.toLowerCase(), b);
     });
     let mergedBuildings = Array.from(bldByNameMap.values());
 
-    // 8. Rooms
-    const roomMap = new Map<string, Room>();
-    if (_preferCloud && (cloud.rooms || []).length > 0) {
-      // Saat sinkronisasi dari cloud (Spreadsheet), data cloud adalah sumber utama kebenaran
-      (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-      (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    } else {
-      (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-      (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    }
-
-    const normalizedSourceRooms = Array.from(roomMap.values())
+    // 8. Rooms (Master Unit Kamar)
+    const rawMergedRooms = mergeEntityList(local.rooms || [], cloud.rooms || [], _preferCloud);
+    const normalizedSourceRooms = rawMergedRooms
       .filter(r => r && r.id)
       .map(r => ({
         ...r,
@@ -476,26 +459,10 @@ export class DataStorageService {
     });
 
     // 9. Room Capacity Rates (Katalog Tipe Kamar & Tarif Kapasitas)
-    const rateMap = new Map<string, RoomCapacityRate>();
-    if (_preferCloud && (cloud.roomCapacityRates || []).length > 0) {
-      (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-      (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-    } else {
-      (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-      (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-    }
-    const mergedRates = Array.from(rateMap.values());
+    const mergedRates = mergeEntityList(local.roomCapacityRates || [], cloud.roomCapacityRates || [], _preferCloud);
 
     // 10. Breakfast Menu Items
-    const menuMap = new Map<string, BreakfastMenuItem>();
-    if (_preferCloud && (cloud.breakfastMenuItems || []).length > 0) {
-      (local.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
-      (cloud.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
-    } else {
-      (cloud.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
-      (local.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
-    }
-    const mergedMenuItems = Array.from(menuMap.values());
+    const mergedMenuItems = mergeEntityList(local.breakfastMenuItems || [], cloud.breakfastMenuItems || [], _preferCloud);
 
     // appSettings: Utamakan cloud jika dikonfigurasi, atau local jika diubah admin
     const localSettings = local.appSettings || defaultAppSettings;
@@ -738,16 +705,17 @@ export class DataStorageService {
     const db = this.getDatabase();
     const existingIndex = db.users.findIndex(u => u.id === user.id);
     let updatedUsers: User[];
+    const userWithTime: User = { ...user, updatedAt: new Date().toISOString() };
 
     if (existingIndex >= 0) {
       updatedUsers = [...db.users];
-      updatedUsers[existingIndex] = { ...updatedUsers[existingIndex], ...user };
+      updatedUsers[existingIndex] = { ...updatedUsers[existingIndex], ...userWithTime };
     } else {
-      updatedUsers = [user, ...db.users];
+      updatedUsers = [userWithTime, ...db.users];
     }
 
     this.saveDatabase({ ...db, users: updatedUsers });
-    return user;
+    return userWithTime;
   }
 
   public updateUser(userId: string, updates: Partial<User>): User | null {
@@ -755,7 +723,7 @@ export class DataStorageService {
     const idx = db.users.findIndex(u => u.id === userId);
     if (idx === -1) return null;
 
-    const updatedUser = { ...db.users[idx], ...updates };
+    const updatedUser: User = { ...db.users[idx], ...updates, updatedAt: new Date().toISOString() };
     const newUsers = [...db.users];
     newUsers[idx] = updatedUser;
 
@@ -770,7 +738,7 @@ export class DataStorageService {
 
     const currentStatus = db.users[idx].status;
     const newStatus = currentStatus === 'Aktif' ? 'Non-Aktif' : 'Aktif';
-    const updatedUser = { ...db.users[idx], status: newStatus };
+    const updatedUser: User = { ...db.users[idx], status: newStatus, updatedAt: new Date().toISOString() };
 
     const newUsers = [...db.users];
     newUsers[idx] = updatedUser;
@@ -805,7 +773,8 @@ export class DataStorageService {
       ...building,
       name: normalizedInputName || building.name.trim(),
       code: (building.code || '').trim().toUpperCase(),
-      id: building.id && building.id.trim() !== '' ? building.id.trim() : `bld-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`
+      id: building.id && building.id.trim() !== '' ? building.id.trim() : `bld-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      updatedAt: new Date().toISOString()
     };
 
     // Cari gedung berdasarkan ID, atau fallback ke nama gedung sebelumnya agar edit nama tidak pernah menambah gedung baru
@@ -1230,9 +1199,10 @@ export class DataStorageService {
   public saveMeetingRoom(meetingRoom: MeetingRoom): MeetingRoom {
     const db = this.getDatabase();
     const meetingRooms = db.meetingRooms || [];
-    const mrWithId = {
+    const mrWithId: MeetingRoom = {
       ...meetingRoom,
-      id: meetingRoom.id && meetingRoom.id.trim() !== '' ? meetingRoom.id : `mr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`
+      id: meetingRoom.id && meetingRoom.id.trim() !== '' ? meetingRoom.id : `mr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      updatedAt: new Date().toISOString()
     };
     const idx = meetingRooms.findIndex(m => m.id === mrWithId.id);
     let updated: MeetingRoom[];
@@ -1372,7 +1342,8 @@ export class DataStorageService {
       capacityNumber: parsedCapNum,
       pricePerNight: finalPrice,
       facilities: (room.facilities && room.facilities.length > 0) ? room.facilities : (matchedRate?.facilities || ['AC', 'Kamar Mandi Dalam', `${assignedBedType}`, 'Linen Bersih']),
-      qcStatus: room.qcStatus || 'LOLOS_QC'
+      qcStatus: room.qcStatus || 'LOLOS_QC',
+      updatedAt: new Date().toISOString()
     };
     const idx = rooms.findIndex(r => r.id === roomWithId.id);
     let updated: Room[];
@@ -1484,8 +1455,9 @@ export class DataStorageService {
 
   public saveRooms(rooms: Room[], options?: { skipCloudSync?: boolean }): Room[] {
     const db = this.getDatabase();
-    this.saveDatabase({ ...db, rooms }, options);
-    return rooms;
+    const roomsWithTime = rooms.map(r => ({ ...r, updatedAt: r.updatedAt || new Date().toISOString() }));
+    this.saveDatabase({ ...db, rooms: roomsWithTime }, options);
+    return roomsWithTime;
   }
 
   public deleteRoom(roomId: string): { success: boolean; message: string } {
@@ -1641,21 +1613,23 @@ export class DataStorageService {
     const db = this.getDatabase();
     const existingIndex = db.transactions.findIndex(t => t.id === tx.id);
     let updatedTxs: Transaction[];
+    const txWithTime: Transaction = { ...tx, updatedAt: new Date().toISOString() };
 
     if (existingIndex >= 0) {
       updatedTxs = [...db.transactions];
-      updatedTxs[existingIndex] = { ...updatedTxs[existingIndex], ...tx };
+      updatedTxs[existingIndex] = { ...updatedTxs[existingIndex], ...txWithTime };
     } else {
-      updatedTxs = [tx, ...db.transactions];
+      updatedTxs = [txWithTime, ...db.transactions];
     }
 
     this.saveDatabase({ ...db, transactions: updatedTxs });
-    return tx;
+    return txWithTime;
   }
 
   public saveTransactions(txs: Transaction[]): void {
     const db = this.getDatabase();
-    this.saveDatabase({ ...db, transactions: txs });
+    const withTime = txs.map(t => ({ ...t, updatedAt: t.updatedAt || new Date().toISOString() }));
+    this.saveDatabase({ ...db, transactions: withTime });
   }
 
   public deleteTransaction(txId: string): { success: boolean; message: string } {
@@ -1727,16 +1701,17 @@ export class DataStorageService {
     const db = this.getDatabase();
     const idx = db.maintenances.findIndex(item => item.id === m.id);
     let updated: Maintenance[];
+    const mWithTime: Maintenance = { ...m, updatedAt: new Date().toISOString() };
 
     if (idx >= 0) {
       updated = [...db.maintenances];
-      updated[idx] = { ...updated[idx], ...m };
+      updated[idx] = { ...updated[idx], ...mWithTime };
     } else {
-      updated = [m, ...db.maintenances];
+      updated = [mWithTime, ...db.maintenances];
     }
 
     this.saveDatabase({ ...db, maintenances: updated });
-    return m;
+    return mWithTime;
   }
 
   public deleteMaintenance(maintId: string): boolean {
@@ -1828,16 +1803,17 @@ export class DataStorageService {
     const db = this.getDatabase();
     const idx = db.qcInspections.findIndex(q => q.id === inspection.id);
     let updated: QcInspection[];
+    const qcWithTime: QcInspection = { ...inspection, updatedAt: new Date().toISOString() };
 
     if (idx >= 0) {
       updated = [...db.qcInspections];
-      updated[idx] = { ...updated[idx], ...inspection };
+      updated[idx] = { ...updated[idx], ...qcWithTime };
     } else {
-      updated = [inspection, ...db.qcInspections];
+      updated = [qcWithTime, ...db.qcInspections];
     }
 
     this.saveDatabase({ ...db, qcInspections: updated });
-    return inspection;
+    return qcWithTime;
   }
 
   public deleteQcInspection(qcId: string): boolean {
@@ -2098,14 +2074,15 @@ export class DataStorageService {
     const items = db.breakfastMenuItems || [];
     const idx = items.findIndex(m => m.id === item.id);
     let updated: BreakfastMenuItem[];
+    const itemWithTime: BreakfastMenuItem = { ...item, updatedAt: new Date().toISOString() };
     if (idx >= 0) {
       updated = [...items];
-      updated[idx] = { ...updated[idx], ...item };
+      updated[idx] = { ...updated[idx], ...itemWithTime };
     } else {
-      updated = [...items, item];
+      updated = [...items, itemWithTime];
     }
     this.saveDatabase({ ...db, breakfastMenuItems: updated });
-    return item;
+    return itemWithTime;
   }
 
   public deleteBreakfastMenuItem(itemId: string): boolean {

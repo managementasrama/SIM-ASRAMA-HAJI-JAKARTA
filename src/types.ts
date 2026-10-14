@@ -56,6 +56,7 @@ export interface User {
   qrCodeUrl?: string;
   signatureHistory?: { id: string; timestamp: string; signatureUrl: string; method: 'UPLOAD' | 'DRAWN'; resolution?: string }[];
   permissions?: UserPermissions;
+  updatedAt?: string;
 }
 
 export interface Building {
@@ -69,6 +70,7 @@ export interface Building {
   description?: string;
   status: 'AKTIF' | 'NONAKTIF';
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface MeetingRoom {
@@ -88,6 +90,7 @@ export interface MeetingRoom {
   activeTxId?: string | null;
   activeMaintId?: string | null;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export type LodgingRoomType = 'Ekonomi' | 'Standar' | 'Superior' | string;
@@ -134,6 +137,7 @@ export interface Room {
   pricePerNight?: number;
   facilities?: string[];
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface QcInspection {
@@ -154,6 +158,7 @@ export interface QcInspection {
   notes: string;
   maintenanceIdCreated?: string;
   facilityType?: 'KAMAR' | 'RUANG_PERTEMUAN';
+  updatedAt?: string;
 }
 
 export type GroupType = 'JEMAAH_HAJI' | 'UMUM' | 'INSTANSI';
@@ -313,6 +318,7 @@ export interface Transaction {
   paymentNote?: string;
   kwitansiNo?: string;
   createdAt?: string;
+  updatedAt?: string;
   cancelledAt?: string;
   cancelReason?: string;
   cancelledUser?: string;
@@ -350,6 +356,7 @@ export interface Maintenance {
   qcInspectionId?: string;
   qcVerdict?: 'LOLOS_QC' | 'PERLU_PERBAIKAN';
   facilityType?: 'KAMAR' | 'RUANG_PERTEMUAN';
+  updatedAt?: string;
 }
 
 export interface AuditLog {
@@ -444,6 +451,7 @@ export interface BreakfastMenuItem {
   description: string;
   isAvailable: boolean;
   allergens?: string;
+  updatedAt?: string;
 }
 
 export interface BreakfastOrder {

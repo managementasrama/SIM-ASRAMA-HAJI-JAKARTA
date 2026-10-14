@@ -663,8 +663,21 @@ async function startServer() {
   });
 
   // 3. Endpoint BACA DATABASE LANGSUNG DARI GOOGLE SPREADSHEET (GET)
-  app.get(["/api/sheets/database", "/api/database"], async (_req, res) => {
+  app.get(["/api/sheets/database", "/api/database"], async (req, res) => {
     const targetUrl = activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL;
+    const forceRefresh = req.query?.refresh === "true";
+
+    // JIKA CACHE SERVER SUDAH ADA DAN TIDAK DIMINTA REFRESH:
+    // Kembalikan langsung dari server cache dalam < 1ms agar respons instan dan tidak membebani limit Google Apps Script
+    if (serverDatabaseCache && Array.isArray(serverDatabaseCache.buildings) && serverDatabaseCache.buildings.length > 0 && !forceRefresh) {
+      return res.json({
+        status: "cached",
+        message: "Data dimuat instan dari cache database server.",
+        data: serverDatabaseCache,
+        source: "server_cache",
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     if (!targetUrl) {
       if (serverDatabaseCache) {
@@ -795,6 +808,40 @@ async function startServer() {
     }
   });
 
+  // Antrean eksekusi ke Google Apps Script agar berjalan single-flight (tidak saling bertabrakan / limit konkurensi)
+  let isPushingToSheets = false;
+  let pendingSheetPush: { targetUrl: string; formattedPayload: any } | null = null;
+
+  async function queueSpreadsheetPush(targetUrl: string, formattedPayload: any) {
+    if (isPushingToSheets) {
+      // Coalesce payload: selalu simpan data paling mutakhir untuk dieksekusi setelah giliran selesai
+      pendingSheetPush = { targetUrl, formattedPayload };
+      return;
+    }
+
+    isPushingToSheets = true;
+    try {
+      const sheetRes = await fetchGoogleAppsScript(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(formattedPayload),
+      });
+      const text = await sheetRes.text().catch(() => "");
+      console.log(`[Google Sheets Background Push] Status HTTP: ${sheetRes.status}, preview: ${text.slice(0, 80)}`);
+    } catch (err: any) {
+      console.warn("[Google Sheets Background Push] Peringatan koneksi:", err?.message || err);
+    } finally {
+      isPushingToSheets = false;
+      if (pendingSheetPush) {
+        const next = pendingSheetPush;
+        pendingSheetPush = null;
+        setTimeout(() => {
+          queueSpreadsheetPush(next.targetUrl, next.formattedPayload).catch(() => {});
+        }, 1200);
+      }
+    }
+  }
+
   // 4. Endpoint SIMPAN / SINKRONISASI DATABASE KE GOOGLE SPREADSHEET (POST)
   app.post(["/api/sheets/database", "/api/database"], async (req, res) => {
     const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec").trim();
@@ -865,7 +912,7 @@ async function startServer() {
       });
     }
 
-    // Selalu simpan ke server database cache
+    // Selalu simpan ke server database cache secara instan (1ms)
     serverDatabaseCache = payload;
     try {
       fs.writeFileSync(serverDbCachePath, JSON.stringify(payload, null, 2), "utf-8");
@@ -941,6 +988,21 @@ async function startServer() {
         app_settings: appSettingsList,
       };
 
+      const isExplicitSync = req.query?.sync === "true";
+      if (!isExplicitSync) {
+        // NON-BLOCKING: Jadwalkan push ke Google Spreadsheet di antrean latar belakang
+        queueSpreadsheetPush(targetUrl, formattedPayload);
+
+        return res.json({
+          ok: true,
+          status: "success",
+          source: "server_cache",
+          message: "Data berhasil disimpan instan ke server database dan dijadwalkan sinkron ke Google Spreadsheet.",
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      // Jika sync=true (misal dari tombol 'Ekspor ke Spreadsheet' di menu integrasi), tunggu respons selesai
       const sheetRes = await fetchGoogleAppsScript(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
