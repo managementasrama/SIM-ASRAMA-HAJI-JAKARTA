@@ -149,18 +149,38 @@ export class DataStorageService {
   private pendingSyncDb: CompleteStorageDatabase | null = null;
   private syncListeners: Array<(event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) => void> = [];
 
-  constructor() {
-    // Hapus seluruh kunci penyimpanan lokal (tidak ada cache lokal database)
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-        window.localStorage.removeItem(LOCAL_STORAGE_BACKUP_KEY);
-        for (const oldKey of LEGACY_STORAGE_KEYS) {
-          window.localStorage.removeItem(oldKey);
+  private loadFromStorage(): CompleteStorageDatabase | null {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    try {
+      const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rooms) && parsed.rooms.length > 0) {
+          return parsed;
         }
-      } catch (_) {}
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  private saveToStorage(db: CompleteStorageDatabase): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(db));
+    } catch (e) {
+      console.warn('Gagal menyimpan cache ke localStorage:', e);
     }
-    this.getDatabase();
+  }
+
+  constructor() {
+    // Muat data lokal tersimpan (jika ada) agar perubahan pengguna tidak pernah hilang/revert
+    const stored = this.loadFromStorage();
+    if (stored) {
+      this.cache = stored;
+      this.hasHydratedFromCloud = true;
+    } else {
+      this.cache = generateInitialDatabase(false);
+    }
     // Inisialisasi pengecekan koneksi Google Spreadsheet di background
     this.checkInitialSpreadsheetConnection();
   }
@@ -265,8 +285,9 @@ export class DataStorageService {
 
       if (sheetDb) {
         // Gabungkan cerdas dengan master data / cache lokal agar data katalog & relasi tetap lengkap
-        const base = this.cache || generateInitialDatabase(false);
-        const mergedDb = this.mergeDatabases(base, sheetDb, _forceCloudOverwrite);
+        const base = this.cache || this.loadFromStorage() || generateInitialDatabase(false);
+        const preferCloud = _forceCloudOverwrite || !this.hasHydratedFromCloud;
+        const mergedDb = this.mergeDatabases(base, sheetDb, preferCloud);
 
         // Pertahankan sesi aktif & pesan chat memori
         if (this.cache) {
@@ -291,21 +312,17 @@ export class DataStorageService {
         }
 
         this.cache = mergedDb;
+        this.saveToStorage(mergedDb);
         this.lastSyncTime = new Date().toISOString();
         this.syncStatus = 'connected';
         this.syncError = null;
         this.hasHydratedFromCloud = true;
         this.notifySyncListeners({ status: 'connected', db: mergedDb });
 
-        // Jika ada tabel di Spreadsheet yang masih kosong (misal meeting_rooms atau roomCapacityRates),
-        // dorong snapshot lengkap ini ke Spreadsheet di background agar lembar & data lengkap terbentuk
-        syncFullDatabaseToSpreadsheet(mergedDb).catch(() => {});
-
         return mergedDb;
       }
 
       this.syncStatus = 'connected';
-      this.hasHydratedFromCloud = true;
       const current = this.getDatabase();
       this.notifySyncListeners({ status: 'connected', db: current });
       return current;
@@ -325,72 +342,110 @@ export class DataStorageService {
   /**
    * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
    */
+  /**
+   * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir)
+   */
   public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, _preferCloud: boolean = false): CompleteStorageDatabase {
-    // Utamakan data lokal (hasil edit pengguna) agar perubahan tidak pernah tertimpa oleh cloud.
-    
-    // 1. Transactions (Local wins over cloud)
+    // 1. Transactions
     const txMap = new Map<string, Transaction>();
-    (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
-    (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    if (_preferCloud && (cloud.transactions || []).length > 0) {
+      (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+      (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    } else {
+      (cloud.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+      (local.transactions || []).forEach(t => { if (t && t.id) txMap.set(t.id, t); });
+    }
     const mergedTransactions = Array.from(txMap.values());
 
     // 2. Users
     const userMap = new Map<string, User>();
-    (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
-    (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    if (_preferCloud && (cloud.users || []).length > 0) {
+      (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+      (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    } else {
+      (cloud.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+      (local.users || []).forEach(u => { if (u && u.id) userMap.set(u.id, u); });
+    }
     const mergedUsers = Array.from(userMap.values());
 
     // 3. Maintenances
     const maintMap = new Map<string, Maintenance>();
-    (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
-    (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    if (_preferCloud && (cloud.maintenances || []).length > 0) {
+      (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+      (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    } else {
+      (cloud.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+      (local.maintenances || []).forEach(m => { if (m && m.id) maintMap.set(m.id, m); });
+    }
     const mergedMaintenances = Array.from(maintMap.values());
 
     // 4. QC Inspections
     const qcMap = new Map<string, QcInspection>();
-    (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
-    (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    if (_preferCloud && (cloud.qcInspections || []).length > 0) {
+      (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+      (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    } else {
+      (cloud.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+      (local.qcInspections || []).forEach(q => { if (q && q.id) qcMap.set(q.id, q); });
+    }
     const mergedQc = Array.from(qcMap.values());
 
     // 5. Breakfast Orders
     const bOrdersMap = new Map<string, BreakfastOrder>();
-    (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
-    (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    if (_preferCloud && (cloud.breakfastOrders || []).length > 0) {
+      (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+      (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    } else {
+      (cloud.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+      (local.breakfastOrders || []).forEach(o => { if (o && o.id) bOrdersMap.set(o.id, o); });
+    }
     const mergedBreakfastOrders = Array.from(bOrdersMap.values());
 
     // 6. Meeting Rooms
     const mrMap = new Map<string, MeetingRoom>();
-    (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
-    (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    if (_preferCloud && (cloud.meetingRooms || []).length > 0) {
+      (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+      (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    } else {
+      (cloud.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+      (local.meetingRooms || []).forEach(m => { if (m && m.id) mrMap.set(m.id, m); });
+    }
     const mergedMeetingRooms = Array.from(mrMap.values());
 
-    // 7. Buildings (Prioritaskan mutlak local agar edit nama gedung tidak pernah revert)
+    // 7. Buildings
     const bldByIdMap = new Map<string, Building>();
-    (cloud.buildings || []).forEach(b => {
+    const processBuilding = (b: Building) => {
       if (!b || !b.name) return;
       const normName = normalizeBuildingName(b.name);
       if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
       const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
       bldByIdMap.set(idKey, { ...b, name: normName });
-    });
-    (local.buildings || []).forEach(b => {
-      if (!b || !b.name) return;
-      const normName = normalizeBuildingName(b.name);
-      if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)' || b.id === 'bld-5') return;
-      const idKey = b.id ? String(b.id).trim() : normName.toLowerCase();
-      // Local wins unconditionally
-      bldByIdMap.set(idKey, { ...b, name: normName });
-    });
+    };
+
+    if (_preferCloud && (cloud.buildings || []).length > 0) {
+      (local.buildings || []).forEach(processBuilding);
+      (cloud.buildings || []).forEach(processBuilding);
+    } else {
+      (cloud.buildings || []).forEach(processBuilding);
+      (local.buildings || []).forEach(processBuilding);
+    }
     const bldByNameMap = new Map<string, Building>();
     Array.from(bldByIdMap.values()).forEach(b => {
       bldByNameMap.set(b.name.toLowerCase(), b);
     });
     let mergedBuildings = Array.from(bldByNameMap.values());
 
-    // 8. Rooms (Prioritaskan local rooms)
+    // 8. Rooms
     const roomMap = new Map<string, Room>();
-    (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
-    (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    if (_preferCloud && (cloud.rooms || []).length > 0) {
+      // Saat sinkronisasi dari cloud (Spreadsheet), data cloud adalah sumber utama kebenaran
+      (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+      (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    } else {
+      (cloud.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+      (local.rooms || []).forEach(r => { if (r && r.id) roomMap.set(r.id, r); });
+    }
+
     const normalizedSourceRooms = Array.from(roomMap.values())
       .filter(r => r && r.id)
       .map(r => ({
@@ -420,26 +475,40 @@ export class DataStorageService {
       return { ...b, totalRooms: actualCount > 0 ? actualCount : (b.totalRooms || 0) };
     });
 
-    // 9. Room Capacity Rates
+    // 9. Room Capacity Rates (Katalog Tipe Kamar & Tarif Kapasitas)
     const rateMap = new Map<string, RoomCapacityRate>();
-    (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
-    (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+    if (_preferCloud && (cloud.roomCapacityRates || []).length > 0) {
+      (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+      (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+    } else {
+      (cloud.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+      (local.roomCapacityRates || []).forEach(r => { if (r && r.id) rateMap.set(r.id, r); });
+    }
     const mergedRates = Array.from(rateMap.values());
 
-    // appSettings: Utamakan local appSettings jika ada perubahan
+    // 10. Breakfast Menu Items
+    const menuMap = new Map<string, BreakfastMenuItem>();
+    if (_preferCloud && (cloud.breakfastMenuItems || []).length > 0) {
+      (local.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
+      (cloud.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
+    } else {
+      (cloud.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
+      (local.breakfastMenuItems || []).forEach(m => { if (m && m.id) menuMap.set(m.id, m); });
+    }
+    const mergedMenuItems = Array.from(menuMap.values());
+
+    // appSettings: Utamakan cloud jika dikonfigurasi, atau local jika diubah admin
     const localSettings = local.appSettings || defaultAppSettings;
     const cloudSettings = cloud.appSettings || defaultAppSettings;
     
-    const mergedAppSettings: AppSettings = {
-      ...defaultAppSettings,
-      ...cloudSettings,
-      ...localSettings
-    };
+    const mergedAppSettings: AppSettings = _preferCloud && cloud.appSettings
+      ? { ...defaultAppSettings, ...localSettings, ...cloudSettings }
+      : { ...defaultAppSettings, ...cloudSettings, ...localSettings };
 
-    if (localSettings.appLogo && localSettings.appLogo.length > 20) {
-      mergedAppSettings.appLogo = localSettings.appLogo;
-    } else if (cloudSettings.appLogo && cloudSettings.appLogo.length > 20) {
+    if (cloudSettings.appLogo && cloudSettings.appLogo.length > 20 && _preferCloud) {
       mergedAppSettings.appLogo = cloudSettings.appLogo;
+    } else if (localSettings.appLogo && localSettings.appLogo.length > 20) {
+      mergedAppSettings.appLogo = localSettings.appLogo;
     } else {
       mergedAppSettings.appLogo = OFFICIAL_APP_LOGO;
     }
@@ -460,7 +529,7 @@ export class DataStorageService {
       auditLogs: [...(local.auditLogs || []), ...(cloud.auditLogs || [])].slice(0, 250),
       chatChannels: local.chatChannels && local.chatChannels.length > 0 ? local.chatChannels : (cloud.chatChannels || []),
       chatMessages: local.chatMessages && local.chatMessages.length > 0 ? local.chatMessages : (cloud.chatMessages || []),
-      breakfastMenuItems: local.breakfastMenuItems && local.breakfastMenuItems.length > 0 ? local.breakfastMenuItems : (cloud.breakfastMenuItems || []),
+      breakfastMenuItems: mergedMenuItems.length > 0 ? mergedMenuItems : (local.breakfastMenuItems || cloud.breakfastMenuItems || []),
       breakfastOrders: mergedBreakfastOrders,
       roomCapacityRates: mergedRates.length > 0 ? deduplicateRoomCapacityRates(mergedRates) : (local.roomCapacityRates || cloud.roomCapacityRates || []),
       passwordResetRequests: local.passwordResetRequests || cloud.passwordResetRequests || []
@@ -641,6 +710,7 @@ export class DataStorageService {
     };
 
     this.cache = updated;
+    this.saveToStorage(updated);
 
     // Sinkronisasi langsung ke Google Spreadsheet & Server Database Cache
     const shouldSkipCloud = Boolean(options && typeof options === 'object' && options.skipCloudSync);

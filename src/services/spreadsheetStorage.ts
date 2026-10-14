@@ -272,9 +272,14 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
 
       if (directRes.ok) {
         const json = await directRes.json();
-        const d = json.data || json;
-        if (d && typeof d === 'object') {
-          return normalizeSpreadsheetPayload(d);
+        if (json && json.status !== 'error') {
+          const d = json.data || (Array.isArray(json.buildings) || Array.isArray(json.rooms) ? json : null);
+          if (d && typeof d === 'object') {
+            const normalized = normalizeSpreadsheetPayload(d);
+            if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
+              return normalized;
+            }
+          }
         }
       }
     } catch (directErr) {
@@ -291,10 +296,13 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
 
     if (proxyRes.ok) {
       const json = await proxyRes.json();
-      if (json.status === 'success' || json.status === 'cached' || json.status === 'fallback') {
+      if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
         const d = json.data;
         if (d && typeof d === 'object') {
-          return normalizeSpreadsheetPayload(d);
+          const normalized = normalizeSpreadsheetPayload(d);
+          if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
+            return normalized;
+          }
         }
       }
     }

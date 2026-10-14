@@ -901,8 +901,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Sinkronisasi latar belakang otomatis saat berpindah tab / polling berkala
+  const lastBackgroundSyncTimeRef = useRef<number>(0);
+
+  // Sinkronisasi latar belakang otomatis saat fokus jendela / polling berkala (dengan cooldown & proteksi data lokal)
   const triggerBackgroundSync = async (reason?: string) => {
+    // Jangan lakukan sinkronisasi latar belakang jika ada simpanan lokal yang sedang dalam antrean
+    if (dataStorage.hasPendingSync()) {
+      return;
+    }
+
+    const now = Date.now();
+    // Beri jeda minimal 45 detik antar sync otomatis agar Google Apps Script tidak terkena limit konkurensi
+    if (now - lastBackgroundSyncTimeRef.current < 45000) {
+      return;
+    }
+    lastBackgroundSyncTimeRef.current = now;
+
     try {
       setChecksumReport(prev => ({
         ...prev,
@@ -910,13 +924,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         message: reason ? `Sinkronisasi latar belakang (${reason})...` : 'Sinkronisasi latar belakang...'
       }));
 
-      // Jika ada mutasi lokal yang sedang menunggu dikirim ke Supabase, segera dorong (flush) terlebih dahulu
-      if (dataStorage.hasPendingSync()) {
-        await dataStorage.flushPendingSync();
-        setSupabaseSyncState(dataStorage.getSupabaseSyncState());
-      }
-
-      // Tarik pembaruan dari Database Pusat agar sesi kerja aktif, chat operasional, dan kamar selalu sinkron real-time
+      // Tarik pembaruan dari Database Pusat
       const cloudDb = await dataStorage.hydrateFromSupabase(true);
       if (cloudDb) {
         setUsers(cloudDb.users);
@@ -935,7 +943,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setQcInspections(cloudDb.qcInspections);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
-        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
+        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates) && cloudDb.roomCapacityRates.length > 0) {
           setRoomCapacityRates(cloudDb.roomCapacityRates);
         }
         if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
@@ -961,11 +969,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.warn('Background sync warning:', err);
     }
   };
-
-  // Trigger background sync setiap kali pengguna berpindah tab menu di dalam aplikasi (activeTab)
-  useEffect(() => {
-    triggerBackgroundSync(`Menu ${activeTab}`);
-  }, [activeTab]);
 
   // Trigger background sync setiap kali pengguna kembali ke tab browser / fokus jendela
   useEffect(() => {
@@ -1405,19 +1408,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }, 3200);
         }
       } else if (event.type === 'database:sync') {
-        // Pembaruan data otomatis dari basis data Google Spreadsheet / server
-        dataStorage.hydrateFromSpreadsheet(false).then((freshDb) => {
+        // Jangan timpa state lokal jika sedang ada mutasi lokal yang sedang diproses / disimpan
+        if (dataStorage.hasPendingSync()) {
+          return;
+        }
+        dataStorage.hydrateFromSpreadsheet(true).then((freshDb) => {
           if (freshDb) {
-            if (Array.isArray(freshDb.buildings)) setBuildings(freshDb.buildings);
-            if (Array.isArray(freshDb.rooms)) setRooms(freshDb.rooms);
-            if (Array.isArray(freshDb.meetingRooms)) setMeetingRooms(freshDb.meetingRooms);
+            if (Array.isArray(freshDb.buildings) && freshDb.buildings.length > 0) setBuildings(freshDb.buildings);
+            if (Array.isArray(freshDb.rooms) && freshDb.rooms.length > 0) setRooms(freshDb.rooms);
+            if (Array.isArray(freshDb.meetingRooms) && freshDb.meetingRooms.length > 0) setMeetingRooms(freshDb.meetingRooms);
             if (Array.isArray(freshDb.transactions)) setTransactions(freshDb.transactions);
             if (Array.isArray(freshDb.maintenances)) setMaintenances(freshDb.maintenances);
             if (Array.isArray(freshDb.qcInspections)) setQcInspections(freshDb.qcInspections);
-            if (Array.isArray(freshDb.roomCapacityRates)) setRoomCapacityRates(freshDb.roomCapacityRates);
-            if (Array.isArray(freshDb.breakfastMenuItems)) setBreakfastMenuItems(freshDb.breakfastMenuItems);
+            if (Array.isArray(freshDb.roomCapacityRates) && freshDb.roomCapacityRates.length > 0) setRoomCapacityRates(freshDb.roomCapacityRates);
+            if (Array.isArray(freshDb.breakfastMenuItems) && freshDb.breakfastMenuItems.length > 0) setBreakfastMenuItems(freshDb.breakfastMenuItems);
             if (Array.isArray(freshDb.breakfastOrders)) setBreakfastOrders(freshDb.breakfastOrders);
-            if (Array.isArray(freshDb.users)) setUsers(freshDb.users);
+            if (Array.isArray(freshDb.users) && freshDb.users.length > 0) setUsers(freshDb.users);
           }
         }).catch(() => {});
       }
@@ -4355,6 +4361,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     dataStorage.saveRoomCapacityRate(rate);
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push tarif ke spreadsheet:', e));
 
     showToast(`Konfigurasi kamar ${rate.roomType} (${rate.bedType} - Rp ${rate.pricePerNight.toLocaleString('id-ID')}) berhasil disimpan!`, 'success');
     logAudit('Tambah Tarif Kamar', `Menambah konfigurasi kapasitas: ${rate.roomType} - ${rate.bedType} (Rp ${rate.pricePerNight})`);
@@ -4367,6 +4374,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     dataStorage.saveRoomCapacityRate(rate);
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push tarif ke spreadsheet:', e));
 
     showToast(`Konfigurasi kamar ${rate.roomType} (${rate.bedType}) berhasil diperbarui!`, 'success');
     logAudit('Ubah Tarif Kamar', `Memperbarui konfigurasi kapasitas: ${rate.roomType} - ${rate.bedType} (Rp ${rate.pricePerNight})`);
@@ -4384,6 +4392,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return false;
     }
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus tarif:', e));
 
     showToast(res.message, 'info');
     logAudit('Hapus Tarif Kamar', `Menghapus konfigurasi: ${item?.roomType || ''} - ${item?.bedType || rateId}`);
@@ -4397,6 +4406,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const fresh = dataStorage.resetRoomCapacityRates();
     setRoomCapacityRates(fresh);
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push reset tarif:', e));
     showToast('Katalog kapasitas dan tarif kamar berhasil direset ke standar resmi UPT Asrama Haji.', 'success');
     logAudit('Reset Tarif Kamar', 'Mereset katalog kapasitas dan tarif kamar ke standar baku UPT');
   };
@@ -4670,6 +4680,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addBreakfastMenuItem = (item: BreakfastMenuItem) => {
     dataStorage.saveBreakfastMenuItem(item);
     setBreakfastMenuItems(prev => [...prev.filter(m => m.id !== item.id), item]);
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push menu item:', e));
     showToast(`Menu sarapan "${item.name}" berhasil ditambahkan ke katalog dapur!`, 'success');
     logAudit('Tambah Menu Sarapan', `Katalog menu ditambah: ${item.name} (Rp ${item.price.toLocaleString('id-ID')})`);
   };
@@ -4677,6 +4688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateBreakfastMenuItem = (item: BreakfastMenuItem) => {
     dataStorage.saveBreakfastMenuItem(item);
     setBreakfastMenuItems(prev => prev.map(m => m.id === item.id ? item : m));
+    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push menu item:', e));
     showToast(`Menu sarapan "${item.name}" berhasil diperbarui!`, 'success');
     logAudit('Ubah Menu Sarapan', `Katalog menu diubah: ${item.name}`);
   };
