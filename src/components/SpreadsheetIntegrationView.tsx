@@ -1531,50 +1531,60 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
       )}
 
       {/* Box Penjelasan & Solusi Cepat: Kenapa Sheet & Header Belum Muncul */}
-      <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-300 dark:border-emerald-700/60 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-        <div className="flex items-start space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-base shrink-0 shadow-sm">
-            <i className="fa-solid fa-circle-question"></i>
+      {showWhyMissingGuide && (
+        <div className="relative bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border border-emerald-300 dark:border-emerald-700/60 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+          <button
+            type="button"
+            onClick={() => setShowWhyMissingGuide(false)}
+            className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs w-6 h-6 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+            title="Tutup panduan"
+          >
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+          <div className="flex items-start space-x-3 pr-8">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-base shrink-0 shadow-sm">
+              <i className="fa-solid fa-circle-question"></i>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-extrabold text-emerald-950 dark:text-emerald-100 text-sm sm:text-base">
+                Kenapa di Google Spreadsheet Belum Termuat Semua Sheet &amp; Headernya?
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                Google Spreadsheet baru secara default <strong>hanya berisi 1 lembar kosong ("Sheet1")</strong>. Menempelkan kode skrip di Apps Script belum mengeksekusi pembuatan tabel sebelum diinstruksikan. Berikut 3 hal yang perlu diketahui:
+              </p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-extrabold text-emerald-950 dark:text-emerald-100 text-sm sm:text-base">
-              Kenapa di Google Spreadsheet Belum Termuat Semua Sheet &amp; Headernya?
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
-              Google Spreadsheet baru secara default <strong>hanya berisi 1 lembar kosong ("Sheet1")</strong>. Menempelkan kode skrip di Apps Script belum mengeksekusi pembuatan tabel sebelum diinstruksikan. Berikut 3 hal yang perlu diketahui:
-            </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
+            <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
+              <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
+                <span>1️⃣ Jalankan Auto-Provisioning</span>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+                Cukup klik tombol hijau <strong>"Inisialisasi Otomatis (Auto-Provision)"</strong> di bawah. Seluruh 13 lembar kerja beserta baris header hijau emerald akan langsung dibuatkan otomatis dalam 3 detik!
+              </p>
+            </div>
+
+            <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
+              <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
+                <span>2️⃣ Menu Langsung di Spreadsheet</span>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+                Di lembar Google Spreadsheet Anda, cukup refresh halaman dan klik menu atas <strong>"🕌 SIM Asrama Haji" &gt; "⚡ Buat Semua 13 Sheet &amp; Header Otomatis"</strong>.
+              </p>
+            </div>
+
+            <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
+              <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
+                <span>3️⃣ Akses Deploy Harus "Anyone"</span>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+                Saat deploy Web App di Apps Script, pastikan <em>"Who has access"</em> disetel ke <strong>Anyone (Siapa saja)</strong> agar server tidak terhalang firewall Google (HTTP 403 Forbidden).
+              </p>
+            </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
-          <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
-            <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
-              <span>1️⃣ Jalankan Auto-Provisioning</span>
-            </div>
-            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-              Cukup klik tombol hijau <strong>"Inisialisasi Otomatis (Auto-Provision)"</strong> di bawah. Seluruh 13 lembar kerja beserta baris header hijau emerald akan langsung dibuatkan otomatis dalam 3 detik!
-            </p>
-          </div>
-
-          <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
-            <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
-              <span>2️⃣ Menu Langsung di Spreadsheet</span>
-            </div>
-            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-              Di lembar Google Spreadsheet Anda, cukup refresh halaman dan klik menu atas <strong>"🕌 SIM Asrama Haji" &gt; "⚡ Buat Semua 13 Sheet &amp; Header Otomatis"</strong>.
-            </p>
-          </div>
-
-          <div className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl border border-emerald-200 dark:border-slate-700 space-y-1.5">
-            <div className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-1.5">
-              <span>3️⃣ Akses Deploy Harus "Anyone"</span>
-            </div>
-            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-              Saat deploy Web App di Apps Script, pastikan <em>"Who has access"</em> disetel ke <strong>Anyone (Siapa saja)</strong> agar server tidak terhalang firewall Google (HTTP 403 Forbidden).
-            </p>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* 3. Panel Khusus: Auto-Provisioning & Deteksi Struktur Tabel */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 sm:p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
