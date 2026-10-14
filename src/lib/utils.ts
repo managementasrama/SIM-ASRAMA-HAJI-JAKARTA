@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { Transaction, Room, RoomCapacityRate, MeetingRoom } from "../types"
+import { Transaction, Room, RoomCapacityRate, MeetingRoom, Building } from "../types"
 import QRCode from 'qrcode';
 import { dataStorage } from "../services/dataStorage";
 
@@ -744,6 +744,69 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
   if (rNum.startsWith('GU-')) return 'Gedung Utama';
 
   return '';
+}
+
+/**
+ * Memeriksa apakah sebuah kamar secara akurat dan toleran termasuk ke dalam suatu Gedung.
+ * Menghubungkan variasi penamaan seperti 'Gedung A' vs 'Gedung A (Arafah)', pencocokan kode prefix (misal 'A-101' -> Gedung A),
+ * ID gedung, maupun nama alias resmi yang tersimpan di spreadsheet / master data.
+ */
+export function isRoomMatchingBuilding(r: Room, b: Building, allMeetingRooms?: MeetingRoom[]): boolean {
+  if (!r || !b) return false;
+
+  // 1. Pencocokan ID Gedung langsung jika tersedia
+  if ((r as any).buildingId && b.id && String((r as any).buildingId).trim() === String(b.id).trim()) {
+    return true;
+  }
+
+  const bNameClean = (b.name || '').trim().toLowerCase();
+  const rBldClean = (r.building || '').trim().toLowerCase();
+  if (rBldClean && rBldClean === bNameClean) return true;
+
+  // 2. Pencocokan melalui getRoomBuildingKey
+  const effKey = getRoomBuildingKey(r, allMeetingRooms).toLowerCase();
+  if (effKey && effKey === bNameClean) return true;
+
+  // 3. Pencocokan melalui kode gedung dan prefix nomor kamar (misal: Code 'A' dengan nomor 'A-101' atau 'A101')
+  const bCode = (b.code || '').trim().toUpperCase();
+  const rNum = (r.roomNumber || '').trim().toUpperCase();
+  if (bCode && (rNum.startsWith(`${bCode}-`) || rNum.startsWith(`${bCode} `) || (rNum.startsWith(bCode) && /^\d/.test(rNum.slice(bCode.length))))) {
+    return true;
+  }
+
+  // 4. Pencocokan nama dasar tanpa tanda kurung (misal: "Gedung A" vs "Gedung A (Arafah)")
+  const getBaseName = (str: string) => str.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+  const bBase = getBaseName(b.name || '');
+  const rBase = getBaseName(r.building || '');
+  if (bBase && rBase && bBase === rBase) return true;
+
+  // 5. Pencocokan awalan huruf nama gedung (misal: "Gedung A..." dan "Gedung A...")
+  if (bBase.startsWith('gedung ') && rBase.startsWith('gedung ')) {
+    const bPart = bBase.slice(7).trim();
+    const rPart = rBase.slice(7).trim();
+    if (bPart && rPart && bPart[0] === rPart[0] && (bPart.length === 1 || rPart.length === 1)) {
+      return true;
+    }
+  }
+
+  // 6. Substring match
+  if (bBase.length >= 4 && (rBldClean.includes(bBase) || bNameClean.includes(rBase))) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Menemukan nama gedung resmi dari daftar gedung master untuk suatu kamar
+ */
+export function resolveRoomBuildingName(r: Room, buildings: Building[], allMeetingRooms?: MeetingRoom[]): string {
+  if (!r) return '';
+  if (Array.isArray(buildings) && buildings.length > 0) {
+    const matchedBld = buildings.find(b => isRoomMatchingBuilding(r, b, allMeetingRooms));
+    if (matchedBld) return matchedBld.name;
+  }
+  return getRoomBuildingKey(r, allMeetingRooms) || r.building || '';
 }
 
 /**

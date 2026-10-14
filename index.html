@@ -16,17 +16,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
       (function() {
-        try {
-          var xhr = new XMLHttpRequest();
-          xhr.open('GET', '/api/supabase-config', false);
-          xhr.send(null);
-          if (xhr.status === 200) {
-            var cfg = JSON.parse(xhr.responseText);
-            if (cfg && cfg.url && cfg.anonKey) {
-              window.__INITIAL_SUPABASE_CONFIG__ = cfg;
-            }
-          }
-        } catch (_) {}
         // Hapus cache lokal lama agar data murni berasal dari database secara realtime
         try {
           localStorage.removeItem('CUSTOM_SUPABASE_URL');

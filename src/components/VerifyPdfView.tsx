@@ -121,7 +121,7 @@ export function VerifyPdfView() {
       officerName: string;
       officerRole: string;
       downloadTime: string;
-      isSupabaseVerified: boolean;
+      isDatabaseVerified: boolean;
       downloadLogs: any[];
     };
   }>(null);
@@ -331,7 +331,7 @@ export function VerifyPdfView() {
             officerName,
             officerRole,
             downloadTime,
-            isSupabaseVerified: Boolean(verifiedLocalLog),
+            isDatabaseVerified: Boolean(verifiedLocalLog),
             downloadLogs: relevantDownloads.length > 0 ? relevantDownloads : [{
               timestamp: downloadTime,
               user: officerName,

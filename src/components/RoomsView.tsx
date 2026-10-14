@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isTeknisiRole, isManagerTeknisi, isQcRole, isRecepRole, isKoperasiRole, isSuperAdmin } from '../store';
 import { OFFICIAL_TARIFFS, initialRoomCapacityRates, findRoomRate } from '../data';
 import { Room, Building, MeetingRoom, Transaction, RoomCapacityRate } from '../types';
-import { getRealTodayDate, getRealDateWithOffset, formatIndonesianDate, addDaysToDateStr, formatRupiah, getTxDays, compareBuildingOrder, isMeetingFacility, deduplicateRoomCapacityRates, getRoomBuildingKey, normalizeBuildingName, extractFloorFromRoomNumber } from '../lib/utils';
+import { getRealTodayDate, getRealDateWithOffset, formatIndonesianDate, addDaysToDateStr, formatRupiah, getTxDays, compareBuildingOrder, isMeetingFacility, deduplicateRoomCapacityRates, getRoomBuildingKey, normalizeBuildingName, extractFloorFromRoomNumber, isRoomMatchingBuilding, resolveRoomBuildingName } from '../lib/utils';
 import { BuildingModal, MeetingRoomModal, RoomModal, RoomCapacityRateModal, DeleteConfirmModal, ActionConfirmModal } from './CatalogManagementModals';
 
 // Helper for distinctive building-related icons for penginapan and other facilities
@@ -287,7 +287,7 @@ export function RoomsView() {
   // Filter Kamar Penginapan berdasarkan filter pengguna
   const filteredRooms = useMemo(() => {
     return lodgingRooms.filter(r => {
-      const effectiveBuilding = getRoomBuildingKey(r, meetingRooms);
+      const effectiveBuilding = resolveRoomBuildingName(r, lodgingBuildings, meetingRooms);
 
       if (myZoneOnly && !isRoomInUserZone(effectiveBuilding)) return false;
 
@@ -295,7 +295,11 @@ export function RoomsView() {
         if (bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna' || bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
           return false; // Venue pertemuan ditampilkan di seksi terpisah
         }
-        if (effectiveBuilding.toLowerCase() !== bFilter.toLowerCase() && r.building.toLowerCase() !== bFilter.toLowerCase()) {
+        const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bFilter.toLowerCase());
+        const isMatch = bObj 
+          ? isRoomMatchingBuilding(r, bObj, meetingRooms)
+          : (effectiveBuilding.toLowerCase() === bFilter.toLowerCase() || r.building.toLowerCase() === bFilter.toLowerCase());
+        if (!isMatch) {
           return false;
         }
       }
@@ -309,7 +313,7 @@ export function RoomsView() {
       if (search) {
         const q = search.toLowerCase();
         const matchNum = r.roomNumber.toLowerCase().includes(q);
-        const matchBld = r.building.toLowerCase().includes(q);
+        const matchBld = r.building.toLowerCase().includes(q) || effectiveBuilding.toLowerCase().includes(q);
         const matchTx = transactions.some(t => 
           (t.roomId === r.id || t.roomNumber === r.roomNumber) && 
           t.status !== 'DIBATALKAN' && 
@@ -319,7 +323,7 @@ export function RoomsView() {
       }
       return true;
     });
-  }, [lodgingRooms, meetingRooms, myZoneOnly, bFilter, sFilter, roomTypeFilter, bedTypeFilter, search, transactions]);
+  }, [lodgingRooms, lodgingBuildings, meetingRooms, myZoneOnly, bFilter, sFilter, roomTypeFilter, bedTypeFilter, search, transactions]);
 
   // Filter Fasilitas Pertemuan / Aula / Serbaguna
   const filteredMeetingRooms = useMemo(() => {
@@ -367,6 +371,7 @@ export function RoomsView() {
   const filteredMeetingVenues = filteredMeetingRooms;
 
   // Grouping Kamar Penginapan per Gedung (Hanya gedung asrama/penginapan!)
+  // Inisialisasi kunci HANYA dari lodgingBuildings agar 100% selaras dengan Katalog Gedung & Fasilitas
   const grouped: Record<string, Room[]> = {};
   lodgingBuildings.forEach(b => {
     if (!myZoneOnly || isRoomInUserZone(b.name)) {
@@ -377,7 +382,7 @@ export function RoomsView() {
   // Kamar penginapan yang sesuai filter status/tipe/bed/pencarian (tanpa tersembunyi oleh bFilter gedung lain agar panel kiri tetap utuh)
   const roomsForMasterDetail = useMemo(() => {
     return lodgingRooms.filter(r => {
-      const effectiveBuilding = getRoomBuildingKey(r, meetingRooms);
+      const effectiveBuilding = resolveRoomBuildingName(r, lodgingBuildings, meetingRooms);
       if (myZoneOnly && !isRoomInUserZone(effectiveBuilding)) return false;
       if (sFilter !== 'ALL' && r.status !== sFilter) return false;
       if (roomTypeFilter !== 'ALL') {
@@ -388,7 +393,7 @@ export function RoomsView() {
       if (search) {
         const q = search.toLowerCase();
         const matchNum = r.roomNumber.toLowerCase().includes(q);
-        const matchBld = r.building.toLowerCase().includes(q);
+        const matchBld = r.building.toLowerCase().includes(q) || effectiveBuilding.toLowerCase().includes(q);
         const matchTx = transactions.some(t =>
           (t.roomId === r.id || t.roomNumber === r.roomNumber) &&
           t.status !== 'DIBATALKAN' &&
@@ -398,21 +403,54 @@ export function RoomsView() {
       }
       return true;
     });
-  }, [lodgingRooms, meetingRooms, myZoneOnly, sFilter, roomTypeFilter, bedTypeFilter, search, transactions]);
+  }, [lodgingRooms, lodgingBuildings, meetingRooms, myZoneOnly, sFilter, roomTypeFilter, bedTypeFilter, search, transactions]);
 
+  // Petakan setiap unit kamar ke gedung yang cocok di lodgingBuildings
   roomsForMasterDetail.forEach(r => {
-    const bKey = getRoomBuildingKey(r, meetingRooms);
-    if (!grouped[bKey]) grouped[bKey] = [];
-    if (!grouped[bKey].some(existing => existing.id === r.id)) {
-      grouped[bKey].push(r);
+    const matchedBld = lodgingBuildings.find(b => isRoomMatchingBuilding(r, b, meetingRooms));
+    if (matchedBld) {
+      if (!grouped[matchedBld.name]) grouped[matchedBld.name] = [];
+      if (!grouped[matchedBld.name].some(existing => existing.id === r.id)) {
+        grouped[matchedBld.name].push({
+          ...r,
+          building: matchedBld.name
+        });
+      }
+    } else {
+      const bKey = getRoomBuildingKey(r, meetingRooms);
+      if (bKey && !isMeetingFacility(bKey)) {
+        if (!grouped[bKey]) grouped[bKey] = [];
+        if (!grouped[bKey].some(existing => existing.id === r.id)) {
+          grouped[bKey].push(r);
+        }
+      }
     }
   });
 
-  const buildingNames = Object.keys(grouped).filter(bName => {
-    if (!search) return true;
-    if (grouped[bName].length > 0) return true;
-    return bName.toLowerCase().includes(search.toLowerCase());
-  }).sort(compareBuildingOrder);
+  // Daftar Gedung Penginapan: Bersumber 100% dari lodgingBuildings (selaras dengan Katalog Gedung & Fasilitas)
+  const buildingNames = useMemo(() => {
+    const list: string[] = [];
+    lodgingBuildings.forEach(b => {
+      if (myZoneOnly && !isRoomInUserZone(b.name)) return;
+      if (search) {
+        const q = search.toLowerCase();
+        const matchName = b.name.toLowerCase().includes(q);
+        const matchCode = b.code?.toLowerCase().includes(q);
+        const bRooms = grouped[b.name] || [];
+        if (!matchName && !matchCode && bRooms.length === 0) return;
+      }
+      list.push(b.name);
+    });
+
+    // Tambahkan gedung non-katalog/orphan jika ada kamar yang belum terpetakan
+    Object.keys(grouped).forEach(k => {
+      if (!list.includes(k) && (grouped[k] || []).length > 0) {
+        list.push(k);
+      }
+    });
+
+    return list.sort(compareBuildingOrder);
+  }, [lodgingBuildings, myZoneOnly, search, grouped]);
 
   const selectedBuildingKey = useMemo(() => {
     if (
@@ -422,11 +460,19 @@ export function RoomsView() {
       bFilter !== 'Ruang Pertemuan / Aula' &&
       bFilter !== 'Ruang Pertemuan'
     ) {
-      const match = buildingNames.find(b => b.toLowerCase() === bFilter.toLowerCase());
+      const match = buildingNames.find(b =>
+        b.toLowerCase() === bFilter.toLowerCase() ||
+        b.toLowerCase().includes(bFilter.toLowerCase()) ||
+        bFilter.toLowerCase().includes(b.toLowerCase())
+      );
       if (match) return match;
     }
     if (activeBuildingName) {
-      const match = buildingNames.find(b => b.toLowerCase() === activeBuildingName.toLowerCase());
+      const match = buildingNames.find(b =>
+        b.toLowerCase() === activeBuildingName.toLowerCase() ||
+        b.toLowerCase().includes(activeBuildingName.toLowerCase()) ||
+        activeBuildingName.toLowerCase().includes(b.toLowerCase())
+      );
       if (match) return match;
     }
     return buildingNames[0] || '';
@@ -1871,8 +1917,9 @@ export function RoomsView() {
                       <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1.5 custom-scrollbar">
                         {buildingNames.map(bName => {
                           const bRooms = grouped[bName] || [];
-                          const bAllRooms = lodgingRooms.filter(r => getRoomBuildingKey(r, meetingRooms).toLowerCase() === bName.toLowerCase());
-                          const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                          const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase()) ||
+                            lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                          const bAllRooms = lodgingRooms.filter(r => isRoomMatchingBuilding(r, bObj || ({ name: bName } as any), meetingRooms));
                           const isSelected = selectedBuildingKey.toLowerCase() === bName.toLowerCase();
                           const floorsCount = bObj?.floors || Array.from(new Set(bAllRooms.map(r => r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1))).length || 1;
                           const kosongCount = bRooms.filter(r => r.status === 'KOSONG').length;
@@ -1960,7 +2007,8 @@ export function RoomsView() {
                       {selectedBuildingKey ? (() => {
                         const bName = selectedBuildingKey;
                         const bRooms = grouped[bName] || [];
-                        const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                        const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase()) ||
+                          lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
                         const bDescription = (bObj?.description && bObj.description.trim())
                           || (bObj?.capacityDesc && bObj.capacityDesc.trim())
                           || OFFICIAL_TARIFFS[bName]?.desc

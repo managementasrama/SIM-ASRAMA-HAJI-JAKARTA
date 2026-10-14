@@ -8,8 +8,6 @@ import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { VerifyPdfView } from './VerifyPdfView';
 import { RolePermissionsSection } from './RolePermissionsSection';
-import { ConfigureSupabaseModal } from './ConfigureSupabaseModal';
-import { getSupabaseSourceInfo } from '../lib/supabase';
 import { getDirectChannelId } from '../chatData';
 
 export function ReportsView() {
@@ -1025,7 +1023,7 @@ export function ReportsView() {
               </div>
               <div>
                 <h4 className="font-bold text-slate-900 dark:text-slate-100 text-base">Hapus Transaksi Permanen</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Data akan dihapus dari penyimpanan lokal dan Supabase Cloud</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Data akan dihapus dari penyimpanan lokal dan Google Spreadsheet</p>
               </div>
             </div>
 
@@ -5852,7 +5850,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     </div>
                     <div className="inline-flex items-center space-x-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2.5 py-1 rounded-full text-[11px] font-bold">
                       <i className="fa-solid fa-cloud-arrow-up"></i>
-                      <span>Tersinkronisasi Realtime ke Supabase</span>
+                      <span>Tersinkronisasi Realtime ke Database</span>
                     </div>
                   </div>
 
@@ -5860,7 +5858,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     Riwayat Pengunduhan Dokumen Resmi &amp; ID Verifikasi Unik
                   </h2>
                   <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-                    Setiap dokumen PDF yang diunduh dari sistem ini secara otomatis diberikan <strong>ID Verifikasi Unik</strong> dan rekam jejak digital ke dalam database Supabase. Anda dapat memfilter berdasarkan rentang tanggal maupun nama petugas, serta menyalin ID verifikasi untuk divalidasi langsung melalui tab <em>Alat Verifikasi PDF &amp; QR Code</em>.
+                    Setiap dokumen PDF yang diunduh dari sistem ini secara otomatis diberikan <strong>ID Verifikasi Unik</strong> dan rekam jejak digital ke dalam database sistem. Anda dapat memfilter berdasarkan rentang tanggal maupun nama petugas, serta menyalin ID verifikasi untuk divalidasi langsung melalui tab <em>Alat Verifikasi PDF &amp; QR Code</em>.
                   </p>
                 </div>
 
@@ -5882,7 +5880,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     <span className="text-[10px] text-slate-400 uppercase font-bold block">Status Cloud DB</span>
                     <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1 mt-1">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      <span>Supabase Aktif</span>
+                      <span>Database Aktif</span>
                     </span>
                   </div>
                 </div>
@@ -6139,7 +6137,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex items-center space-x-2 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-bold">
                       <i className="fa-solid fa-database"></i>
-                      <span>Basis Data Pusat (Supabase Cloud Real-Time)</span>
+                      <span>Basis Data Utama (Google Spreadsheet)</span>
                     </div>
 
                     <div className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
@@ -6158,10 +6156,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                       }`}></span>
                       <span>
                         {supabaseSyncState?.isSyncing
-                          ? 'Status Sync: Menyinkronkan Real-Time...'
+                          ? 'Status Sync: Menyinkronkan...'
                           : supabaseSyncState?.lastError
                           ? `Status Sync: ${supabaseSyncState.lastError}`
-                          : 'Status Sync: Terhubung & Sinkron Real-Time (Tanpa Cache Lokal)'}
+                          : 'Status Sync: Terhubung & Sinkron dengan Google Spreadsheet'}
                       </span>
                     </div>
                   </div>
@@ -6170,11 +6168,11 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     Basis Data Terpusat SIM-Akomodasi UPT Asrama Haji Jakarta
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Sistem terhubung langsung secara <strong>real-time (detik itu juga)</strong> ke Basis Data Pusat Supabase Cloud tanpa penyimpanan cache lokal. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari database pusat, dan setiap perubahan langsung dikirimkan ke database saat itu juga.
+                    Sistem terhubung langsung ke <strong>Basis Data Utama Google Spreadsheet</strong>. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari spreadsheet pusat, dan setiap perubahan transaksi, master gedung, dan kamar disinkronkan secara aman.
                   </p>
                 </div>
 
-                {/* Primary Sync Action Buttons (Hanya di menu Basis Data) */}
+                {/* Primary Sync Action Buttons */}
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button
                     type="button"
@@ -6187,7 +6185,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <i className={`fa-solid ${isCloudSyncing || supabaseSyncState?.isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
-                    <span>Tarik Data Terbaru dari Database</span>
+                    <span>Tarik Data Terbaru dari Spreadsheet</span>
                   </button>
 
                   <button
@@ -6201,35 +6199,17 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <i className="fa-solid fa-cloud-arrow-up text-emerald-300"></i>
-                    <span>Kirim Pembaruan ke Database</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowConfigDatabaseModal(true)}
-                    className="px-3.5 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
-                  >
-                    <i className="fa-solid fa-server"></i>
-                    <span>Ganti / Konfigurasi Database Supabase</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowSqlModal(true)}
-                    className="px-3.5 py-2.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/30 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <i className="fa-solid fa-code"></i>
-                    <span>Skrip SQL Supabase</span>
+                    <span>Kirim Pembaruan ke Spreadsheet</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveTab('spreadsheetSync')}
-                    className="px-3.5 py-2.5 bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-200 border border-emerald-400/40 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                    className="px-3.5 py-2.5 bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 border border-emerald-400/50 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
                     title="Buka panduan & integrasi Google Spreadsheet"
                   >
                     <i className="fa-solid fa-file-excel text-emerald-300"></i>
-                    <span>Integrasi Google Spreadsheet</span>
+                    <span>Kelola Lembar Kerja &amp; Integrasi Spreadsheet</span>
                   </button>
                 </div>
               </div>
@@ -6237,14 +6217,14 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
               {/* Connection Metadata Bar */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3 border-t border-white/10 text-xs">
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
-                  <span className="text-slate-400 text-[11px]">Endpoint Database:</span>
-                  <span className="font-mono text-emerald-300 font-bold text-[11px] truncate max-w-[200px]" title={getSupabaseSourceInfo().url}>
-                    {getSupabaseSourceInfo().host}
+                  <span className="text-slate-400 text-[11px]">Database Utama:</span>
+                  <span className="font-mono text-emerald-300 font-bold text-[11px] truncate max-w-[200px]">
+                    Google Spreadsheet (Apps Script)
                   </span>
                 </div>
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Mode Penyimpanan:</span>
-                  <span className="font-bold text-white text-[11px]">Direct Cloud Sync (Zero Local Cache)</span>
+                  <span className="font-bold text-white text-[11px]">Spreadsheet + Real-Time Engine</span>
                 </div>
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Sinkronisasi Terakhir:</span>

@@ -31,7 +31,7 @@ import {
   findRoomRate
 } from '../data';
 import { initialChatChannels, initialChatMessages } from '../chatData';
-import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber } from '../lib/utils';
+import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber, isRoomMatchingBuilding, resolveRoomBuildingName } from '../lib/utils';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
 import { 
   fetchFullDatabaseFromSpreadsheet, 
@@ -399,16 +399,25 @@ export class DataStorageService {
       }));
     const mergedRooms = deduplicateRoomsByBuildingAndNumber(normalizedSourceRooms, mergedMeetingRooms);
 
+    const finalMergedRooms = mergedRooms.map(r => {
+      const matchedBld = mergedBuildings.find(b => isRoomMatchingBuilding(r, b, mergedMeetingRooms));
+      if (matchedBld) {
+        return { ...r, building: matchedBld.name };
+      }
+      return r;
+    });
+
     // Selaraskan totalRooms pada gedung dengan jumlah kamar riil hasil deduplikasi
     mergedBuildings = mergedBuildings.map(b => {
       if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
         return { ...b, totalRooms: 0 };
       }
-      const actualCount = mergedRooms.filter(r =>
+      const actualCount = finalMergedRooms.filter(r =>
+        isRoomMatchingBuilding(r, b, mergedMeetingRooms) ||
         getRoomBuildingKey(r, mergedMeetingRooms).toLowerCase() === b.name.toLowerCase() ||
         (r.building && r.building.toLowerCase() === b.name.toLowerCase())
       ).length;
-      return { ...b, totalRooms: actualCount };
+      return { ...b, totalRooms: actualCount > 0 ? actualCount : (b.totalRooms || 0) };
     });
 
     // 9. Room Capacity Rates
@@ -443,7 +452,7 @@ export class DataStorageService {
       users: mergedUsers,
       buildings: mergedBuildings,
       meetingRooms: mergedMeetingRooms,
-      rooms: mergedRooms,
+      rooms: finalMergedRooms,
       transactions: mergedTransactions,
       maintenances: mergedMaintenances,
       qcInspections: mergedQc,
@@ -597,9 +606,32 @@ export class DataStorageService {
       }
     });
 
+    // Sinkronkan nama gedung pada kamar dengan data master gedung agar tidak terjadi inkonsistensi denah vs katalog
+    const buildingsList = db.buildings || [];
+    const normalizedRooms = uniqueRooms.map(r => {
+      const matchedBld = buildingsList.find(b => isRoomMatchingBuilding(r, b, uniqueMeetingRooms));
+      if (matchedBld && r.building !== matchedBld.name) {
+        return { ...r, building: matchedBld.name, buildingId: matchedBld.id };
+      }
+      return r;
+    });
+
+    const synchronizedBuildings = buildingsList.map(b => {
+      if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
+        return { ...b, totalRooms: 0 };
+      }
+      const actualCount = normalizedRooms.filter(r => isRoomMatchingBuilding(r, b, uniqueMeetingRooms)).length;
+      let capDesc = b.capacityDesc || '';
+      if (/^\d+\s*Kamar/i.test(capDesc.trim()) && actualCount > 0) {
+        capDesc = capDesc.trim().replace(/^\d+/, String(actualCount));
+      }
+      return { ...b, totalRooms: actualCount > 0 ? actualCount : (b.totalRooms || 0), capacityDesc: capDesc };
+    });
+
     const updated: CompleteStorageDatabase = {
       ...db,
-      rooms: uniqueRooms,
+      buildings: synchronizedBuildings,
+      rooms: normalizedRooms,
       meetingRooms: uniqueMeetingRooms,
       auditLogs: trimmedAuditLogs,
       chatMessages: trimmedChatMessages,
@@ -742,6 +774,8 @@ export class DataStorageService {
         if (cleanB === oldName.toLowerCase() || cleanB === oldNormName.toLowerCase()) return true;
         if (normalizeBuildingName(bName || '').toLowerCase() === oldNormName.toLowerCase()) return true;
         if (rObj) {
+          if (isRoomMatchingBuilding(rObj, oldBuilding, meetingRooms)) return true;
+          if (isRoomMatchingBuilding(rObj, buildingWithId, meetingRooms)) return true;
           const eff = getRoomBuildingKey(rObj, meetingRooms).toLowerCase();
           if (eff === oldName.toLowerCase() || eff === oldNormName.toLowerCase()) return true;
         }
@@ -841,6 +875,7 @@ export class DataStorageService {
 
         // Cari kamar-kamar yang terdaftar untuk gedung ini
         const bldRooms = rooms.filter(r =>
+          isRoomMatchingBuilding(r, buildingWithId, meetingRooms) ||
           r.building.trim().toLowerCase() === targetBuildingName.toLowerCase() ||
           getRoomBuildingKey(r, meetingRooms).toLowerCase() === targetBuildingName.toLowerCase()
         );
@@ -927,6 +962,7 @@ export class DataStorageService {
         }
 
         const finalBuildingRoomsCount = rooms.filter(r =>
+          isRoomMatchingBuilding(r, buildingWithId, meetingRooms) ||
           r.building.trim().toLowerCase() === targetBuildingName.toLowerCase() ||
           getRoomBuildingKey(r, meetingRooms).toLowerCase() === targetBuildingName.toLowerCase()
         ).length;

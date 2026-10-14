@@ -309,7 +309,7 @@ export function Header() {
                       </button>
                     </div>
 
-                    {/* 3b. Status Sync dengan Database (Supabase Cloud) */}
+                    {/* 3b. Status Sync dengan Database (Google Spreadsheet Utama) */}
                     <div className="p-3 bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-600/70 rounded-xl space-y-1.5 shadow-2xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center space-x-2">
@@ -318,7 +318,7 @@ export function Header() {
                           </div>
                           <div>
                             <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Sync Database</span>
-                            <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Supabase Cloud Real-Time</span>
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold block">Google Spreadsheet Utama</span>
                           </div>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${

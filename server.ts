@@ -705,6 +705,22 @@ async function startServer() {
       }
 
       const rawSheetData = json.data || json;
+
+      if (json.status === "error" || (rawSheetData && rawSheetData.status === "error") || (rawSheetData && rawSheetData.message && !Array.isArray(rawSheetData.buildings))) {
+        const errorMsg = rawSheetData?.message || json?.message || "Google Apps Script mengembalikan status error";
+        console.warn("Peringatan Google Apps Script:", errorMsg);
+        if (serverDatabaseCache && Array.isArray(serverDatabaseCache.buildings) && serverDatabaseCache.buildings.length > 0) {
+          return res.json({
+            status: "cached",
+            message: `Menggunakan cache server (${errorMsg})`,
+            data: serverDatabaseCache,
+            source: "server_cache",
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        throw new Error(errorMsg);
+      }
+
       const sheetData: any = typeof rawSheetData === "object" && rawSheetData !== null ? { ...rawSheetData } : {};
 
       // Bersihkan seluruh sheet konflik (seperti users_conflict...) agar tidak mencemari memori & aplikasi
@@ -726,11 +742,15 @@ async function startServer() {
         }
       }
 
-      // Update cache lokal di server
-      serverDatabaseCache = sheetData;
-      try {
-        fs.writeFileSync(serverDbCachePath, JSON.stringify(sheetData, null, 2), "utf-8");
-      } catch (_) {}
+      // Update cache lokal di server hanya jika data memiliki isi valid
+      if (Array.isArray(sheetData.buildings) && sheetData.buildings.length > 0) {
+        serverDatabaseCache = sheetData;
+        try {
+          fs.writeFileSync(serverDbCachePath, JSON.stringify(sheetData, null, 2), "utf-8");
+        } catch (_) {}
+      } else if (!serverDatabaseCache) {
+        serverDatabaseCache = sheetData;
+      }
 
       res.json({
         status: "success",
@@ -790,6 +810,59 @@ async function startServer() {
       try {
         fs.writeFileSync(sheetsConfigFilePath, JSON.stringify(activeSheetsConfig, null, 2), "utf-8");
       } catch (_) {}
+    }
+
+    // Normalisasi konsistensi master gedung dan unit kamar
+    if (Array.isArray(payload.buildings) && Array.isArray(payload.rooms)) {
+      const lodgingBlds = payload.buildings.filter((b: any) => !b.category || b.category === 'PENGINAPAN');
+      payload.rooms = payload.rooms.map((r: any) => {
+        if (!r) return r;
+        const matched = lodgingBlds.find((b: any) => {
+          const bName = (b.name || '').toLowerCase().trim();
+          const rBld = (r.building || '').toLowerCase().trim();
+          if (rBld && rBld === bName) return true;
+          const bCode = (b.code || '').toUpperCase().trim();
+          const rNum = (r.roomNumber || '').toUpperCase().trim();
+          if (bCode && (rNum.startsWith(`${bCode}-`) || rNum.startsWith(`${bCode} `))) return true;
+          const getBase = (s: string) => s.replace(/\s*\([^)]*\)/g, '').toLowerCase().trim();
+          if (getBase(b.name || '') === getBase(r.building || '')) return true;
+          return false;
+        });
+        if (matched && r.building !== matched.name) {
+          return { ...r, building: matched.name, buildingId: matched.id };
+        }
+        return r;
+      });
+
+      payload.buildings = payload.buildings.map((b: any) => {
+        if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
+          return { ...b, totalRooms: 0 };
+        }
+        const bName = (b.name || '').toLowerCase().trim();
+        const bCode = (b.code || '').toUpperCase().trim();
+        const getBase = (s: string) => s.replace(/\s*\([^)]*\)/g, '').toLowerCase().trim();
+        const bBase = getBase(b.name || '');
+
+        const actualCount = payload.rooms.filter((r: any) => {
+          const rBld = (r.building || '').toLowerCase().trim();
+          if (rBld === bName) return true;
+          const rNum = (r.roomNumber || '').toUpperCase().trim();
+          if (bCode && (rNum.startsWith(`${bCode}-`) || rNum.startsWith(`${bCode} `))) return true;
+          if (bBase && getBase(r.building || '') === bBase) return true;
+          return false;
+        }).length;
+
+        let capDesc = b.capacityDesc || '';
+        if (/^\d+\s*Kamar/i.test(capDesc.trim()) && actualCount > 0) {
+          capDesc = capDesc.trim().replace(/^\d+/, String(actualCount));
+        }
+
+        return {
+          ...b,
+          totalRooms: actualCount > 0 ? actualCount : (b.totalRooms || 0),
+          capacityDesc: capDesc
+        };
+      });
     }
 
     // Selalu simpan ke server database cache
