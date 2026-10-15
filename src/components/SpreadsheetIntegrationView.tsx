@@ -313,155 +313,8 @@ export function SpreadsheetIntegrationView() {
 
     let payloadData: any = {};
     try {
-      payloadData = populateSeedOnProvision ? {
-        buildings: buildings.map(b => ({
-          id: b.id,
-          name: b.name,
-          code: b.code || '',
-          floors: b.floors || 1,
-          total_rooms: b.totalRooms || 0,
-          category: b.category || 'PENGINAPAN',
-          status: b.status || 'AKTIF',
-          description: b.description || ''
-        })),
-        rooms: rooms.map(r => ({
-          id: r.id,
-          room_number: r.roomNumber,
-          building: r.building,
-          floor: r.floor || 1,
-          type: r.type || 'Standar',
-          bed_type: r.bedType || '',
-          capacity: r.capacity || '',
-          status: r.status || 'KOSONG',
-          price_per_night: r.pricePerNight || 0,
-          notes: r.notes || ''
-        })),
-        meeting_rooms: (meetingRooms || []).map(m => ({
-          id: m.id,
-          name: m.name,
-          building: m.building || '',
-          floor: m.floor || 1,
-          capacity: m.capacity || 0,
-          rate_half_day: m.sessionRate || (m as any).rateHalfDay || 0,
-          rate_full_day: m.dailyRate || (m as any).rateFullDay || 0,
-          status: m.status || 'TERSEDIA',
-          amenities: Array.isArray(m.facilities) ? m.facilities.join(', ') : (Array.isArray((m as any).amenities) ? (m as any).amenities.join(', ') : ((m as any).amenities || ''))
-        })),
-        room_capacity_rates: (roomCapacityRates || []).map(r => ({
-          id: r.id,
-          room_type: r.roomType,
-          bed_type: r.bedType,
-          capacity_pax: r.capacityPax,
-          price_per_night: r.pricePerNight,
-          description: r.description || '',
-          facilities: Array.isArray(r.facilities) ? r.facilities.join(', ') : '',
-          is_active: r.isActive ? 'true' : 'false'
-        })),
-        breakfast_menu_items: (breakfastMenuItems || []).map(m => ({
-          id: m.id,
-          name: m.name,
-          category: m.category,
-          price: m.price,
-          description: m.description || '',
-          is_available: m.isAvailable ? 'true' : 'false',
-          allergens: m.allergens || ''
-        })),
-        transactions: transactions.map(t => ({
-          id: t.id,
-          room_number: t.roomNumber,
-          building: t.building || '',
-          guest_name: t.guestName,
-          category: t.category,
-          status: t.status,
-          start_date: t.startDate,
-          duration: t.duration,
-          phone: t.phone || '',
-          email: t.email || '',
-          notes: t.notes || '',
-          total_amount: t.totalAmount || 0,
-          payment_status: t.paymentStatus || 'LUNAS'
-        })),
-        users: users.map(u => ({
-          id: u.id,
-          username: u.username,
-          full_name: u.fullName,
-          role: u.role,
-          department: u.department || '',
-          status: u.status || 'Aktif',
-          phone: u.phone || '',
-          email: u.email || ''
-        })),
-        maintenances: (maintenances || []).map(m => ({
-          id: m.id,
-          room_number: m.roomNumber,
-          building: m.building || '',
-          issue: m.issue,
-          urgency: m.urgency,
-          status: m.status,
-          reporter: m.reportedUser || (m as any).reportedBy || (m as any).reporter || '',
-          created_at: m.reportTime || (m as any).createdAt || '',
-          resolved_at: m.resolvedTime || (m as any).resolvedAt || '',
-          notes: m.technicianNotes || (m as any).notes || ''
-        })),
-        qc_inspections: (qcInspections || []).map(q => ({
-          id: q.id,
-          room_id: q.roomId,
-          building: q.building,
-          room_number: q.roomNumber,
-          inspector_name: q.inspectorName,
-          inspection_date: q.inspectionDate,
-          cleanliness: q.cleanliness,
-          linen_bed: q.linenBed,
-          ac_electricity: q.acElectricity,
-          plumbing_water: q.plumbingWater,
-          amenities: q.amenities,
-          result: q.result,
-          notes: q.notes || ''
-        })),
-        breakfast_orders: (breakfastOrders || []).map(o => ({
-          id: o.id,
-          room_number: o.roomNumber,
-          building: o.building || '',
-          guest_name: o.guestName,
-          menu_name: o.menuName,
-          portions: o.portions,
-          days: o.days || 1,
-          order_date: o.startDate || '',
-          delivery_time: o.deliveryTime || '',
-          status: o.status,
-          total_price: o.totalPrice || 0,
-          notes: o.notes || ''
-        })),
-        work_sessions: (workSessions || []).map(w => ({
-          id: w.id,
-          user_id: w.userId,
-          user_name: w.userName,
-          user_role: w.userRole,
-          login_time: w.loginTime,
-          logout_time: w.logoutTime || '',
-          duration_seconds: w.durationSeconds || 0,
-          duration_formatted: w.durationFormatted || '',
-          status: w.status,
-          notes: w.notes || ''
-        })),
-        app_settings: appSettings ? [{
-          organization_name: appSettings.organizationName,
-          sub_title: appSettings.subTitle,
-          ministry_name: appSettings.ministryName,
-          address: appSettings.address,
-          phone: appSettings.phone,
-          email: appSettings.email,
-          portal_url: appSettings.portalUrl,
-          tag_title: appSettings.tagTitle || ''
-        }] : [],
-        system_logs: (auditLogs || []).slice(0, 100).map(l => ({
-          id: l.id || '',
-          timestamp: l.timestamp,
-          user: l.user,
-          action: l.action,
-          details: l.details || ''
-        }))
-      } : {};
+      const currentFullDb = dataStorage.getDatabase();
+      payloadData = populateSeedOnProvision ? currentFullDb : {};
 
       const res = await fetch('/api/sheets/auto-provision', {
         method: 'POST',
@@ -920,46 +773,46 @@ function doPost(e) {
       }
     }
 
-    // 2. Tulis data ke masing-masing sheet (tetap menulis baris header meski data kosong [])
+    // 2. Tulis data ke masing-masing sheet dengan skema header lengkap terstandarisasi
     var bldList = payload.buildings || [];
-    writeObjectsToSheet(ss, "buildings", Array.isArray(bldList) ? bldList : [], ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"]);
+    writeObjectsToSheet(ss, "buildings", Array.isArray(bldList) ? bldList : [], defaultSchema.buildings.headers);
 
     var roomList = payload.rooms || [];
-    writeObjectsToSheet(ss, "rooms", Array.isArray(roomList) ? roomList : [], ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"]);
+    writeObjectsToSheet(ss, "rooms", Array.isArray(roomList) ? roomList : [], defaultSchema.rooms.headers);
 
     var mRooms = payload.meetingRooms || payload.meeting_rooms || [];
-    writeObjectsToSheet(ss, "meeting_rooms", Array.isArray(mRooms) ? mRooms : [], ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"]);
+    writeObjectsToSheet(ss, "meeting_rooms", Array.isArray(mRooms) ? mRooms : [], defaultSchema.meeting_rooms.headers);
 
     var rRates = payload.roomCapacityRates || payload.room_capacity_rates || [];
-    writeObjectsToSheet(ss, "room_capacity_rates", Array.isArray(rRates) ? rRates : [], ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"]);
+    writeObjectsToSheet(ss, "room_capacity_rates", Array.isArray(rRates) ? rRates : [], defaultSchema.room_capacity_rates.headers);
 
     var bMenus = payload.breakfastMenuItems || payload.breakfast_menu_items || [];
-    writeObjectsToSheet(ss, "breakfast_menu_items", Array.isArray(bMenus) ? bMenus : [], ["id", "name", "category", "price", "description", "is_available", "allergens"]);
+    writeObjectsToSheet(ss, "breakfast_menu_items", Array.isArray(bMenus) ? bMenus : [], defaultSchema.breakfast_menu_items.headers);
 
     var txList = payload.transactions || [];
-    writeObjectsToSheet(ss, "transactions", Array.isArray(txList) ? txList : [], ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"]);
+    writeObjectsToSheet(ss, "transactions", Array.isArray(txList) ? txList : [], defaultSchema.transactions.headers);
 
     var userList = payload.users || [];
-    writeObjectsToSheet(ss, "users", Array.isArray(userList) ? userList : [], ["id", "username", "full_name", "role", "department", "status", "phone", "email"]);
+    writeObjectsToSheet(ss, "users", Array.isArray(userList) ? userList : [], defaultSchema.users.headers);
 
     var maintList = payload.maintenances || [];
-    writeObjectsToSheet(ss, "maintenances", Array.isArray(maintList) ? maintList : [], ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"]);
+    writeObjectsToSheet(ss, "maintenances", Array.isArray(maintList) ? maintList : [], defaultSchema.maintenances.headers);
 
     var qcs = payload.qcInspections || payload.qc_inspections || [];
-    writeObjectsToSheet(ss, "qc_inspections", Array.isArray(qcs) ? qcs : [], ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"]);
+    writeObjectsToSheet(ss, "qc_inspections", Array.isArray(qcs) ? qcs : [], defaultSchema.qc_inspections.headers);
 
     var bOrders = payload.breakfastOrders || payload.breakfast_orders || [];
-    writeObjectsToSheet(ss, "breakfast_orders", Array.isArray(bOrders) ? bOrders : [], ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"]);
+    writeObjectsToSheet(ss, "breakfast_orders", Array.isArray(bOrders) ? bOrders : [], defaultSchema.breakfast_orders.headers);
 
     var wSessions = payload.workSessions || payload.work_sessions || [];
-    writeObjectsToSheet(ss, "work_sessions", Array.isArray(wSessions) ? wSessions : [], ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"]);
+    writeObjectsToSheet(ss, "work_sessions", Array.isArray(wSessions) ? wSessions : [], defaultSchema.work_sessions.headers);
 
     var aSettings = payload.appSettings || payload.app_settings || [];
     var arrSettings = Array.isArray(aSettings) ? aSettings : (aSettings ? [aSettings] : []);
-    writeObjectsToSheet(ss, "app_settings", arrSettings, ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"]);
+    writeObjectsToSheet(ss, "app_settings", arrSettings, defaultSchema.app_settings.headers);
 
     var sysLogs = payload.auditLogs || payload.system_logs || [];
-    writeObjectsToSheet(ss, "system_logs", Array.isArray(sysLogs) ? sysLogs.slice(0, 100) : [], ["id", "timestamp", "user", "action", "details"]);
+    writeObjectsToSheet(ss, "system_logs", Array.isArray(sysLogs) ? sysLogs.slice(0, 100) : [], defaultSchema.system_logs.headers);
 
     // Bersihkan lembar default "Sheet1" jika ada lembar tabel lain
     try {
@@ -1102,10 +955,21 @@ function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
           for (var c = 0; c < headers.length; c++) {
             var hName = headers[c];
             var camelName = hName.replace(/_([a-z])/g, function(g) { return g[1].toUpperCase(); });
-            var val = item[hName] !== undefined ? item[hName] : item[camelName];
-            if (val === undefined || val === null) val = "";
-            else if (Array.isArray(val)) val = val.join(", ");
-            else if (typeof val === "boolean") val = val ? "true" : "false";
+            var snakeName = hName.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+            var val = item[hName] !== undefined ? item[hName] : (item[camelName] !== undefined ? item[camelName] : item[snakeName]);
+            if (val === undefined || val === null) {
+              val = "";
+            } else if (Array.isArray(val)) {
+              if (val.length > 0 && typeof val[0] === "object") {
+                val = JSON.stringify(val);
+              } else {
+                val = val.join(", ");
+              }
+            } else if (typeof val === "object") {
+              val = JSON.stringify(val);
+            } else if (typeof val === "boolean") {
+              val = val ? "true" : "false";
+            }
             row.push(val);
           }
           rowsData.push(row);
@@ -1141,22 +1005,87 @@ function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
   };
 }
 
-// SKEMA DEFAULT JIKA TIDAK DIKIRIM CLIENT
+// SKEMA DEFAULT JIKA TIDAK DIKIRIM CLIENT (Lengkap & Terstandarisasi)
 function getDefaultSchema() {
   return {
-    buildings: { sheetName: "buildings", headers: ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"] },
-    rooms: { sheetName: "rooms", headers: ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"] },
-    meeting_rooms: { sheetName: "meeting_rooms", headers: ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"] },
-    room_capacity_rates: { sheetName: "room_capacity_rates", headers: ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"] },
-    breakfast_menu_items: { sheetName: "breakfast_menu_items", headers: ["id", "name", "category", "price", "description", "is_available", "allergens"] },
-    transactions: { sheetName: "transactions", headers: ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"] },
-    users: { sheetName: "users", headers: ["id", "username", "full_name", "role", "department", "status", "phone", "email"] },
-    maintenances: { sheetName: "maintenances", headers: ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"] },
-    qc_inspections: { sheetName: "qc_inspections", headers: ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"] },
-    breakfast_orders: { sheetName: "breakfast_orders", headers: ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"] },
-    work_sessions: { sheetName: "work_sessions", headers: ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"] },
-    app_settings: { sheetName: "app_settings", headers: ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"] },
-    system_logs: { sheetName: "system_logs", headers: ["id", "timestamp", "user", "action", "details"] }
+    buildings: {
+      sheetName: "buildings",
+      headers: [
+        "id", "name", "code", "floors", "total_rooms", "capacity_desc", "category", "status", "description", "created_at", "updated_at"
+      ]
+    },
+    rooms: {
+      sheetName: "rooms",
+      headers: [
+        "id", "room_number", "building", "building_id", "floor", "type", "bed_type", "capacity", "capacity_number", "status", "price_per_night", "facilities", "qc_status", "last_qc_date", "last_qc_by", "last_qc_notes", "active_tx_id", "active_maint_id", "notes", "created_at", "updated_at"
+      ]
+    },
+    meeting_rooms: {
+      sheetName: "meeting_rooms",
+      headers: [
+        "id", "name", "code", "category", "building", "floor", "capacity", "capacity_number", "daily_rate", "session_rate", "rate_half_day", "rate_full_day", "status", "qc_status", "facilities", "amenities", "description", "active_tx_id", "active_maint_id", "notes", "created_at", "updated_at"
+      ]
+    },
+    room_capacity_rates: {
+      sheetName: "room_capacity_rates",
+      headers: [
+        "id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active", "updated_at"
+      ]
+    },
+    breakfast_menu_items: {
+      sheetName: "breakfast_menu_items",
+      headers: [
+        "id", "name", "category", "price", "description", "is_available", "allergens", "updated_at"
+      ]
+    },
+    transactions: {
+      sheetName: "transactions",
+      headers: [
+        "id", "room_id", "room_number", "building", "guest_name", "guest_type", "nik_ktp", "kloter", "phone", "email", "category", "status", "start_date", "duration", "duration_unit", "price_per_night", "total_amount", "payment_status", "payment_method", "payment_date", "payment_note", "kwitansi_no", "is_paid", "paid_amount", "dp_amount", "dp_date", "dp_method", "dp_note", "remaining_amount", "already_paid", "va_number", "va_account_name", "bank_name", "bank_account_number", "is_group", "group_id", "group_type", "group_name", "group_pic", "group_pic_phone", "total_pax", "agency_or_document", "spk_number", "allocated_room_numbers", "allocated_rooms_count", "include_aula", "rent_aula_id", "rent_aula_name", "rent_aula_duration", "rent_aula_duration_days", "rent_aula_session", "catering_package", "catering_pax_count", "breakfast", "breakfast_menu", "breakfast_portions", "breakfast_days", "breakfast_status", "rent_type", "extra_bed", "extra_bed_count", "extra_bed_price", "extra_bed_notes", "check_in_time", "check_out_time", "notes", "created_user", "created_at", "updated_at", "cancelled_at", "cancel_reason", "cancelled_user", "extended_count", "extend_history"
+      ]
+    },
+    users: {
+      sheetName: "users",
+      headers: [
+        "id", "username", "full_name", "role", "department", "assigned_building", "supervisor_id", "phone", "email", "nip", "status", "is_owner", "password", "signature_url", "qr_code_url", "permissions", "updated_at"
+      ]
+    },
+    maintenances: {
+      sheetName: "maintenances",
+      headers: [
+        "id", "room_id", "room_number", "building", "category", "issue", "description", "urgency", "status", "technician", "assigned_technician_id", "assigned_technician_name", "assigned_by_manager", "assigned_time", "manager_notes", "technician_notes", "work_completed_time", "reporter", "reported_user", "report_time", "created_at", "resolved_time", "resolved_at", "qc_inspection_id", "qc_verdict", "facility_type", "notes", "updated_at"
+      ]
+    },
+    qc_inspections: {
+      sheetName: "qc_inspections",
+      headers: [
+        "id", "room_id", "building", "room_number", "inspector_id", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "decision_type", "notes", "maintenance_id_created", "facility_type", "updated_at"
+      ]
+    },
+    breakfast_orders: {
+      sheetName: "breakfast_orders",
+      headers: [
+        "id", "room_number", "building", "guest_name", "phone", "kloter", "transaction_id", "menu_id", "menu_name", "portions", "days", "start_date", "order_date", "delivery_time", "status", "price_per_portion", "total_price", "dietary_restriction", "notes", "cancel_reason", "cancelled_at", "created_at", "updated_at"
+      ]
+    },
+    work_sessions: {
+      sheetName: "work_sessions",
+      headers: [
+        "id", "user_id", "user_name", "user_role", "department", "assigned_building", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "last_heartbeat", "device_info", "notes"
+      ]
+    },
+    app_settings: {
+      sheetName: "app_settings",
+      headers: [
+        "organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title", "app_logo", "app_favicon", "updated_at"
+      ]
+    },
+    system_logs: {
+      sheetName: "system_logs",
+      headers: [
+        "id", "timestamp", "user", "role", "action", "details", "duration_minutes", "verification_code", "document_title", "target_id", "signatory_name", "signatory_role", "signatory_nip", "qr_code_hash", "has_qr_and_signature"
+      ]
+    }
   };
 }
 
@@ -1283,9 +1212,19 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
           else if (hName === "capacity_pax" || camelName === "capacityPax") val = item.capacityNumber || item.capacity_number || item.capacity;
         }
 
-        if (val === undefined || val === null) val = "";
-        else if (Array.isArray(val)) val = val.join(", ");
-        else if (typeof val === "boolean") val = val ? "true" : "false";
+        if (val === undefined || val === null) {
+          val = "";
+        } else if (Array.isArray(val)) {
+          if (val.length > 0 && typeof val[0] === "object") {
+            val = JSON.stringify(val);
+          } else {
+            val = val.join(", ");
+          }
+        } else if (typeof val === "object") {
+          val = JSON.stringify(val);
+        } else if (typeof val === "boolean") {
+          val = val ? "true" : "false";
+        }
         row.push(val);
       }
       output.push(row);

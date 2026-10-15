@@ -201,7 +201,7 @@ async function startServer() {
     res.json({ ok: true, config: activeSheetsConfig });
   });
 
-  // Skema Baku Database SIM Asrama Haji untuk Google Spreadsheet
+  // Skema Baku Database SIM Asrama Haji untuk Google Spreadsheet (Lengkap & Terstandarisasi)
   const APP_DATABASE_SCHEMA: Record<string, {
     sheetName: string;
     label: string;
@@ -213,92 +213,376 @@ async function startServer() {
       sheetName: "buildings",
       label: "Gedung & Properti",
       category: "Katalog & Master",
-      headers: ["id", "name", "code", "floors", "total_rooms", "category", "status", "description"],
-      description: "Data master gedung penginapan, asrama, dan aula",
+      headers: [
+        "id",
+        "name",
+        "code",
+        "floors",
+        "total_rooms",
+        "capacity_desc",
+        "category",
+        "status",
+        "description",
+        "created_at",
+        "updated_at",
+      ],
+      description: "Data master gedung penginapan, asrama, kantor, dan aula serbaguna",
     },
     rooms: {
       sheetName: "rooms",
       label: "Kamar & Unit Hunian",
       category: "Katalog & Master",
-      headers: ["id", "room_number", "building", "floor", "type", "bed_type", "capacity", "status", "price_per_night", "notes"],
-      description: "Master unit kamar hunian dan tarif per malam",
+      headers: [
+        "id",
+        "room_number",
+        "building",
+        "building_id",
+        "floor",
+        "type",
+        "bed_type",
+        "capacity",
+        "capacity_number",
+        "status",
+        "price_per_night",
+        "facilities",
+        "qc_status",
+        "last_qc_date",
+        "last_qc_by",
+        "last_qc_notes",
+        "active_tx_id",
+        "active_maint_id",
+        "notes",
+        "created_at",
+        "updated_at",
+      ],
+      description: "Master unit kamar hunian, nomor kamar, gedung, kapasitas, dan tarif",
     },
     meeting_rooms: {
       sheetName: "meeting_rooms",
       label: "Ruang Pertemuan / Aula",
       category: "Katalog & Master",
-      headers: ["id", "name", "building", "floor", "capacity", "rate_half_day", "rate_full_day", "status", "amenities"],
-      description: "Ruang serbaguna, ballroom rapat, dan fasilitas aula",
+      headers: [
+        "id",
+        "name",
+        "code",
+        "category",
+        "building",
+        "floor",
+        "capacity",
+        "capacity_number",
+        "daily_rate",
+        "session_rate",
+        "rate_half_day",
+        "rate_full_day",
+        "status",
+        "qc_status",
+        "facilities",
+        "amenities",
+        "description",
+        "active_tx_id",
+        "active_maint_id",
+        "notes",
+        "created_at",
+        "updated_at",
+      ],
+      description: "Ruang serbaguna (SG), ballroom rapat, dan fasilitas aula",
     },
     room_capacity_rates: {
       sheetName: "room_capacity_rates",
       label: "Katalog Tipe Kamar & Tarif Kapasitas",
       category: "Katalog & Master",
-      headers: ["id", "room_type", "bed_type", "capacity_pax", "price_per_night", "description", "facilities", "is_active"],
-      description: "Master tipe kamar (Ekonomi, Standar, Superior), varian bed (Double s/d 8 Single Bed), pax, dan tarif per malam",
+      headers: [
+        "id",
+        "room_type",
+        "bed_type",
+        "capacity_pax",
+        "price_per_night",
+        "description",
+        "facilities",
+        "is_active",
+        "updated_at",
+      ],
+      description: "Master tipe kamar (Ekonomi, Standar, Superior), varian bed (Double s/d 8 Single Bed), kapasitas pax, dan tarif per malam",
     },
     breakfast_menu_items: {
       sheetName: "breakfast_menu_items",
       label: "Katalog Menu Katering & Sarapan",
       category: "Katalog & Master",
-      headers: ["id", "name", "category", "price", "description", "is_available", "allergens"],
-      description: "Katalog menu makanan, minuman, dan kudapan sarapan koperasi",
+      headers: [
+        "id",
+        "name",
+        "category",
+        "price",
+        "description",
+        "is_available",
+        "allergens",
+        "updated_at",
+      ],
+      description: "Katalog menu makanan berat, bubur/sayur, snack/kudapan, minuman, dan sehat lansia",
     },
     transactions: {
       sheetName: "transactions",
       label: "Reservasi & Tamu",
       category: "Operasional & Transaksi",
-      headers: ["id", "room_number", "building", "guest_name", "category", "status", "start_date", "duration", "phone", "email", "notes", "total_amount", "payment_status"],
-      description: "Buku tamu, catatan check-in/out, dan reservasi aktif",
+      headers: [
+        "id",
+        "room_id",
+        "room_number",
+        "building",
+        "guest_name",
+        "guest_type",
+        "nik_ktp",
+        "kloter",
+        "phone",
+        "email",
+        "category",
+        "status",
+        "start_date",
+        "duration",
+        "duration_unit",
+        "price_per_night",
+        "total_amount",
+        "payment_status",
+        "payment_method",
+        "payment_date",
+        "payment_note",
+        "kwitansi_no",
+        "is_paid",
+        "paid_amount",
+        "dp_amount",
+        "dp_date",
+        "dp_method",
+        "dp_note",
+        "remaining_amount",
+        "already_paid",
+        "va_number",
+        "va_account_name",
+        "bank_name",
+        "bank_account_number",
+        "is_group",
+        "group_id",
+        "group_type",
+        "group_name",
+        "group_pic",
+        "group_pic_phone",
+        "total_pax",
+        "agency_or_document",
+        "spk_number",
+        "allocated_room_numbers",
+        "allocated_rooms_count",
+        "include_aula",
+        "rent_aula_id",
+        "rent_aula_name",
+        "rent_aula_duration",
+        "rent_aula_duration_days",
+        "rent_aula_session",
+        "catering_package",
+        "catering_pax_count",
+        "breakfast",
+        "breakfast_menu",
+        "breakfast_portions",
+        "breakfast_days",
+        "breakfast_status",
+        "rent_type",
+        "extra_bed",
+        "extra_bed_count",
+        "extra_bed_price",
+        "extra_bed_notes",
+        "check_in_time",
+        "check_out_time",
+        "notes",
+        "created_user",
+        "created_at",
+        "updated_at",
+        "cancelled_at",
+        "cancel_reason",
+        "cancelled_user",
+        "extended_count",
+        "extend_history",
+      ],
+      description: "Buku tamu lengkap, registrasi individu/rombongan, check-in, check-out, rincian pembayaran DP/Lunas, dan histori perpanjangan",
     },
     users: {
       sheetName: "users",
       label: "Pengguna & Petugas",
       category: "Sistem & Pengguna",
-      headers: ["id", "username", "full_name", "role", "department", "status", "phone", "email"],
-      description: "Daftar akun staf resepsionis, bendahara, QC, dan teknisi",
+      headers: [
+        "id",
+        "username",
+        "full_name",
+        "role",
+        "department",
+        "assigned_building",
+        "supervisor_id",
+        "phone",
+        "email",
+        "nip",
+        "status",
+        "is_owner",
+        "password",
+        "signature_url",
+        "qr_code_url",
+        "permissions",
+        "updated_at",
+      ],
+      description: "Daftar akun staf resepsionis, keuangan/bendahara, QC, teknisi, tanda tangan digital, dan otorisasi sistem",
     },
     maintenances: {
       sheetName: "maintenances",
       label: "Perawatan Fasilitas",
       category: "Operasional & Transaksi",
-      headers: ["id", "room_number", "building", "issue", "urgency", "status", "reporter", "created_at", "resolved_at", "notes"],
-      description: "Log kerusakan dan perbaikan fasilitas asrama",
+      headers: [
+        "id",
+        "room_id",
+        "room_number",
+        "building",
+        "category",
+        "issue",
+        "description",
+        "urgency",
+        "status",
+        "technician",
+        "assigned_technician_id",
+        "assigned_technician_name",
+        "assigned_by_manager",
+        "assigned_time",
+        "manager_notes",
+        "technician_notes",
+        "work_completed_time",
+        "reporter",
+        "reported_user",
+        "report_time",
+        "created_at",
+        "resolved_time",
+        "resolved_at",
+        "qc_inspection_id",
+        "qc_verdict",
+        "facility_type",
+        "notes",
+        "updated_at",
+      ],
+      description: "Tiket kerusakan, disposisi teknisi, pelaporan, dan verifikasi perbaikan fasilitas asrama",
     },
     qc_inspections: {
       sheetName: "qc_inspections",
       label: "Inspeksi Mutu QC",
       category: "Operasional & Transaksi",
-      headers: ["id", "room_id", "building", "room_number", "inspector_name", "inspection_date", "cleanliness", "linen_bed", "ac_electricity", "plumbing_water", "amenities", "result", "notes"],
-      description: "Checklist mutu dan verifikasi kelaikan kamar & aula",
+      headers: [
+        "id",
+        "room_id",
+        "building",
+        "room_number",
+        "inspector_id",
+        "inspector_name",
+        "inspection_date",
+        "cleanliness",
+        "linen_bed",
+        "ac_electricity",
+        "plumbing_water",
+        "amenities",
+        "result",
+        "decision_type",
+        "notes",
+        "maintenance_id_created",
+        "facility_type",
+        "updated_at",
+      ],
+      description: "Checklist audit mutu 5 aspek, verifikasi kelaikan kamar/aula, dan tindak lanjut perawatan",
     },
     breakfast_orders: {
       sheetName: "breakfast_orders",
       label: "Pesanan Konsumsi & Sarapan",
       category: "Operasional & Transaksi",
-      headers: ["id", "room_number", "building", "guest_name", "menu_name", "portions", "days", "order_date", "delivery_time", "status", "total_price", "notes"],
-      description: "Pesanan konsumsi sarapan dan katering koperasi",
+      headers: [
+        "id",
+        "room_number",
+        "building",
+        "guest_name",
+        "phone",
+        "kloter",
+        "transaction_id",
+        "menu_id",
+        "menu_name",
+        "portions",
+        "days",
+        "start_date",
+        "order_date",
+        "delivery_time",
+        "status",
+        "price_per_portion",
+        "total_price",
+        "dietary_restriction",
+        "notes",
+        "cancel_reason",
+        "cancelled_at",
+        "created_at",
+        "updated_at",
+      ],
+      description: "Pesanan sarapan kamar, catering prasmanan aula, porsi harian, dan status pengantaran dapur",
     },
     work_sessions: {
       sheetName: "work_sessions",
       label: "Sesi Jam Kerja Petugas",
       category: "Sistem & Pengguna",
-      headers: ["id", "user_id", "user_name", "user_role", "login_time", "logout_time", "duration_seconds", "duration_formatted", "status", "notes"],
-      description: "Presensi dan riwayat durasi jam kerja petugas",
+      headers: [
+        "id",
+        "user_id",
+        "user_name",
+        "user_role",
+        "department",
+        "assigned_building",
+        "login_time",
+        "logout_time",
+        "duration_seconds",
+        "duration_formatted",
+        "status",
+        "last_heartbeat",
+        "device_info",
+        "notes",
+      ],
+      description: "Presensi digital, detak aktif (heartbeat), riwayat durasi jam kerja staf, dan perangkat login",
     },
     app_settings: {
       sheetName: "app_settings",
       label: "Pengaturan Profil Instansi",
       category: "Sistem & Pengguna",
-      headers: ["organization_name", "sub_title", "ministry_name", "address", "phone", "email", "portal_url", "tag_title"],
-      description: "Identitas instansi, nama asrama haji, kontak, dan alamat resmi",
+      headers: [
+        "organization_name",
+        "sub_title",
+        "ministry_name",
+        "address",
+        "phone",
+        "email",
+        "portal_url",
+        "tag_title",
+        "app_logo",
+        "app_favicon",
+        "updated_at",
+      ],
+      description: "Identitas resmi instansi UPT Asrama Haji Jakarta, logo instansi, kontak resmi, dan portal",
     },
     system_logs: {
       sheetName: "system_logs",
       label: "Audit Log Sistem",
       category: "Sistem & Pengguna",
-      headers: ["id", "timestamp", "user", "action", "details"],
-      description: "Riwayat aktivitas dan audit trail aplikasi",
+      headers: [
+        "id",
+        "timestamp",
+        "user",
+        "role",
+        "action",
+        "details",
+        "duration_minutes",
+        "verification_code",
+        "document_title",
+        "target_id",
+        "signatory_name",
+        "signatory_role",
+        "signatory_nip",
+        "qr_code_hash",
+        "has_qr_and_signature",
+      ],
+      description: "Audit trail aktivitas sistem, verifikasi tanda tangan sah ber-QR, dan riwayat operasional",
     },
   };
 
@@ -357,6 +641,11 @@ async function startServer() {
       if (normExpected === "qcstatus" && (normFound === "statusqc" || normFound === "mutu")) return true;
       if (normExpected === "activetxid" && (normFound === "txid" || normFound === "transactionid")) return true;
       if (normExpected === "activemaintid" && (normFound === "maintid" || normFound === "maintenanceid")) return true;
+      if (normExpected === "nikktp" && (normFound === "nik" || normFound === "ktp" || normFound === "noktp")) return true;
+      if (normExpected === "totalamount" && (normFound === "totalbiaya" || normFound === "total" || normFound === "biaya")) return true;
+      if (normExpected === "createdat" && (normFound === "createdtime" || normFound === "tanggalbuat")) return true;
+      if (normExpected === "updatedat" && (normFound === "updatedtime" || normFound === "tanggalubah")) return true;
+      if (normExpected === "startdate" && (normFound === "orderdate" || normFound === "tanggal")) return true;
       return false;
     });
   }
@@ -594,11 +883,81 @@ async function startServer() {
     }
   });
 
+  // Helper normalisasi item data agar memiliki representasi snake_case DAN camelCase secara lengkap
+  function normalizeItemsList(items: any[]): any[] {
+    if (!Array.isArray(items)) return [];
+    return items.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const norm: Record<string, any> = { ...item };
+      for (const [k, v] of Object.entries(item)) {
+        let formattedVal = v;
+        if (v !== null && typeof v === "object") {
+          if (Array.isArray(v)) {
+            if (v.length > 0 && typeof v[0] === "object") {
+              formattedVal = JSON.stringify(v);
+            } else {
+              formattedVal = v.join(", ");
+            }
+          } else {
+            formattedVal = JSON.stringify(v);
+          }
+        }
+        const snake = k.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+        const camel = k.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        if (norm[snake] === undefined) norm[snake] = formattedVal;
+        if (norm[camel] === undefined) norm[camel] = formattedVal;
+      }
+      return norm;
+    });
+  }
+
+  function formatDatabaseForSpreadsheet(data: any): Record<string, any> {
+    const rawSettings = data?.appSettings || data?.app_settings || null;
+    const appSettingsList = rawSettings ? normalizeItemsList(Array.isArray(rawSettings) ? rawSettings : [rawSettings]) : [];
+    const buildingsList = normalizeItemsList(Array.isArray(data?.buildings) ? data.buildings : []);
+    const roomsList = normalizeItemsList(Array.isArray(data?.rooms) ? data.rooms : []);
+    const meetingRoomsList = normalizeItemsList(Array.isArray(data?.meetingRooms) ? data.meetingRooms : (Array.isArray(data?.meeting_rooms) ? data.meeting_rooms : []));
+    const roomCapacityRatesList = normalizeItemsList(Array.isArray(data?.roomCapacityRates) ? data.roomCapacityRates : (Array.isArray(data?.room_capacity_rates) ? data.room_capacity_rates : []));
+    const breakfastMenuItemsList = normalizeItemsList(Array.isArray(data?.breakfastMenuItems) ? data.breakfastMenuItems : (Array.isArray(data?.breakfast_menu_items) ? data.breakfast_menu_items : []));
+    const breakfastOrdersList = normalizeItemsList(Array.isArray(data?.breakfastOrders) ? data.breakfastOrders : (Array.isArray(data?.breakfast_orders) ? data.breakfast_orders : []));
+    const transactionsList = normalizeItemsList(Array.isArray(data?.transactions) ? data.transactions : []);
+    const usersList = normalizeItemsList(Array.isArray(data?.users) ? data.users : []);
+    const maintenancesList = normalizeItemsList(Array.isArray(data?.maintenances) ? data.maintenances : []);
+    const qcInspectionsList = normalizeItemsList(Array.isArray(data?.qcInspections) ? data.qcInspections : (Array.isArray(data?.qc_inspections) ? data.qc_inspections : []));
+    const workSessionsList = normalizeItemsList(Array.isArray(data?.workSessions) ? data.workSessions : (Array.isArray(data?.work_sessions) ? data.work_sessions : []));
+    const auditLogsList = normalizeItemsList(Array.isArray(data?.auditLogs) ? data.auditLogs : (Array.isArray(data?.system_logs) ? data.system_logs : []));
+
+    return {
+      buildings: buildingsList,
+      rooms: roomsList,
+      meetingRooms: meetingRoomsList,
+      meeting_rooms: meetingRoomsList,
+      roomCapacityRates: roomCapacityRatesList,
+      room_capacity_rates: roomCapacityRatesList,
+      breakfastMenuItems: breakfastMenuItemsList,
+      breakfast_menu_items: breakfastMenuItemsList,
+      breakfastOrders: breakfastOrdersList,
+      breakfast_orders: breakfastOrdersList,
+      transactions: transactionsList,
+      users: usersList,
+      maintenances: maintenancesList,
+      qcInspections: qcInspectionsList,
+      qc_inspections: qcInspectionsList,
+      workSessions: workSessionsList,
+      work_sessions: workSessionsList,
+      auditLogs: auditLogsList,
+      system_logs: auditLogsList,
+      appSettings: rawSettings,
+      app_settings: appSettingsList,
+    };
+  }
+
   // Endpoint Auto-Provisioning: Otomatis Membuat Sheet & Menyusun Header Table
   app.post("/api/sheets/auto-provision", async (req, res) => {
     const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
     const populateData = Boolean(req.body?.populateData);
     const customData = req.body?.data || serverDatabaseCache || {};
+    const formattedData = formatDatabaseForSpreadsheet(customData);
 
     if (!targetUrl) {
       return res.status(400).json({
@@ -612,7 +971,7 @@ async function startServer() {
         action: "AUTO_PROVISION",
         schema: APP_DATABASE_SCHEMA,
         populateData,
-        data: customData,
+        data: formattedData,
         timestamp: new Date().toISOString(),
       };
 
@@ -929,63 +1288,12 @@ async function startServer() {
       });
     }
 
-    // Helper normalisasi setiap item data agar memiliki representasi snake_case DAN camelCase
-    const normalizeItemsList = (items: any[]) => {
-      if (!Array.isArray(items)) return [];
-      return items.map((item) => {
-        if (!item || typeof item !== "object") return item;
-        const norm: Record<string, any> = { ...item };
-        for (const [k, v] of Object.entries(item)) {
-          const snake = k.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-          const camel = k.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-          if (norm[snake] === undefined) norm[snake] = v;
-          if (norm[camel] === undefined) norm[camel] = v;
-        }
-        return norm;
-      });
-    };
-
     try {
-      const buildingsList = normalizeItemsList(Array.isArray(payload.buildings) ? payload.buildings : []);
-      const roomsList = normalizeItemsList(Array.isArray(payload.rooms) ? payload.rooms : []);
-      const meetingRoomsList = normalizeItemsList(Array.isArray(payload.meetingRooms) ? payload.meetingRooms : (Array.isArray(payload.meeting_rooms) ? payload.meeting_rooms : []));
-      const roomCapacityRatesList = normalizeItemsList(Array.isArray(payload.roomCapacityRates) ? payload.roomCapacityRates : (Array.isArray(payload.room_capacity_rates) ? payload.room_capacity_rates : []));
-      const breakfastMenuItemsList = normalizeItemsList(Array.isArray(payload.breakfastMenuItems) ? payload.breakfastMenuItems : (Array.isArray(payload.breakfast_menu_items) ? payload.breakfast_menu_items : []));
-      const breakfastOrdersList = normalizeItemsList(Array.isArray(payload.breakfastOrders) ? payload.breakfastOrders : (Array.isArray(payload.breakfast_orders) ? payload.breakfast_orders : []));
-      const transactionsList = normalizeItemsList(Array.isArray(payload.transactions) ? payload.transactions : []);
-      const usersList = normalizeItemsList(Array.isArray(payload.users) ? payload.users : []);
-      const maintenancesList = normalizeItemsList(Array.isArray(payload.maintenances) ? payload.maintenances : []);
-      const qcInspectionsList = normalizeItemsList(Array.isArray(payload.qcInspections) ? payload.qcInspections : (Array.isArray(payload.qc_inspections) ? payload.qc_inspections : []));
-      const workSessionsList = normalizeItemsList(Array.isArray(payload.workSessions) ? payload.workSessions : (Array.isArray(payload.work_sessions) ? payload.work_sessions : []));
-      const auditLogsList = normalizeItemsList(Array.isArray(payload.auditLogs) ? payload.auditLogs : (Array.isArray(payload.system_logs) ? payload.system_logs : []));
-      const rawSettings = payload.appSettings || payload.app_settings || null;
-      const appSettingsList = rawSettings ? normalizeItemsList(Array.isArray(rawSettings) ? rawSettings : [rawSettings]) : [];
-
+      const formattedData = formatDatabaseForSpreadsheet(payload);
       const formattedPayload = {
         action: "SAVE_ALL",
         timestamp: new Date().toISOString(),
-        buildings: buildingsList,
-        rooms: roomsList,
-        meetingRooms: meetingRoomsList,
-        roomCapacityRates: roomCapacityRatesList,
-        breakfastMenuItems: breakfastMenuItemsList,
-        breakfastOrders: breakfastOrdersList,
-        transactions: transactionsList,
-        users: usersList,
-        maintenances: maintenancesList,
-        qcInspections: qcInspectionsList,
-        workSessions: workSessionsList,
-        auditLogs: auditLogsList,
-        appSettings: rawSettings,
-        // Aliases snake_case untuk kompatibilitas penuh dengan skrip Google Spreadsheet
-        meeting_rooms: meetingRoomsList,
-        room_capacity_rates: roomCapacityRatesList,
-        breakfast_menu_items: breakfastMenuItemsList,
-        breakfast_orders: breakfastOrdersList,
-        qc_inspections: qcInspectionsList,
-        work_sessions: workSessionsList,
-        system_logs: auditLogsList,
-        app_settings: appSettingsList,
+        ...formattedData,
       };
 
       const isExplicitSync = req.query?.sync === "true";
