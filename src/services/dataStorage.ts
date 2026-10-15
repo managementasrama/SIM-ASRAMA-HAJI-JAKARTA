@@ -31,7 +31,7 @@ import {
   findRoomRate
 } from '../data';
 import { initialChatChannels, initialChatMessages } from '../chatData';
-import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber, isRoomMatchingBuilding, resolveRoomBuildingName } from '../lib/utils';
+import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber, isRoomMatchingBuilding, resolveRoomBuildingName, getNextSequentialId, isMeetingFacility } from '../lib/utils';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
 import { 
   fetchFullDatabaseFromSpreadsheet, 
@@ -427,10 +427,19 @@ export class DataStorageService {
     });
     let mergedBuildings = Array.from(bldByNameMap.values());
 
-    // 8. Rooms (Master Unit Kamar)
+    // 8. Rooms (Master Unit Kamar Hunian Murni - Tidak mencakup Ruang Pertemuan / Aula yang memiliki sheet tersendiri)
     const rawMergedRooms = mergeEntityList(local.rooms || [], cloud.rooms || [], _preferCloud);
     const normalizedSourceRooms = rawMergedRooms
-      .filter(r => r && r.id)
+      .filter(r => {
+        if (!r || !r.id) return false;
+        const b = (r.building || '').toLowerCase();
+        const t = (r.type || '').toLowerCase();
+        const id = (r.id || '').toLowerCase();
+        if (id.startsWith('mr-')) return false;
+        if (b.includes('pertemuan') || b.includes('aula') || b.includes('serbaguna')) return false;
+        if (t.includes('pertemuan') || t.includes('aula') || t.includes('serbaguna')) return false;
+        return true;
+      })
       .map(r => ({
         ...r,
         building: getRoomBuildingKey(r, mergedMeetingRooms)
@@ -705,7 +714,11 @@ export class DataStorageService {
     const db = this.getDatabase();
     const existingIndex = db.users.findIndex(u => u.id === user.id);
     let updatedUsers: User[];
-    const userWithTime: User = { ...user, updatedAt: new Date().toISOString() };
+    const userWithTime: User = { 
+      ...user, 
+      id: user.id && user.id.trim() !== '' ? user.id.trim() : getNextSequentialId(db.users, 'user-'),
+      updatedAt: new Date().toISOString() 
+    };
 
     if (existingIndex >= 0) {
       updatedUsers = [...db.users];
@@ -773,7 +786,7 @@ export class DataStorageService {
       ...building,
       name: normalizedInputName || building.name.trim(),
       code: (building.code || '').trim().toUpperCase(),
-      id: building.id && building.id.trim() !== '' ? building.id.trim() : `bld-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: building.id && building.id.trim() !== '' ? building.id.trim() : getNextSequentialId(buildings, 'bld-'),
       updatedAt: new Date().toISOString()
     };
 
@@ -956,7 +969,7 @@ export class DataStorageService {
                 if (!existingNums.has(roomNum.toUpperCase())) {
                   existingNums.add(roomNum.toUpperCase());
                   newRooms.push({
-                    id: `room-${Date.now()}-${fl}-${seqInFloor}-${Math.random().toString(36).substr(2, 4)}`,
+                    id: getNextSequentialId([...rooms, ...newRooms], 'room-'),
                     building: targetBuildingName,
                     roomNumber: roomNum,
                     floor: fl,
@@ -1057,7 +1070,7 @@ export class DataStorageService {
             count++;
             const roomNum = `${prefix}${f}${r.toString().padStart(2, '0')}`;
             newRooms.push({
-              id: `room-${Date.now()}-${f}-${r}-${Math.random().toString(36).substr(2, 4)}`,
+              id: getNextSequentialId([...rooms, ...newRooms], 'room-'),
               building: buildingWithId.name,
               roomNumber: roomNum,
               floor: f,
@@ -1201,7 +1214,7 @@ export class DataStorageService {
     const meetingRooms = db.meetingRooms || [];
     const mrWithId: MeetingRoom = {
       ...meetingRoom,
-      id: meetingRoom.id && meetingRoom.id.trim() !== '' ? meetingRoom.id : `mr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: meetingRoom.id && meetingRoom.id.trim() !== '' ? meetingRoom.id.trim() : getNextSequentialId(meetingRooms, 'mr-'),
       updatedAt: new Date().toISOString()
     };
     const idx = meetingRooms.findIndex(m => m.id === mrWithId.id);
@@ -1214,65 +1227,10 @@ export class DataStorageService {
       updated = [...meetingRooms, mrWithId];
     }
 
-    // Sinkronkan juga ke daftar rooms agar operasional terpadu
-    const rooms = db.rooms || [];
-    const roomIdx = rooms.findIndex(r => r.id === mrWithId.id || r.roomNumber === mrWithId.name);
-    let updatedRooms: Room[];
+    // Pastikan rooms tidak terkontaminasi oleh fasilitas Ruang Pertemuan / Aula yang memiliki sheet tersendiri (meeting_rooms)
+    const rooms = (db.rooms || []).filter(r => r.id !== mrWithId.id && r.roomNumber !== mrWithId.name);
 
-    const nLower = (mrWithId.name || '').toLowerCase().trim();
-    const cLower = (mrWithId.code || '').toLowerCase().trim();
-    const bLower = (mrWithId.building || '').toLowerCase().trim();
-
-    const isSG = mrWithId.category === 'SERBAGUNA' || 
-      (mrWithId.category !== 'AULA' && mrWithId.category !== 'RUANG_PERTEMUAN' && 
-       !nLower.startsWith('ruang pertemuan') &&
-       !nLower.startsWith('aula') &&
-       !nLower.startsWith('auditorium') &&
-       !nLower.startsWith('ruang rapat') &&
-       !nLower.startsWith('ruang vip') &&
-       (nLower.includes('serbaguna') || 
-        nLower.includes('multipurpose') || 
-        nLower.startsWith('gedung sg') || 
-        nLower.startsWith('sg-') || 
-        cLower === 'mp' || 
-        cLower.startsWith('sg-') || 
-        bLower.includes('serbaguna')));
-
-    const targetBuilding = mrWithId.building && mrWithId.building !== 'Ruang Pertemuan' && mrWithId.building !== 'Gedung Serbaguna' && mrWithId.building !== 'Gedung Serbaguna (SG)'
-      ? mrWithId.building
-      : (isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan');
-
-    const targetType = isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan / Aula';
-
-    const roomRepresentation: Room = {
-      id: mrWithId.id,
-      building: targetBuilding,
-      roomNumber: mrWithId.name,
-      type: targetType,
-      capacity: mrWithId.capacity,
-      status: mrWithId.status === 'MAINTENANCE' ? 'MAINTENANCE' : (mrWithId.status === 'TERPAKAI' ? 'TERISI' : 'KOSONG'),
-      qcStatus: mrWithId.qcStatus || 'LOLOS_QC',
-      activeTxId: mrWithId.activeTxId || null,
-      activeMaintId: null
-    };
-
-    if (roomIdx >= 0) {
-      updatedRooms = [...rooms];
-      updatedRooms[roomIdx] = { ...updatedRooms[roomIdx], ...roomRepresentation };
-    } else {
-      updatedRooms = [...rooms, roomRepresentation];
-    }
-
-    // Sinkronkan totalRooms pada daftar gedung (khususnya Ruang Pertemuan atau Gedung Serbaguna)
-    const buildings = (db.buildings || []).map(b => {
-      if (b.name === 'Ruang Pertemuan' || b.name === 'Gedung Serbaguna (SG)' || b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
-        const count = updated.filter(m => m.building === b.name).length;
-        return { ...b, totalRooms: count || b.totalRooms };
-      }
-      return b;
-    });
-
-    this.saveDatabase({ ...db, meetingRooms: updated, rooms: updatedRooms, buildings });
+    this.saveDatabase({ ...db, meetingRooms: updated, rooms });
     return mrWithId;
   }
 
@@ -1321,6 +1279,28 @@ export class DataStorageService {
     const rooms = db.rooms || [];
     const rates = db.roomCapacityRates || initialRoomCapacityRates;
 
+    // Jika kamar yang disimpan adalah fasilitas Ruang Pertemuan / Aula, simpan ke meetingRooms dan jangan masukkan ke rooms
+    const isMeetingFac = isMeetingFacility(room.building) || 
+                         isMeetingFacility(room.type || '') || 
+                         room.building === 'Ruang Pertemuan / Aula' || 
+                         room.building === 'Ruang Pertemuan' ||
+                         room.type === 'Ruang Pertemuan / Aula';
+    if (isMeetingFac) {
+      const mrId = room.id && room.id.startsWith('mr-') ? room.id : getNextSequentialId(db.meetingRooms, 'mr-');
+      this.saveMeetingRoom({
+        id: mrId,
+        name: room.roomNumber,
+        category: (room.type && room.type.toLowerCase().includes('serbaguna')) ? 'SERBAGUNA' : 'AULA',
+        building: room.building || 'Ruang Pertemuan / Aula',
+        capacity: room.capacity || '300 - 500 Orang',
+        dailyRate: room.pricePerNight || 7500000,
+        sessionRate: Math.round((room.pricePerNight || 7500000) * 0.6),
+        facilities: room.facilities,
+        status: (room.status as any) || 'TERSEDIA'
+      });
+      return { ...room, id: mrId };
+    }
+
     const assignedType = room.type || 'Standar';
     const assignedBedType = room.bedType || '4 Single Bed';
     const matchedRate = findRoomRate(assignedType, assignedBedType, rates);
@@ -1335,7 +1315,7 @@ export class DataStorageService {
     const roomWithId: Room = {
       ...room,
       building: effectiveBuilding,
-      id: room.id && room.id.trim() !== '' ? room.id : `room-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: room.id && room.id.trim() !== '' ? room.id.trim() : getNextSequentialId(rooms, 'room-'),
       type: assignedType,
       bedType: assignedBedType,
       capacity: `${parsedCapNum} Orang`,
@@ -1383,13 +1363,13 @@ export class DataStorageService {
     const bldExists = buildings.some(b => b.name.toLowerCase() === roomWithId.building.toLowerCase());
     if (!bldExists && roomWithId.building && roomWithId.building !== 'Ruang Pertemuan') {
       buildings.push({
-        id: `bld-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        id: getNextSequentialId(buildings, 'bld-'),
         name: roomWithId.building,
         code: roomWithId.building.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'BLD',
         floors: roomWithId.floor || 1,
         totalRooms: 1,
         capacityDesc: 'Kamar Hunian',
-        category: roomWithId.type === 'Ruang Pertemuan / Aula' ? 'SERBAGUNA' : 'PENGINAPAN',
+        category: 'PENGINAPAN',
         description: `Gedung ${roomWithId.building}`,
         status: 'AKTIF'
       });
@@ -1402,44 +1382,6 @@ export class DataStorageService {
       const count = updated.filter(r => getRoomBuildingKey(r, db.meetingRooms).toLowerCase() === b.name.toLowerCase()).length;
       return { ...b, totalRooms: count > 0 ? count : (b.totalRooms || 3) };
     });
-
-    // Sinkronkan ke meetingRooms jika kamar/gedung ini berkategori Serbaguna / Aula
-    const targetBuilding = buildings.find(b => b.name.toLowerCase() === roomWithId.building.toLowerCase());
-    const isSerbaguna = targetBuilding?.category === 'SERBAGUNA' || 
-                        roomWithId.building === 'Ruang Pertemuan' || 
-                        (roomWithId.type && (roomWithId.type.toLowerCase().includes('aula') || roomWithId.type.toLowerCase().includes('pertemuan') || roomWithId.type.toLowerCase().includes('serbaguna')));
-
-    if (isSerbaguna) {
-      const mrIdx = meetingRooms.findIndex(m => 
-        m.id === roomWithId.id || 
-        m.id === `mr-${roomWithId.id}` || 
-        (m.name.toLowerCase() === roomWithId.roomNumber.toLowerCase() && m.building?.toLowerCase() === roomWithId.building.toLowerCase())
-      );
-      const mrStatus = roomWithId.status === 'MAINTENANCE' ? 'MAINTENANCE' : (roomWithId.status === 'TERISI' ? 'TERPAKAI' : 'TERSEDIA');
-      
-      const mrData: MeetingRoom = {
-        id: mrIdx >= 0 ? meetingRooms[mrIdx].id : (roomWithId.id && roomWithId.id.startsWith('mr-') ? roomWithId.id : `mr-${roomWithId.id || Date.now()}`),
-        name: roomWithId.roomNumber,
-        code: `MR-${roomWithId.roomNumber}`,
-        building: roomWithId.building,
-        capacity: roomWithId.capacity ? `${roomWithId.capacity} Orang` : '500 Orang',
-        capacityNumber: parseInt(String(roomWithId.capacity)) || 300,
-        dailyRate: (roomWithId.pricePerNight && roomWithId.pricePerNight > 1000000) ? roomWithId.pricePerNight * 2 : 12000000,
-        sessionRate: roomWithId.pricePerNight || 6500000,
-        facilities: roomWithId.facilities && roomWithId.facilities.length > 0 
-          ? roomWithId.facilities 
-          : ['AC Central', 'Sound System 5000W', 'Proyektor & Videotron', 'Kursi VIP & Seminar', 'Podium Pidato', 'Ruang Rias & Toilet VIP'],
-        description: `Ruang pertemuan serbaguna ${roomWithId.roomNumber} di ${roomWithId.building}`,
-        status: mrStatus,
-        qcStatus: roomWithId.qcStatus || 'LOLOS_QC'
-      };
-
-      if (mrIdx >= 0) {
-        meetingRooms[mrIdx] = { ...meetingRooms[mrIdx], ...mrData };
-      } else {
-        meetingRooms = [...meetingRooms, mrData];
-      }
-    }
 
     this.saveDatabase({ 
       ...db, 
@@ -1526,7 +1468,7 @@ export class DataStorageService {
 
     const rateWithId: RoomCapacityRate = {
       ...rate,
-      id: rate.id && rate.id.trim() !== '' ? rate.id : `rcr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: rate.id && rate.id.trim() !== '' ? rate.id.trim() : getNextSequentialId(rates, 'rcr-'),
       capacityPax: Number(rate.capacityPax) || 2,
       pricePerNight: Number(rate.pricePerNight) || 350000,
       isActive: rate.isActive !== false,
@@ -1613,7 +1555,11 @@ export class DataStorageService {
     const db = this.getDatabase();
     const existingIndex = db.transactions.findIndex(t => t.id === tx.id);
     let updatedTxs: Transaction[];
-    const txWithTime: Transaction = { ...tx, updatedAt: new Date().toISOString() };
+    const txWithTime: Transaction = { 
+      ...tx, 
+      id: tx.id && tx.id.trim() !== '' ? tx.id.trim() : getNextSequentialId(db.transactions, 'tx-'),
+      updatedAt: new Date().toISOString() 
+    };
 
     if (existingIndex >= 0) {
       updatedTxs = [...db.transactions];
@@ -1701,7 +1647,11 @@ export class DataStorageService {
     const db = this.getDatabase();
     const idx = db.maintenances.findIndex(item => item.id === m.id);
     let updated: Maintenance[];
-    const mWithTime: Maintenance = { ...m, updatedAt: new Date().toISOString() };
+    const mWithTime: Maintenance = { 
+      ...m, 
+      id: m.id && m.id.trim() !== '' ? m.id.trim() : getNextSequentialId(db.maintenances, 'maint-'),
+      updatedAt: new Date().toISOString() 
+    };
 
     if (idx >= 0) {
       updated = [...db.maintenances];
@@ -1731,15 +1681,19 @@ export class DataStorageService {
   public addAuditLog(log: AuditLog): AuditLog {
     const db = this.getDatabase();
     const existingLogs = Array.isArray(db.auditLogs) ? db.auditLogs : [];
+    const logWithId: AuditLog = {
+      ...log,
+      id: log.id && log.id.trim() !== '' ? log.id.trim() : getNextSequentialId(existingLogs, 'log-'),
+    };
     const filtered = existingLogs.filter(
-      l => l.id !== log.id && (!log.verificationCode || l.verificationCode !== log.verificationCode)
+      l => l.id !== logWithId.id && (!logWithId.verificationCode || l.verificationCode !== logWithId.verificationCode)
     );
-    const updated = [log, ...filtered].slice(0, 250);
+    const updated = [logWithId, ...filtered].slice(0, 250);
     this.saveDatabase({ ...db, auditLogs: updated });
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('sim_haji_audit_log_added', { detail: log }));
+      window.dispatchEvent(new CustomEvent('sim_haji_audit_log_added', { detail: logWithId }));
     }
-    return log;
+    return logWithId;
   }
 
   public truncateAuditLogs(keepCount: number = 50): number {
@@ -1774,16 +1728,20 @@ export class DataStorageService {
     const db = this.getDatabase();
     const idx = db.workSessions.findIndex(s => s.id === session.id);
     let updated: WorkSession[];
+    const sessionWithId: WorkSession = {
+      ...session,
+      id: session.id && session.id.trim() !== '' ? session.id.trim() : getNextSequentialId(db.workSessions, 'ws-')
+    };
 
     if (idx >= 0) {
       updated = [...db.workSessions];
-      updated[idx] = { ...updated[idx], ...session };
+      updated[idx] = { ...updated[idx], ...sessionWithId };
     } else {
-      updated = [session, ...db.workSessions];
+      updated = [sessionWithId, ...db.workSessions];
     }
 
     this.saveDatabase({ ...db, workSessions: updated });
-    return session;
+    return sessionWithId;
   }
 
   public clearWorkSessions(): void {
@@ -1803,7 +1761,11 @@ export class DataStorageService {
     const db = this.getDatabase();
     const idx = db.qcInspections.findIndex(q => q.id === inspection.id);
     let updated: QcInspection[];
-    const qcWithTime: QcInspection = { ...inspection, updatedAt: new Date().toISOString() };
+    const qcWithTime: QcInspection = { 
+      ...inspection, 
+      id: inspection.id && inspection.id.trim() !== '' ? inspection.id.trim() : getNextSequentialId(db.qcInspections, 'qc-'),
+      updatedAt: new Date().toISOString() 
+    };
 
     if (idx >= 0) {
       updated = [...db.qcInspections];
@@ -2074,7 +2036,11 @@ export class DataStorageService {
     const items = db.breakfastMenuItems || [];
     const idx = items.findIndex(m => m.id === item.id);
     let updated: BreakfastMenuItem[];
-    const itemWithTime: BreakfastMenuItem = { ...item, updatedAt: new Date().toISOString() };
+    const itemWithTime: BreakfastMenuItem = { 
+      ...item, 
+      id: item.id && item.id.trim() !== '' ? item.id.trim() : getNextSequentialId(items, 'bmi-'),
+      updatedAt: new Date().toISOString() 
+    };
     if (idx >= 0) {
       updated = [...items];
       updated[idx] = { ...updated[idx], ...itemWithTime };
@@ -2102,14 +2068,19 @@ export class DataStorageService {
     const orders = db.breakfastOrders || [];
     const idx = orders.findIndex(o => o.id === order.id);
     let updated: BreakfastOrder[];
+    const orderWithTime: BreakfastOrder = {
+      ...order,
+      id: order.id && order.id.trim() !== '' ? order.id.trim() : getNextSequentialId(orders, 'ord-'),
+      updatedAt: new Date().toISOString()
+    };
     if (idx >= 0) {
       updated = [...orders];
-      updated[idx] = { ...updated[idx], ...order, updatedAt: new Date().toISOString() };
+      updated[idx] = { ...updated[idx], ...orderWithTime };
     } else {
-      updated = [order, ...orders];
+      updated = [orderWithTime, ...orders];
     }
     this.saveDatabase({ ...db, breakfastOrders: updated });
-    return order;
+    return orderWithTime;
   }
 
   public deleteBreakfastOrder(orderId: string): boolean {

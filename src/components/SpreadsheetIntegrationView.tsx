@@ -807,7 +807,7 @@ function doPost(e) {
     var wSessions = payload.workSessions || payload.work_sessions || [];
     writeObjectsToSheet(ss, "work_sessions", Array.isArray(wSessions) ? wSessions : [], defaultSchema.work_sessions.headers);
 
-    var aSettings = payload.appSettings || payload.app_settings || [];
+    var aSettings = payload.app_settings || payload.appSettings || [];
     var arrSettings = Array.isArray(aSettings) ? aSettings : (aSettings ? [aSettings] : []);
     writeObjectsToSheet(ss, "app_settings", arrSettings, defaultSchema.app_settings.headers);
 
@@ -1225,6 +1225,16 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
         } else if (typeof val === "boolean") {
           val = val ? "true" : "false";
         }
+
+        // Batas sel Google Sheets adalah 50.000 karakter. Potong aman & ubah logo panjang ke penanda OFFICIAL_LOGO
+        if (typeof val === "string") {
+          if ((hName === "app_logo" || camelName === "appLogo") && (val.length > 20000 || val.indexOf("data:image/") === 0)) {
+            val = "OFFICIAL_LOGO";
+          } else if (val.length > 45000) {
+            val = val.substring(0, 45000);
+          }
+        }
+
         row.push(val);
       }
       output.push(row);

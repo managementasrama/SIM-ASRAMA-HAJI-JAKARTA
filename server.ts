@@ -902,6 +902,16 @@ async function startServer() {
             formattedVal = JSON.stringify(v);
           }
         }
+
+        // Sanitasi ukuran sel Google Spreadsheet (Batas maksimum sel Google Sheets adalah 50.000 karakter)
+        if (typeof formattedVal === "string") {
+          if ((k === "appLogo" || k === "app_logo") && (formattedVal.length > 20000 || formattedVal.startsWith("data:image/"))) {
+            formattedVal = "OFFICIAL_LOGO";
+          } else if (formattedVal.length > 45000) {
+            formattedVal = formattedVal.slice(0, 45000);
+          }
+        }
+
         const snake = k.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
         const camel = k.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
         if (norm[snake] === undefined) norm[snake] = formattedVal;
@@ -914,8 +924,19 @@ async function startServer() {
   function formatDatabaseForSpreadsheet(data: any): Record<string, any> {
     const rawSettings = data?.appSettings || data?.app_settings || null;
     const appSettingsList = rawSettings ? normalizeItemsList(Array.isArray(rawSettings) ? rawSettings : [rawSettings]) : [];
-    const buildingsList = normalizeItemsList(Array.isArray(data?.buildings) ? data.buildings : []);
-    const roomsList = normalizeItemsList(Array.isArray(data?.rooms) ? data.rooms : []);
+    const rawRooms = Array.isArray(data?.rooms) ? data.rooms : [];
+    // Filter kamar hunian murni (menghindari duplikasi fasilitas Ruang Pertemuan / Aula yang memiliki sheet tersendiri)
+    const pureLodgingRooms = rawRooms.filter((r: any) => {
+      if (!r) return false;
+      const b = (r.building || "").toLowerCase();
+      const t = (r.type || "").toLowerCase();
+      const id = (r.id || "").toLowerCase();
+      if (id.startsWith("mr-")) return false;
+      if (b.includes("pertemuan") || b.includes("aula") || b.includes("serbaguna")) return false;
+      if (t.includes("pertemuan") || t.includes("aula") || t.includes("serbaguna")) return false;
+      return true;
+    });
+    const roomsList = normalizeItemsList(pureLodgingRooms);
     const meetingRoomsList = normalizeItemsList(Array.isArray(data?.meetingRooms) ? data.meetingRooms : (Array.isArray(data?.meeting_rooms) ? data.meeting_rooms : []));
     const roomCapacityRatesList = normalizeItemsList(Array.isArray(data?.roomCapacityRates) ? data.roomCapacityRates : (Array.isArray(data?.room_capacity_rates) ? data.room_capacity_rates : []));
     const breakfastMenuItemsList = normalizeItemsList(Array.isArray(data?.breakfastMenuItems) ? data.breakfastMenuItems : (Array.isArray(data?.breakfast_menu_items) ? data.breakfast_menu_items : []));
@@ -947,7 +968,7 @@ async function startServer() {
       work_sessions: workSessionsList,
       auditLogs: auditLogsList,
       system_logs: auditLogsList,
-      appSettings: rawSettings,
+      appSettings: appSettingsList,
       app_settings: appSettingsList,
     };
   }
@@ -1114,6 +1135,20 @@ async function startServer() {
         }
       }
 
+      // Pastikan tabel rooms hanya berisi kamar hunian murni (bukan fasilitas ruang pertemuan/aula yang sudah ada di meeting_rooms)
+      if (Array.isArray(sheetData.rooms)) {
+        sheetData.rooms = sheetData.rooms.filter((r: any) => {
+          if (!r) return false;
+          const b = (r.building || r.gedung || "").toLowerCase();
+          const t = (r.type || r.room_type || r.roomType || "").toLowerCase();
+          const id = (r.id || "").toLowerCase();
+          if (id.startsWith("mr-")) return false;
+          if (b.includes("pertemuan") || b.includes("aula") || b.includes("serbaguna")) return false;
+          if (t.includes("pertemuan") || t.includes("aula") || t.includes("serbaguna")) return false;
+          return true;
+        });
+      }
+
       // Update cache lokal di server hanya jika data memiliki isi valid
       if (Array.isArray(sheetData.buildings) && sheetData.buildings.length > 0) {
         serverDatabaseCache = sheetData;
@@ -1221,7 +1256,17 @@ async function startServer() {
     // Normalisasi konsistensi master gedung dan unit kamar
     if (Array.isArray(payload.buildings) && Array.isArray(payload.rooms)) {
       const lodgingBlds = payload.buildings.filter((b: any) => !b.category || b.category === 'PENGINAPAN');
-      payload.rooms = payload.rooms.map((r: any) => {
+      // Pastikan payload.rooms hanya berisi kamar hunian (bukan Ruang Pertemuan / Aula yang sudah ada di sheet meeting_rooms)
+      payload.rooms = payload.rooms.filter((r: any) => {
+        if (!r) return false;
+        const b = (r.building || "").toLowerCase();
+        const t = (r.type || "").toLowerCase();
+        const id = (r.id || "").toLowerCase();
+        if (id.startsWith("mr-")) return false;
+        if (b.includes("pertemuan") || b.includes("aula") || b.includes("serbaguna")) return false;
+        if (t.includes("pertemuan") || t.includes("aula") || t.includes("serbaguna")) return false;
+        return true;
+      }).map((r: any) => {
         if (!r) return r;
         const matched = lodgingBlds.find((b: any) => {
           const bName = (b.name || '').toLowerCase().trim();

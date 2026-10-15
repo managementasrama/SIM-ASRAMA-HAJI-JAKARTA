@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useAppContext, isSuperAdmin, isKeuanganRole } from '../store';
 import { User, UserRole } from '../types';
 import { useBodyScrollLock } from '../lib/scrollLock';
+import { getNextSequentialId } from '../lib/utils';
 
 export function UserManagementView() {
   const { 
@@ -222,7 +223,7 @@ export function UserManagementView() {
       });
       setIsFormOpen(false);
     } else {
-      const newId = `u-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const newId = getNextSequentialId(users, 'usr-');
       addUser({
         id: newId,
         fullName: fFullName.trim(),

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isSuperAdmin, isRecepRole } from '../store';
 import { Building, MeetingRoom, Room, RoomCapacityRate } from '../types';
-import { formatRupiah, updateRoomNumberWithFloor, extractFloorFromRoomNumber, getNextRoomNumber, isMeetingFacility, getRoomBuildingKey } from '../lib/utils';
+import { formatRupiah, updateRoomNumberWithFloor, extractFloorFromRoomNumber, getNextRoomNumber, isMeetingFacility, getRoomBuildingKey, getNextSequentialId } from '../lib/utils';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { findRoomRate, initialRoomCapacityRates } from '../data';
 
@@ -1139,7 +1139,7 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
       });
     } else {
       addRoom({
-        id: `room-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        id: getNextSequentialId(rooms, 'room-'),
         roomNumber: roomNumber.trim(),
         building,
         floor: Number(floor) || 1,

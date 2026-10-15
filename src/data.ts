@@ -666,28 +666,6 @@ export function getCleanRooms(): Room[] {
         }
     });
 
-    // Menambahkan kamar tipe Ruang Pertemuan / Aula dari master initialMeetingRooms
-    initialMeetingRooms.forEach(mr => {
-        const isSG = mr.category === 'SERBAGUNA';
-        rooms.push({
-            id: mr.id,
-            building: mr.building || (isSG ? "Gedung Serbaguna (SG)" : "Ruang Pertemuan"),
-            roomNumber: mr.name,
-            type: isSG ? "Gedung Serbaguna (SG)" : "Ruang Pertemuan / Aula",
-            capacity: mr.capacity,
-            capacityNumber: mr.capacityNumber || 300,
-            pricePerNight: mr.dailyRate,
-            facilities: mr.facilities,
-            status: mr.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'KOSONG',
-            qcStatus: mr.qcStatus || "LOLOS_QC",
-            lastQcDate: undefined,
-            lastQcBy: undefined,
-            lastQcNotes: undefined,
-            activeTxId: null,
-            activeMaintId: null
-        });
-    });
-
     return rooms;
 }
 

@@ -10,6 +10,42 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Menghasilkan ID unik berikutnya secara berurutan (inkremental sekuensial) berdasarkan ID yang sudah ada di tabel/sheet.
+ * Contoh: Jika tabel memiliki bld-1, bld-2, ..., bld-12, fungsi ini menghasilkan bld-13.
+ * Jika tabel meetingRooms memiliki mr-1 ... mr-15, menghasilkan mr-16.
+ */
+export function getNextSequentialId(items: { id?: string }[] | undefined | null, prefix: string): string {
+  let maxNum = 0;
+  let found = false;
+  // Cari ID yang berformat prefix diikuti angka sekuensial (misal: bld-1, mr-15, room-60, usr-3)
+  const regex = new RegExp(`^${prefix}(\\d+)$`, 'i');
+  for (const item of (items || [])) {
+    if (!item?.id) continue;
+    const strId = String(item.id).trim();
+    const match = strId.match(regex);
+    if (match) {
+      found = true;
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum && num < 100000) {
+        maxNum = num;
+      }
+    }
+  }
+  if (!found && items && items.length > 0) {
+    // Jika belum ada ID numerik dengan prefix tersebut, hitung dari panjang daftar item
+    maxNum = items.length;
+  }
+  let nextNum = maxNum + 1;
+  let candidate = `${prefix}${nextNum}`;
+  const existingSet = new Set((items || []).map(it => it?.id ? String(it.id).toLowerCase().trim() : ''));
+  while (existingSet.has(candidate.toLowerCase())) {
+    nextNum++;
+    candidate = `${prefix}${nextNum}`;
+  }
+  return candidate;
+}
+
 export function getRealTodayDate(): string {
   const now = new Date();
   const year = now.getFullYear();

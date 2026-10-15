@@ -1,5 +1,6 @@
 import type { CompleteStorageDatabase } from './dataStorage';
 import type { Building, Room, MeetingRoom, Transaction, Maintenance, QcInspection, User } from '../types';
+import { OFFICIAL_APP_LOGO } from '../officialLogo';
 
 export interface SpreadsheetConfigInfo {
   webAppUrl: string;
@@ -319,11 +320,37 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
 export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
   const cfg = getSpreadsheetConfig();
 
+  const sanitizeSettings = (s: any) => {
+    if (!s || typeof s !== 'object') return null;
+    const copy = { ...s };
+    if (typeof copy.appLogo === 'string' && (copy.appLogo.length > 20000 || copy.appLogo.startsWith('data:image/'))) {
+      copy.appLogo = 'OFFICIAL_LOGO';
+    }
+    if (typeof copy.app_logo === 'string' && (copy.app_logo.length > 20000 || copy.app_logo.startsWith('data:image/'))) {
+      copy.app_logo = 'OFFICIAL_LOGO';
+    }
+    return copy;
+  };
+
+  const safeAppSettings = sanitizeSettings(db.appSettings);
+
+  const rawRoomsList = Array.isArray(db.rooms) ? db.rooms : [];
+  const pureLodgingRooms = rawRoomsList.filter((r: any) => {
+    if (!r) return false;
+    const b = (r.building || "").toLowerCase();
+    const t = (r.type || "").toLowerCase();
+    const id = (r.id || "").toLowerCase();
+    if (id.startsWith("mr-")) return false;
+    if (b.includes("pertemuan") || b.includes("aula") || b.includes("serbaguna")) return false;
+    if (t.includes("pertemuan") || t.includes("aula") || t.includes("serbaguna")) return false;
+    return true;
+  });
+
   const formattedPayload = {
     action: 'SAVE_ALL',
     timestamp: new Date().toISOString(),
     buildings: Array.isArray(db.buildings) ? db.buildings : [],
-    rooms: Array.isArray(db.rooms) ? db.rooms : [],
+    rooms: pureLodgingRooms,
     transactions: Array.isArray(db.transactions) ? db.transactions : [],
     users: Array.isArray(db.users) ? db.users : [],
     meetingRooms: Array.isArray(db.meetingRooms) ? db.meetingRooms : [],
@@ -334,7 +361,7 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     qcInspections: Array.isArray(db.qcInspections) ? db.qcInspections : [],
     workSessions: Array.isArray(db.workSessions) ? db.workSessions : [],
     auditLogs: Array.isArray(db.auditLogs) ? db.auditLogs : [],
-    appSettings: db.appSettings || null,
+    appSettings: safeAppSettings,
     // Alias snake_case untuk kompatibilitas penuh dengan skrip Google Spreadsheet
     meeting_rooms: Array.isArray(db.meetingRooms) ? db.meetingRooms : [],
     room_capacity_rates: Array.isArray(db.roomCapacityRates) ? db.roomCapacityRates : [],
@@ -343,7 +370,7 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     qc_inspections: Array.isArray(db.qcInspections) ? db.qcInspections : [],
     work_sessions: Array.isArray(db.workSessions) ? db.workSessions : [],
     system_logs: Array.isArray(db.auditLogs) ? db.auditLogs : [],
-    app_settings: db.appSettings || null,
+    app_settings: safeAppSettings,
   };
 
   // 1. Kirim melalui backend server proxy
@@ -545,9 +572,19 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     updatedAt: m.updatedAt || m.updated_at || undefined,
   }));
 
-  // 3. Normalisasi Master Unit Kamar (Lengkap dengan seluruh status & relasi)
+  // 3. Normalisasi Master Unit Kamar (Lengkap dengan seluruh status & relasi - Murni Kamar Hunian)
   const rawRooms = Array.isArray(d.rooms) ? d.rooms : [];
-  const normalizedRooms = rawRooms.map((r: any, idx: number) => {
+  const pureRooms = rawRooms.filter((r: any) => {
+    if (!r) return false;
+    const b = (r.building || r.gedung || "").toLowerCase();
+    const t = (r.type || r.room_type || r.roomType || "").toLowerCase();
+    const id = (r.id || "").toLowerCase();
+    if (id.startsWith("mr-")) return false;
+    if (b.includes("pertemuan") || b.includes("aula") || b.includes("serbaguna")) return false;
+    if (t.includes("pertemuan") || t.includes("aula") || t.includes("serbaguna")) return false;
+    return true;
+  });
+  const normalizedRooms = pureRooms.map((r: any, idx: number) => {
     const roomNumber = String(r.roomNumber || r.room_number || r.no_kamar || r.nomor_kamar || '').trim();
     const building = String(r.building || r.gedung || '').trim();
     const id = String(r.id || `room-${building.replace(/[^a-zA-Z0-9]/g, '')}-${roomNumber || idx + 1}`);
@@ -667,7 +704,7 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
   // 7. Normalisasi Profil Lembaga & Pengaturan SIM
   let settingsObj: any = null;
   if (d.appSettings && typeof d.appSettings === 'object' && !Array.isArray(d.appSettings)) {
-    settingsObj = d.appSettings;
+    settingsObj = { ...d.appSettings };
   } else if (Array.isArray(d.app_settings) && d.app_settings.length > 0) {
     const s = d.app_settings[0];
     settingsObj = {
@@ -683,6 +720,13 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
       appFavicon: s.appFavicon || s.app_favicon || undefined,
       updatedAt: s.updatedAt || s.updated_at || undefined,
     };
+  }
+
+  if (settingsObj) {
+    const curLogo = settingsObj.appLogo || settingsObj.app_logo;
+    if (!curLogo || curLogo === 'OFFICIAL_LOGO' || curLogo === 'DEFAULT_LOGO') {
+      settingsObj.appLogo = OFFICIAL_APP_LOGO;
+    }
   }
 
   // 8. Normalisasi Log Audit
