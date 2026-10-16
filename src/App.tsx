@@ -114,8 +114,8 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     roles: ['Super Admin', 'Admin']
   },
   spreadsheetSync: {
-    title: 'Panduan & Integrasi Google Spreadsheet',
-    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager']
+    title: 'Google Spreadsheet',
+    roles: ['Super Admin', 'Admin']
   }
 };
 
@@ -141,6 +141,7 @@ function MainApp() {
     activeTab === 'rooms' ? 'gedung' :
     activeTab === 'qc' ? 'qualityControl' :
     activeTab === 'maintenance' ? 'laporanMaintenance' :
+    activeTab === 'spreadsheetSync' ? 'auditLog' :
     activeTab;
 
   const currentTabConfig = TAB_PERMISSIONS[resolvedTab];
@@ -184,10 +185,9 @@ function MainApp() {
             {resolvedTab === 'laporanKamar' && <ReportsView />}
             {resolvedTab === 'laporanMaintenance' && <MaintenanceReportsView />}
             {resolvedTab === 'pesananSarapan' && <BreakfastOrdersView />}
-            {resolvedTab === 'auditLog' && <AuditLogView />}
+            {resolvedTab === 'auditLog' && <AuditLogView defaultSubView={activeTab === 'spreadsheetSync' ? 'SPREADSHEET_MGMT' : undefined} />}
             {resolvedTab === 'verifyPdf' && <AuditLogView defaultSubView="PDF_DOWNLOAD_LOGS" />}
             {resolvedTab === 'kelolaAnggota' && <UserManagementView />}
-            {resolvedTab === 'spreadsheetSync' && <SpreadsheetIntegrationView />}
           </div>
         )}
       </main>

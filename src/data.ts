@@ -309,8 +309,8 @@ export const initialBuildings: Building[] = [
         name: 'Gedung A (Arafah)',
         code: 'A',
         floors: 3,
-        totalRooms: 50,
-        capacityDesc: '50 Kamar (3-4 Bed)',
+        totalRooms: 5,
+        capacityDesc: '5 Kamar (Double / Single Bed)',
         category: 'PENGINAPAN',
         description: 'Superior & Standar Arafah',
         status: 'AKTIF',
@@ -321,8 +321,8 @@ export const initialBuildings: Building[] = [
         name: 'Gedung B (Muzdalifah)',
         code: 'B',
         floors: 3,
-        totalRooms: 50,
-        capacityDesc: '50 Kamar (4 Bed)',
+        totalRooms: 5,
+        capacityDesc: '5 Kamar (Single Bed)',
         category: 'PENGINAPAN',
         description: 'Standar Muzdalifah',
         status: 'AKTIF',
@@ -333,8 +333,8 @@ export const initialBuildings: Building[] = [
         name: 'Gedung C (Mina)',
         code: 'C',
         floors: 3,
-        totalRooms: 50,
-        capacityDesc: '50 Kamar (4 Bed)',
+        totalRooms: 5,
+        capacityDesc: '5 Kamar (Barak)',
         category: 'PENGINAPAN',
         description: 'Standar & Barak Mina',
         status: 'AKTIF',
@@ -345,8 +345,8 @@ export const initialBuildings: Building[] = [
         name: 'Gedung D (Madinah)',
         code: 'D',
         floors: 3,
-        totalRooms: 50,
-        capacityDesc: '50 Kamar (2-3 Bed AC/TV)',
+        totalRooms: 5,
+        capacityDesc: '5 Kamar (Superior AC/TV)',
         category: 'PENGINAPAN',
         description: 'Superior Deluxe Madinah',
         status: 'AKTIF',
@@ -577,8 +577,8 @@ export function getCleanRooms(): Room[] {
     ];
 
     buildings.forEach(b => {
-        for (let i = 1; i <= 50; i++) {
-            const floorNum = Math.ceil(i / 17);
+        for (let i = 1; i <= 5; i++) {
+            const floorNum = Math.ceil(i / 2);
             
             // Konfigurasi variasi 3 tipe kamar (Ekonomi, Standar, Superior) dan bed (Double s/d 8 Bed)
             let rType: 'Ekonomi' | 'Standar' | 'Superior' = 'Standar';

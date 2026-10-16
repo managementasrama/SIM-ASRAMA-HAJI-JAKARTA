@@ -8,6 +8,7 @@ import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { VerifyPdfView } from './VerifyPdfView';
 import { RolePermissionsSection } from './RolePermissionsSection';
+import { SpreadsheetIntegrationView } from './SpreadsheetIntegrationView';
 import { getDirectChannelId } from '../chatData';
 
 export function ReportsView() {
@@ -3889,7 +3890,7 @@ export function BreakfastOrdersView() {
   );
 }
 
-export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'PDF_DOWNLOAD_LOGS' | 'DATABASE_MGMT' } = {}) {
+export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'PDF_DOWNLOAD_LOGS' | 'DATABASE_MGMT' | 'SPREADSHEET_MGMT' } = {}) {
   const { 
     auditLogs = [], workSessions = [], currentUser, showToast, openModal, login,
     exportDatabaseBackup, importDatabaseBackup, resetDatabase, clearWorkSessions, clearAuditLogs,
@@ -3922,13 +3923,15 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const [customEndDate, setCustomEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // Tab within this view: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT'
-  const canAccessAdminTabs = Boolean(currentUser && isSuperAdmin(currentUser.role));
-  const [activeSubView, setActiveSubView] = useState<'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT'>(
+  // Tab within this view: 'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT' | 'SPREADSHEET_MGMT'
+  const canAccessAdminTabs = Boolean(currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin'));
+  const [activeSubView, setActiveSubView] = useState<'WORK_SESSIONS' | 'ROLE_PERMISSIONS' | 'AUDIT_TRAIL' | 'DATABASE_MGMT' | 'SPREADSHEET_MGMT'>(
     defaultSubView === 'ROLE_PERMISSIONS' && canAccessAdminTabs
       ? 'ROLE_PERMISSIONS'
       : defaultSubView === 'DATABASE_MGMT' && canAccessAdminTabs
       ? 'DATABASE_MGMT'
+      : defaultSubView === 'SPREADSHEET_MGMT' && canAccessAdminTabs
+      ? 'SPREADSHEET_MGMT'
       : defaultSubView === 'AUDIT_TRAIL' || defaultSubView === 'PDF_DOWNLOAD_LOGS'
       ? 'AUDIT_TRAIL'
       : 'WORK_SESSIONS'
@@ -3936,7 +3939,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
   // Pastikan jika beralih ke akun selain Admin / Super Admin, tab khusus Admin otomatis kembali ke WORK_SESSIONS
   useEffect(() => {
-    if (!canAccessAdminTabs && (activeSubView === 'ROLE_PERMISSIONS' || activeSubView === 'DATABASE_MGMT')) {
+    if (!canAccessAdminTabs && (activeSubView === 'ROLE_PERMISSIONS' || activeSubView === 'DATABASE_MGMT' || activeSubView === 'SPREADSHEET_MGMT')) {
       setActiveSubView('WORK_SESSIONS');
     }
   }, [canAccessAdminTabs, activeSubView]);
@@ -4658,18 +4661,32 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             </span>
           </button>
 
-          {currentUser && isSuperAdmin(currentUser.role) && (
-            <button
-              onClick={() => setActiveSubView('DATABASE_MGMT')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 ${
-                activeSubView === 'DATABASE_MGMT' 
-                  ? 'bg-white text-emerald-800 shadow-xs font-black' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <i className="fa-solid fa-database text-emerald-600"></i>
-              <span>Basis Data</span>
-            </button>
+          {canAccessAdminTabs && (
+            <>
+              <button
+                onClick={() => setActiveSubView('DATABASE_MGMT')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 ${
+                  activeSubView === 'DATABASE_MGMT' 
+                    ? 'bg-white text-emerald-800 shadow-xs font-black' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <i className="fa-solid fa-database text-emerald-600"></i>
+                <span>Basis Data</span>
+              </button>
+
+              <button
+                onClick={() => setActiveSubView('SPREADSHEET_MGMT')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 ${
+                  activeSubView === 'SPREADSHEET_MGMT' 
+                    ? 'bg-white text-emerald-800 shadow-xs font-black' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <i className="fa-solid fa-file-excel text-emerald-600"></i>
+                <span>Google Spreadsheet</span>
+              </button>
+            </>
           )}
         </div>
 
@@ -6202,7 +6219,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('spreadsheetSync')}
+                    onClick={() => setActiveSubView('SPREADSHEET_MGMT')}
                     className="px-3.5 py-2.5 bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 border border-emerald-400/50 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
                     title="Buka panduan & integrasi Google Spreadsheet"
                   >
@@ -6409,6 +6426,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
               </div>
             </div>
           </div>
+        </div>
+      ) : activeSubView === 'SPREADSHEET_MGMT' ? (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          <SpreadsheetIntegrationView />
         </div>
       ) : (
         /* Fallback Empty */
