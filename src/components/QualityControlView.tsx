@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isQcRole } from '../store';
-import { Room } from '../types';
-import { compareBuildingOrder, formatRupiah, isMeetingFacility, getRoomBuildingKey } from '../lib/utils';
+import { Room, MeetingRoom, Building } from '../types';
+import { compareBuildingOrder, formatRupiah, isMeetingFacility, getRoomBuildingKey, resolveRoomBuildingName, isRoomMatchingBuilding, extractFloorFromRoomNumber } from '../lib/utils';
 import { OFFICIAL_TARIFFS } from '../data';
 
 // Helper for distinctive building-related icons for penginapan and other facilities (synchronized with RoomsView)
@@ -67,13 +67,17 @@ function getBuildingColorClass(bName: string, category?: string): { bg: string; 
 }
 
 export function QualityControlView() {
-  const { rooms, qcInspections = [], currentUser, openModal, setActiveTab, selectedBuilding, setSelectedBuilding, buildings = [], meetingRooms = [] } = useAppContext();
+  const { 
+    rooms, qcInspections = [], currentUser, openModal, setActiveTab, selectedBuilding, setSelectedBuilding, 
+    buildings = [], meetingRooms = [], showToast 
+  } = useAppContext();
+
   const [bFilter, setBFilter] = useState('ALL');
   const [qcFilter, setQcFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [activeSubTab, setActiveSubTab] = useState<'ROOMS' | 'HISTORY'>('ROOMS');
-  const [globalDisplay, setGlobalDisplay] = useState<'COLLAPSE' | 'EXPAND'>('COLLAPSE');
-  const [buildingOverrides, setBuildingOverrides] = useState<Record<string, boolean>>({});
+  const [buildingFloorFilters, setBuildingFloorFilters] = useState<Record<string, number | 'ALL'>>({});
+  const [activeBuildingName, setActiveBuildingName] = useState<string>('');
 
   const canInspect = isQcRole(currentUser?.role);
 
@@ -84,11 +88,12 @@ export function QualityControlView() {
       if (targetBldg === 'Ruang Pertemuan') targetBldg = 'Ruang Pertemuan / Aula';
       if (targetBldg === 'Gedung Serbaguna') targetBldg = 'Gedung Serbaguna (SG)';
 
-      setBFilter(targetBldg);
-      setBuildingOverrides(prev => ({
-        ...prev,
-        [targetBldg]: false
-      }));
+      if (targetBldg === 'Ruang Pertemuan / Aula' || targetBldg === 'Gedung Serbaguna (SG)') {
+        setBFilter(targetBldg);
+      } else {
+        setBFilter('ALL');
+        setActiveBuildingName(targetBldg);
+      }
 
       const timer = setTimeout(() => {
         const cleanId = `qc-building-section-${targetBldg.replace(/[^a-zA-Z0-9]/g, '-')}`;
@@ -101,89 +106,131 @@ export function QualityControlView() {
     }
   }, [selectedBuilding]);
 
-  // Filtered rooms
-  const filteredRooms = rooms.filter(r => {
-    const effectiveBuilding = getRoomBuildingKey(r, meetingRooms);
-    if (bFilter !== 'ALL') {
-      if (bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') {
-        if (effectiveBuilding !== 'Gedung Serbaguna (SG)') return false;
-      } else if (bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
-        if (effectiveBuilding !== 'Ruang Pertemuan / Aula') return false;
-      } else {
-        if (effectiveBuilding !== bFilter) return false;
-      }
-    }
-    if (qcFilter !== 'ALL') {
-      const roomQc = r.qcStatus || 'PERLU_INSPEKSI';
-      if (roomQc !== qcFilter) return false;
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      const matchRoom = r.roomNumber.toLowerCase().includes(q);
-      const matchBldg = effectiveBuilding.toLowerCase().includes(q) || r.building.toLowerCase().includes(q);
-      const matchNotes = (r.lastQcNotes || '').toLowerCase().includes(q);
-      const matchBy = (r.lastQcBy || '').toLowerCase().includes(q);
-      if (!matchRoom && !matchBldg && !matchNotes && !matchBy) return false;
-    }
-    return true;
-  });
+  // Master lodging buildings (selaras dengan RoomsView)
+  const lodgingBuildings = useMemo(() => {
+    return (buildings || []).filter(b => {
+      const name = b.name || '';
+      const cat = b.category || '';
+      if (name === 'Ruang Pertemuan' || name === 'Ruang Pertemuan / Aula' || name === 'Gedung Serbaguna' || name === 'Gedung Serbaguna (SG)') return false;
+      if (cat === 'SERBAGUNA' || cat === 'RUANG_PERTEMUAN') return false;
+      if (isMeetingFacility(name)) return false;
+      return true;
+    });
+  }, [buildings]);
 
-  // Group rooms by building (identik 100% dengan Manajemen Gedung)
+  // Master lodging rooms
+  const lodgingRooms = useMemo(() => {
+    return rooms.filter(r => {
+      const bKey = resolveRoomBuildingName(r, lodgingBuildings, meetingRooms);
+      if (isMeetingFacility(bKey)) return false;
+      if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.building === 'Gedung Serbaguna (SG)') return false;
+      return true;
+    });
+  }, [rooms, lodgingBuildings, meetingRooms]);
+
+  // Filtered rooms for Master-Detail
+  const roomsForMasterDetail = useMemo(() => {
+    return lodgingRooms.filter(r => {
+      const effectiveBuilding = resolveRoomBuildingName(r, lodgingBuildings, meetingRooms);
+      if (qcFilter !== 'ALL') {
+        const roomQc = r.qcStatus || 'PERLU_INSPEKSI';
+        if (roomQc !== qcFilter) return false;
+      }
+      if (search) {
+        const q = search.toLowerCase();
+        const matchNum = r.roomNumber.toLowerCase().includes(q);
+        const matchBld = r.building.toLowerCase().includes(q) || effectiveBuilding.toLowerCase().includes(q);
+        const matchNotes = (r.lastQcNotes || '').toLowerCase().includes(q);
+        const matchBy = (r.lastQcBy || '').toLowerCase().includes(q);
+        if (!matchNum && !matchBld && !matchNotes && !matchBy) return false;
+      }
+      return true;
+    });
+  }, [lodgingRooms, lodgingBuildings, meetingRooms, qcFilter, search]);
+
   const grouped: Record<string, Room[]> = {};
+  lodgingBuildings.forEach(b => {
+    grouped[b.name] = [];
+  });
 
-  // Daftarkan semua master gedung penginapan (lewati Serbaguna dan Pertemuan agar tidak menimbulkan seksi duplikat)
-  (buildings || []).forEach(b => {
-    const isSpecial = b.name === 'Ruang Pertemuan' || b.name === 'Ruang Pertemuan / Aula' || b.name === 'Gedung Serbaguna' || b.name === 'Gedung Serbaguna (SG)' || b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN';
-    if (!isSpecial) {
-      if (bFilter === 'ALL' || bFilter === b.name) {
-        if (!grouped[b.name]) grouped[b.name] = [];
+  roomsForMasterDetail.forEach(r => {
+    const matchedBld = lodgingBuildings.find(b => isRoomMatchingBuilding(r, b, meetingRooms));
+    if (matchedBld) {
+      if (!grouped[matchedBld.name]) grouped[matchedBld.name] = [];
+      if (!grouped[matchedBld.name].some(existing => existing.id === r.id)) {
+        grouped[matchedBld.name].push({
+          ...r,
+          building: matchedBld.name
+        });
+      }
+    } else {
+      const bKey = getRoomBuildingKey(r, meetingRooms);
+      if (bKey && !isMeetingFacility(bKey)) {
+        if (!grouped[bKey]) grouped[bKey] = [];
+        if (!grouped[bKey].some(existing => existing.id === r.id)) {
+          grouped[bKey].push(r);
+        }
       }
     }
   });
 
-  // Daftarkan Gedung Serbaguna (SG) dan Ruang Pertemuan / Aula TEPAT SATU KALI agar selalu tunggal & sinkron
-  if (bFilter === 'ALL' || bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna') {
-    if (!grouped['Gedung Serbaguna (SG)']) grouped['Gedung Serbaguna (SG)'] = [];
-  }
-  if (bFilter === 'ALL' || bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
-    if (!grouped['Ruang Pertemuan / Aula']) grouped['Ruang Pertemuan / Aula'] = [];
-  }
+  const buildingNames = useMemo(() => {
+    const list: string[] = [];
+    lodgingBuildings.forEach(b => {
+      if (search) {
+        const q = search.toLowerCase();
+        const matchName = b.name.toLowerCase().includes(q);
+        const matchCode = b.code?.toLowerCase().includes(q);
+        const bRooms = grouped[b.name] || [];
+        if (!matchName && !matchCode && bRooms.length === 0 && qcFilter !== 'ALL') return;
+      }
+      list.push(b.name);
+    });
+    Object.keys(grouped).forEach(k => {
+      if (!list.includes(k) && (grouped[k] || []).length > 0) {
+        list.push(k);
+      }
+    });
+    return list.sort(compareBuildingOrder);
+  }, [lodgingBuildings, search, grouped, qcFilter]);
 
-  filteredRooms.forEach(r => {
-    let bKey = getRoomBuildingKey(r, meetingRooms);
-    if (bKey === 'Ruang Pertemuan') bKey = 'Ruang Pertemuan / Aula';
-    if (bKey === 'Gedung Serbaguna') bKey = 'Gedung Serbaguna (SG)';
-    if (!grouped[bKey]) grouped[bKey] = [];
-    if (!grouped[bKey].some(existing => existing.id === r.id)) {
-      grouped[bKey].push(r);
+  const selectedBuildingKey = useMemo(() => {
+    if (
+      bFilter !== 'ALL' &&
+      bFilter !== 'Gedung Serbaguna (SG)' &&
+      bFilter !== 'Gedung Serbaguna' &&
+      bFilter !== 'Ruang Pertemuan / Aula' &&
+      bFilter !== 'Ruang Pertemuan'
+    ) {
+      const match = buildingNames.find(b => b.toLowerCase() === bFilter.toLowerCase());
+      if (match) return match;
     }
-  });
-
-  const buildingNames = Object.keys(grouped).filter(bName => {
-    if (!search) return true;
-    if (grouped[bName].length > 0) return true;
-    return bName.toLowerCase().includes(search.toLowerCase());
-  }).sort(compareBuildingOrder);
-
-  const isBuildingCollapsed = (bName: string): boolean => {
-    if (buildingOverrides[bName] !== undefined) {
-      return buildingOverrides[bName];
+    if (activeBuildingName && buildingNames.includes(activeBuildingName)) {
+      return activeBuildingName;
     }
-    return globalDisplay === 'COLLAPSE';
-  };
+    return buildingNames[0] || '';
+  }, [bFilter, activeBuildingName, buildingNames]);
 
-  const toggleBuilding = (bName: string) => {
-    const current = isBuildingCollapsed(bName);
-    setBuildingOverrides(prev => ({
-      ...prev,
-      [bName]: !current,
-    }));
-  };
-
-  const handleGlobalDisplayChange = (mode: 'COLLAPSE' | 'EXPAND') => {
-    setGlobalDisplay(mode);
-    setBuildingOverrides({});
-  };
+  // Meeting rooms & Serbaguna filtered
+  const meetingFacilities = useMemo(() => {
+    return (meetingRooms || []).filter(m => {
+      const effectiveBuilding = m.building || 'Ruang Pertemuan / Aula';
+      const isSG = m.category === 'SERBAGUNA' || effectiveBuilding.includes('Serbaguna');
+      if (bFilter === 'Gedung Serbaguna (SG)' && !isSG) return false;
+      if (bFilter === 'Ruang Pertemuan / Aula' && isSG) return false;
+      if (qcFilter !== 'ALL') {
+        const roomQc = m.qcStatus || 'PERLU_INSPEKSI';
+        if (roomQc !== qcFilter) return false;
+      }
+      if (search) {
+        const q = search.toLowerCase();
+        const matchName = m.name.toLowerCase().includes(q);
+        const matchBld = effectiveBuilding.toLowerCase().includes(q);
+        if (!matchName && !matchBld) return false;
+      }
+      return true;
+    });
+  }, [meetingRooms, bFilter, qcFilter, search]);
 
   // KPI Metrics
   const totalRooms = rooms.length;
@@ -203,15 +250,15 @@ export function QualityControlView() {
         );
       case 'MENUNGGU_QC':
         return (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-hajj-900 border border-amber-300 animate-pulse">
-            <i className="fa-solid fa-bell mr-1 text-amber-600 text-[8px]"></i>
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-900 border border-purple-300 animate-pulse">
+            <i className="fa-solid fa-bell mr-1 text-purple-600 text-[8px]"></i>
             {compact ? 'Cek QC' : 'Telah Diperbaiki (Cek QC)'}
           </span>
         );
       case 'PERLU_PERBAIKAN':
         return (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-100 text-red-800 border border-red-300">
-            <i className="fa-solid fa-triangle-exclamation mr-1 text-red-600 text-[8px]"></i>
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+            <i className="fa-solid fa-triangle-exclamation mr-1 text-rose-600 text-[8px]"></i>
             {compact ? 'Perbaikan' : 'Perlu Perbaikan'}
           </span>
         );
@@ -224,6 +271,175 @@ export function QualityControlView() {
           </span>
         );
     }
+  };
+
+  const renderRoomCard = (room: Room) => {
+    const qc = room.qcStatus || 'PERLU_INSPEKSI';
+    let cardBorder = 'border-slate-200';
+    if (qc === 'LOLOS_QC') cardBorder = 'border-emerald-300 hover:border-emerald-400';
+    if (qc === 'MENUNGGU_QC') cardBorder = 'border-purple-300 ring-2 ring-purple-300/70 shadow-xs';
+    if (qc === 'PERLU_PERBAIKAN') cardBorder = 'border-rose-200 hover:border-rose-300';
+    if (qc === 'PERLU_INSPEKSI') cardBorder = 'border-amber-200 hover:border-amber-300';
+
+    const displayName = `Kamar ${room.roomNumber}`;
+    const subTitle = `${room.building} • Hunian`;
+    const effectiveStatus = room.status;
+
+    const statusBadge = (
+      <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold shrink-0 ${
+        effectiveStatus === 'TERISI' ? 'bg-rose-600 text-white' :
+        effectiveStatus === 'BOOKED' ? 'bg-blue-600 text-white' :
+        effectiveStatus === 'MAINTENANCE' ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'
+      }`}>
+        {effectiveStatus}
+      </span>
+    );
+
+    return (
+      <div key={room.id} className={`p-3 rounded-xl border ${cardBorder} shadow-xs flex flex-col justify-between space-y-2 hover:shadow-md transition bg-white dark:bg-slate-800`}>
+        <div>
+          {qc === 'MENUNGGU_QC' && (
+            <div className="mb-2 -mt-0.5 -mx-0.5 px-2 py-0.5 rounded-lg bg-purple-100 text-purple-900 text-[9px] font-bold flex items-center justify-between border border-purple-300">
+              <span className="flex items-center">
+                <i className="fa-solid fa-bolt mr-1 text-purple-600 text-[8px]"></i> Siap Cek Pasca Teknisi
+              </span>
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-ping"></span>
+            </div>
+          )}
+
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="flex items-start gap-2 min-w-0 flex-1">
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 shrink-0 shadow-2xs">
+                <i className="fa-solid fa-bed text-xs text-slate-600 dark:text-slate-300"></i>
+              </span>
+              <div className="min-w-0 flex-1 flex flex-col justify-center">
+                <span className="font-bold text-xs text-slate-900 dark:text-white leading-tight break-words block" title={displayName}>
+                  {displayName}
+                </span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-tight block truncate mt-0.5" title={subTitle}>
+                  {subTitle}
+                </span>
+              </div>
+            </div>
+            <div className="shrink-0 pt-0.5 flex flex-col items-end space-y-1">
+              {statusBadge}
+              {getQcBadge(room.qcStatus, true)}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700">
+            <span className="inline-flex items-center space-x-1 font-medium">
+              <i className="fa-solid fa-users text-slate-400 text-[10px]"></i>
+              <span>{room.capacity} Orang</span>
+            </span>
+            <div className="flex items-center space-x-1">
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                room.type === 'Superior'
+                  ? 'bg-purple-100 text-purple-800 border-purple-300'
+                  : room.type === 'Ekonomi'
+                  ? 'bg-teal-100 text-teal-800 border-teal-300'
+                  : 'bg-blue-100 text-blue-800 border-blue-300'
+              }`}>
+                {room.type || 'Standar'}
+              </span>
+              {room.bedType && (
+                <span className="text-[9px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
+                  {room.bedType}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {room.pricePerNight && room.pricePerNight > 0 ? (
+            <div className="text-[10px] text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 pt-0.5">
+              {formatRupiah(room.pricePerNight)} <span className="text-[9px] font-sans text-slate-400 font-normal">/mlm</span>
+            </div>
+          ) : null}
+
+          {/* QC Audit Details */}
+          <div className="mt-2 space-y-1 bg-slate-50 dark:bg-slate-900 p-1.5 rounded-lg border border-slate-100 dark:border-slate-700 text-[10px]">
+            {room.lastQcDate && (
+              <div className="text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                <span className="text-slate-400 text-[9px]">Inspeksi:</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200 font-mono text-[9px]">{room.lastQcDate}</span>
+              </div>
+            )}
+            {room.lastQcBy && (
+              <div className="text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                <span className="text-slate-400 text-[9px]">Pemeriksa:</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center text-[9px] truncate max-w-[90px]" title={room.lastQcBy}>
+                  <i className="fa-solid fa-user-check text-teal-600 mr-1 text-[8px]"></i>
+                  {room.lastQcBy}
+                </span>
+              </div>
+            )}
+            {room.lastQcNotes && (
+              <div className="text-slate-700 dark:text-slate-300 italic text-[9px] line-clamp-1 pt-0.5 border-t border-slate-200/60 dark:border-slate-700" title={room.lastQcNotes}>
+                "{room.lastQcNotes}"
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700 space-y-1">
+          {canInspect ? (
+            <button
+              type="button"
+              onClick={() => openModal('modalQcInspection', { room })}
+              className={`w-full py-1.5 font-bold rounded-lg text-[10px] shadow-xs flex items-center justify-center space-x-1.5 transition cursor-pointer ${
+                (qc === 'PERLU_INSPEKSI' || qc === 'MENUNGGU_QC')
+                  ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border border-amber-500 font-extrabold shadow-sm ring-1 ring-amber-300'
+                  : qc === 'PERLU_PERBAIKAN'
+                  ? 'bg-rose-700 hover:bg-rose-800 text-white font-bold'
+                  : 'bg-teal-700 hover:bg-teal-800 text-white font-semibold'
+              }`}
+            >
+              <i className={`fa-solid ${
+                qc === 'MENUNGGU_QC' ? 'fa-stamp text-slate-950' : 
+                qc === 'PERLU_INSPEKSI' ? 'fa-clipboard-check text-slate-950' :
+                qc === 'PERLU_PERBAIKAN' ? 'fa-wrench text-white' : 'fa-circle-check text-white'
+              } text-[9px]`}></i>
+              <span>
+                {qc === 'MENUNGGU_QC' ? 'Inspeksi QC (Perlu Cek)' : 
+                 qc === 'PERLU_INSPEKSI' ? 'Inspeksi QC (Perlu Cek)' : 
+                 qc === 'PERLU_PERBAIKAN' ? 'Re-Inspeksi Teknisi' : 'Inspeksi QC (Lolos)'}
+              </span>
+            </button>
+          ) : (
+            <div className="text-center text-[9px] text-slate-400 italic py-0.5">
+              <i className="fa-solid fa-lock mr-1 text-slate-300 text-[8px]"></i> Khusus QC
+            </div>
+          )}
+
+          <div className="flex items-center space-x-1 pt-0.5">
+            {qc === 'PERLU_PERBAIKAN' && (
+              <button
+                type="button"
+                onClick={() => openModal('modalMaintenance', { roomId: room.id })}
+                className="flex-1 py-1 px-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded text-[9px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
+                title="Laporkan tiket perbaikan fasilitas"
+              >
+                <i className="fa-solid fa-plus text-[8px]"></i>
+                <span>Tiket</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedBuilding(room.building);
+                setActiveTab('gedung');
+              }}
+              className="flex-1 py-1 px-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[9px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
+              title="Buka lokasi kamar di denah manajemen gedung"
+            >
+              <i className="fa-solid fa-door-open text-[8px] text-teal-700"></i>
+              <span>Denah Gedung</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -239,12 +455,12 @@ export function QualityControlView() {
           </div>
           <div className="flex items-baseline space-x-2 mt-1.5 sm:mt-2">
             <span className="text-xl sm:text-2xl font-black text-slate-900">{lolosQcCount}</span>
-            <span className="text-[11px] sm:text-xs font-bold text-emerald-600">{Math.round((lolosQcCount / totalRooms) * 100)}%</span>
+            <span className="text-[11px] sm:text-xs font-bold text-emerald-600">{totalRooms > 0 ? Math.round((lolosQcCount / totalRooms) * 100) : 0}%</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 sm:mt-2 overflow-hidden">
             <div 
               className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.round((lolosQcCount / totalRooms) * 100)}%` }}
+              style={{ width: `${totalRooms > 0 ? Math.round((lolosQcCount / totalRooms) * 100) : 0}%` }}
             ></div>
           </div>
           <p className="text-[10px] sm:text-[11px] text-slate-500 mt-1 sm:mt-1.5 truncate">Standar mutu kamar siap digunakan</p>
@@ -269,7 +485,7 @@ export function QualityControlView() {
           <div className="w-full bg-purple-100/70 h-1.5 rounded-full mt-1.5 sm:mt-2 overflow-hidden">
             <div 
               className="bg-purple-600 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(100, Math.round((menungguQcCount / totalRooms) * 100) * 3)}%` }}
+              style={{ width: `${totalRooms > 0 ? Math.min(100, Math.round((menungguQcCount / totalRooms) * 100) * 3) : 0}%` }}
             ></div>
           </div>
           <p className="text-[10px] sm:text-[11px] text-purple-700 mt-1 sm:mt-1.5 font-medium truncate">Menunggu verifikasi pasca teknisi</p>
@@ -289,7 +505,7 @@ export function QualityControlView() {
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 sm:mt-2 overflow-hidden">
             <div 
               className="bg-rose-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(100, Math.round((perluPerbaikanCount / totalRooms) * 100) * 3)}%` }}
+              style={{ width: `${totalRooms > 0 ? Math.min(100, Math.round((perluPerbaikanCount / totalRooms) * 100) * 3) : 0}%` }}
             ></div>
           </div>
           <p className="text-[10px] sm:text-[11px] text-slate-500 mt-1 sm:mt-1.5 truncate">Kendala dalam proses teknisi</p>
@@ -309,7 +525,7 @@ export function QualityControlView() {
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 sm:mt-2 overflow-hidden">
             <div 
               className="bg-amber-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.round((perluInspeksiCount / totalRooms) * 100)}%` }}
+              style={{ width: `${totalRooms > 0 ? Math.round((perluInspeksiCount / totalRooms) * 100) : 0}%` }}
             ></div>
           </div>
           <p className="text-[10px] sm:text-[11px] text-slate-500 mt-1 sm:mt-1.5 truncate">Selesai checkout & baru</p>
@@ -332,7 +548,7 @@ export function QualityControlView() {
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
               activeSubTab === 'ROOMS' ? 'bg-teal-100 text-teal-800' : 'bg-slate-200 text-slate-600'
             }`}>
-              {filteredRooms.length}
+              {roomsForMasterDetail.length}
             </span>
           </button>
 
@@ -372,7 +588,7 @@ export function QualityControlView() {
         </div>
       </div>
 
-      {/* SUB-VIEW 1: ROOMS INSPECTION GROUPED BY BUILDING & AULA */}
+      {/* SUB-VIEW 1: ROOMS INSPECTION GROUPED BY BUILDING & AULA (MASTER-DETAIL SELARAS MANAJEMEN GEDUNG) */}
       {activeSubTab === 'ROOMS' && (
         <div className="space-y-5">
           {/* Filter & Display Controls Bar - Synchronized with RoomsView */}
@@ -389,7 +605,7 @@ export function QualityControlView() {
                       Denah Kamar &amp; Ruang Pertemuan (Pengecekan QC)
                     </h3>
                     <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold border border-slate-200">
-                      {filteredRooms.length} dari {rooms.length} Kamar
+                      {roomsForMasterDetail.length} dari {rooms.length} Kamar
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -504,37 +720,11 @@ export function QualityControlView() {
                   </span>
                 </button>
               </div>
-
-              {/* Toggle Ringkas / Buka Semua */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
-                <button
-                  type="button"
-                  onClick={() => handleGlobalDisplayChange('COLLAPSE')}
-                  className={`px-2.5 py-1 rounded font-bold transition cursor-pointer text-[11px] ${
-                    globalDisplay === 'COLLAPSE'
-                      ? 'bg-white text-slate-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <i className="fa-solid fa-compress mr-1"></i> Ringkas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGlobalDisplayChange('EXPAND')}
-                  className={`px-2.5 py-1 rounded font-bold transition cursor-pointer text-[11px] ${
-                    globalDisplay === 'EXPAND'
-                      ? 'bg-white text-teal-800 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <i className="fa-solid fa-expand mr-1"></i> Buka Semua
-                </button>
-              </div>
             </div>
 
             {/* Bottom Row: Detailed Dropdown Filter Bar in a Clean Light Box */}
             <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 {/* Filter 1: Gedung */}
                 <div>
                   <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
@@ -543,18 +733,23 @@ export function QualityControlView() {
                   </label>
                   <select 
                     value={bFilter} 
-                    onChange={e => setBFilter(e.target.value)} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setBFilter(val);
+                      if (
+                        val !== 'ALL' &&
+                        val !== 'Gedung Serbaguna (SG)' &&
+                        val !== 'Gedung Serbaguna' &&
+                        val !== 'Ruang Pertemuan / Aula' &&
+                        val !== 'Ruang Pertemuan'
+                      ) {
+                        setActiveBuildingName(val);
+                      }
+                    }} 
                     className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-teal-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
                   >
                     <option key="all" value="ALL">Semua Fasilitas Gedung &amp; Aula</option>
-                    {buildings.filter(b => 
-                      b.name !== 'Ruang Pertemuan' && 
-                      b.name !== 'Ruang Pertemuan / Aula' && 
-                      b.name !== 'Gedung Serbaguna (SG)' && 
-                      b.name !== 'Gedung Serbaguna' &&
-                      b.category !== 'SERBAGUNA' &&
-                      b.category !== 'RUANG_PERTEMUAN'
-                    ).slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
+                    {lodgingBuildings.slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                       <option key={b.id} value={b.name}>{b.name}</option>
                     ))}
                     <option key="gedung-serbaguna" value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
@@ -580,22 +775,6 @@ export function QualityControlView() {
                     <option key="perbaikan" value="PERLU_PERBAIKAN">🔴 Perlu Perbaikan (Teknisi)</option>
                   </select>
                 </div>
-
-                {/* Filter 3: Tampilan Gedung */}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
-                    <i className="fa-solid fa-layer-group text-slate-400"></i>
-                    <span>Mode Tampilan Denah:</span>
-                  </label>
-                  <select
-                    value={globalDisplay}
-                    onChange={e => handleGlobalDisplayChange(e.target.value as 'COLLAPSE' | 'EXPAND')}
-                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-teal-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
-                  >
-                    <option key="collapse" value="COLLAPSE">Sembunyikan Kamar (Ringkas - Nama Gedung Saja)</option>
-                    <option key="expand" value="EXPAND">Buka Semua Kamar &amp; Aula</option>
-                  </select>
-                </div>
               </div>
 
               {/* Active Filter Reset */}
@@ -603,7 +782,7 @@ export function QualityControlView() {
                 <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-slate-200 text-xs text-slate-600">
                   <span className="flex items-center gap-1.5 font-medium">
                     <i className="fa-solid fa-filter text-teal-700"></i>
-                    <span>Filter aktif: menampilkan <strong>{filteredRooms.length}</strong> unit</span>
+                    <span>Filter aktif: menampilkan <strong>{roomsForMasterDetail.length}</strong> unit</span>
                   </span>
                   <button
                     type="button"
@@ -622,366 +801,365 @@ export function QualityControlView() {
             </div>
           </div>
 
-          {/* Grouped by Building & Aula */}
-          <div className="space-y-6">
-            {buildingNames.length === 0 ? (
-              <div className="bg-white p-12 text-center rounded-xl border border-slate-200 text-slate-400">
-                <i className="fa-solid fa-building-circle-xmark text-4xl mb-2"></i>
-                <p className="text-xs font-semibold">Tidak ada kamar atau aula yang sesuai dengan filter QC.</p>
-              </div>
-            ) : (
-              buildingNames.map(bName => {
-                const bRooms = grouped[bName];
-                const isCollapsed = isBuildingCollapsed(bName);
-                const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
-                const isSGBuilding = bName === 'Gedung Serbaguna (SG)' || bName === 'Gedung Serbaguna' || bObj?.category === 'SERBAGUNA';
-                const isAulaBuilding = bName === 'Ruang Pertemuan' || bName === 'Ruang Pertemuan / Aula' || bObj?.category === 'RUANG_PERTEMUAN';
-                const isBldSerbaguna = isSGBuilding || isAulaBuilding;
-                const bCapacity = bObj?.totalRooms !== undefined && bObj.totalRooms !== null 
-                  ? bObj.totalRooms 
-                  : bRooms.length;
-                const bDescription = (bObj?.description && bObj.description.trim())
-                  || (bObj?.capacityDesc && bObj.capacityDesc.trim())
-                  || (isSGBuilding ? 'Fasilitas Konvensi Akbar & Acara Serbaguna UPT Asrama Haji Jakarta' : isAulaBuilding ? 'Fasilitas Ruang Rapat, Auditorium & Aula Pertemuan Resmi UPT Asrama Haji Jakarta' : OFFICIAL_TARIFFS[bName]?.desc)
-                  || 'Fasilitas Standar UPT';
+          <div className="space-y-8">
+            {/* BAGIAN 1: GEDUNG PENGINAPAN (MASTER-DETAIL SEPERTI MANAJEMEN GEDUNG) */}
+            {(bFilter === 'ALL' || lodgingBuildings.some(b => b.name.toLowerCase() === bFilter.toLowerCase())) && (
+              <div id="lodging-master-detail-section" className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center space-x-2">
+                      <i className="fa-solid fa-hotel text-teal-700"></i>
+                      <span>Gedung Penginapan &amp; Kamar Hunian (QC)</span>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 tabular-nums">
+                        {buildingNames.length} Gedung • {lodgingRooms.length} Kamar Tidur
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Pilih gedung penginapan di sebelah kiri untuk melakukan inspeksi QC unit kamar di sebelah kanan.
+                    </p>
+                  </div>
+                </div>
 
-                const bCategory = isSGBuilding ? 'SERBAGUNA' : isAulaBuilding ? 'RUANG_PERTEMUAN' : bObj?.category;
-                const bIcon = getBuildingIcon(bName, bCategory);
-                const bColors = getBuildingColorClass(bName, bCategory);
-
-                const bLolos = bRooms.filter(r => r.qcStatus === 'LOLOS_QC').length;
-                const bMenunggu = bRooms.filter(r => r.qcStatus === 'MENUNGGU_QC').length;
-                const bPerluPerbaikan = bRooms.filter(r => r.qcStatus === 'PERLU_PERBAIKAN').length;
-                const bPerluInspeksi = bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI').length;
-
-                return (
-                  <div key={bName} id={`qc-building-section-${bName.replace(/[^a-zA-Z0-9]/g, '-')}`} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm space-y-3 transition">
-                    {/* Building Header / Accordion Dropdown Toggle matching RoomsView */}
-                    <div
-                      onClick={() => toggleBuilding(bName)}
-                      className="bg-slate-100 px-5 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer hover:bg-slate-200/75 transition select-none"
-                      title="Klik untuk menyembunyikan / menampilkan kamar"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-9 h-9 rounded-xl ${bColors.bg} border ${bColors.border} shadow-xs flex items-center justify-center font-bold text-sm shrink-0`}>
-                          <i className={`fa-solid ${bIcon}`}></i>
-                        </div>
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <h3 className="font-bold text-sm text-slate-900">
-                              {isSGBuilding 
-                                ? 'Gedung Serbaguna (SG) - Fasilitas Serbaguna & Konvensi' 
-                                : isAulaBuilding
-                                ? 'Ruang Pertemuan / Aula - Fasilitas Rapat & Pertemuan Resmi'
-                                : bName}
-                            </h3>
-                            {isCollapsed && (
-                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] rounded font-semibold border border-amber-200">
-                                {isBldSerbaguna ? 'Ruang Disembunyikan' : 'Kamar Disembunyikan'}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-500">
-                            {bCapacity} {isBldSerbaguna ? 'Ruang Pertemuan / Aula' : 'Kamar Hunian'} | {bDescription}
-                          </p>
-                        </div>
+                {buildingNames.length === 0 ? (
+                  <div className="bg-white p-8 text-center rounded-2xl border border-slate-200 text-slate-400">
+                    <i className="fa-solid fa-hotel text-3xl mb-2 text-slate-300"></i>
+                    <p className="text-xs font-semibold">Tidak ada gedung penginapan yang sesuai dengan filter QC.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                    {/* Sisi Kiri: Daftar Gedung Penginapan (4 Kolom) */}
+                    <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                          Pilih Gedung Penginapan ({buildingNames.length})
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          Klik untuk lihat kamar
+                        </span>
                       </div>
 
-                      <div className="flex items-center space-x-3">
-                        <div className="flex items-center space-x-2 text-xs flex-wrap gap-y-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedBuilding(bName);
-                              setActiveTab('gedung');
-                            }}
-                            className="px-2.5 py-1 bg-white hover:bg-emerald-50 border border-slate-300 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
-                            title="Buka denah gedung ini di Manajemen Gedung (Denah Penyewaan)"
-                          >
-                            <i className="fa-solid fa-map-location-dot text-emerald-600"></i>
-                            <span className="hidden md:inline">Buka di Denah</span>
-                          </button>
-                          <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold">
-                            {bLolos} Lolos QC
-                          </span>
-                          {bMenunggu > 0 && (
-                            <span className="px-2 py-1 bg-purple-100 text-purple-900 border border-purple-300 rounded font-bold animate-pulse">
-                              {bMenunggu} Cek QC
-                            </span>
-                          )}
-                          {bPerluPerbaikan > 0 && (
-                            <span className="px-2 py-1 bg-rose-100 text-rose-800 rounded font-semibold">
-                              {bPerluPerbaikan} Perlu Perbaikan
-                            </span>
-                          )}
-                          <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded font-semibold">
-                            {bPerluInspeksi} Perlu Cek
-                          </span>
-                          <span className="px-2 py-1 bg-slate-200/80 text-slate-700 rounded font-semibold text-[11px]">
-                            {bRooms.filter(r => r.status === 'KOSONG' || (r as any).status === 'TERSEDIA').length} Tersedia
-                          </span>
-                        </div>
+                      <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1.5 custom-scrollbar">
+                        {buildingNames.map(bName => {
+                          const bRooms = grouped[bName] || [];
+                          const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                          const isSelected = selectedBuildingKey.toLowerCase() === bName.toLowerCase();
+                          const bLolos = bRooms.filter(r => r.qcStatus === 'LOLOS_QC').length;
+                          const bMenunggu = bRooms.filter(r => r.qcStatus === 'MENUNGGU_QC').length;
+                          const bPerluPerbaikan = bRooms.filter(r => r.qcStatus === 'PERLU_PERBAIKAN').length;
+                          const bPerluInspeksi = bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI').length;
 
-                        <button
-                          type="button"
-                          className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-300/60 transition"
-                          aria-label={isCollapsed ? 'Tampilkan Kamar' : 'Sembunyikan Kamar'}
-                        >
-                          <i className={`fa-solid fa-chevron-${isCollapsed ? 'down' : 'up'}`}></i>
-                        </button>
+                          return (
+                            <div
+                              key={bName}
+                              onClick={() => {
+                                setActiveBuildingName(bName);
+                                if (bFilter !== 'ALL' && bFilter.toLowerCase() !== bName.toLowerCase()) {
+                                  setBFilter('ALL');
+                                }
+                              }}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer space-y-2 ${
+                                isSelected
+                                  ? 'border-teal-500 bg-teal-50/50 shadow-xs ring-2 ring-teal-500/20'
+                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center space-x-2.5 min-w-0">
+                                  <div className={`w-9 h-9 rounded-xl font-bold flex items-center justify-center text-xs shrink-0 ${
+                                    isSelected
+                                      ? 'bg-teal-700 text-white shadow-2xs'
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    <i className={`fa-solid ${getBuildingIcon(bName, bObj?.category)}`}></i>
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h4 className="font-bold text-xs text-slate-900 truncate">
+                                      {bName}
+                                    </h4>
+                                    <p className="text-[10px] text-slate-500 truncate tabular-nums">
+                                      {bRooms.length} Kamar Hunian
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase shrink-0 ${
+                                  isSelected
+                                    ? 'bg-teal-100 text-teal-800 border border-teal-300'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {bObj?.code || 'ASRAMA'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-100 tabular-nums">
+                                <div className="flex items-center flex-wrap gap-1.5 text-slate-600 font-semibold">
+                                  <span className="text-emerald-700 font-bold">{bLolos} Lolos</span>
+                                  <span aria-hidden="true">·</span>
+                                  {bMenunggu > 0 ? (
+                                    <span className="text-purple-800 font-bold animate-pulse">{bMenunggu} Cek QC</span>
+                                  ) : (
+                                    <span className="text-amber-700 font-bold">{bPerluInspeksi} Perlu Cek</span>
+                                  )}
+                                  {bPerluPerbaikan > 0 && (
+                                    <>
+                                      <span aria-hidden="true">·</span>
+                                      <span className="text-rose-700 font-bold">{bPerluPerbaikan} Perbaikan</span>
+                                    </>
+                                  )}
+                                </div>
+
+                                {isSelected ? (
+                                  <span className="text-teal-700 font-bold flex items-center space-x-1 shrink-0">
+                                    <span>Aktif</span>
+                                    <i className="fa-solid fa-chevron-right text-[9px]"></i>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-medium shrink-0">
+                                    Pilih
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {/* Rooms Grid */}
-                    {!isCollapsed && (
-                      <div className={`p-2.5 sm:p-4 grid gap-2.5 sm:gap-3 ${
-                        isBldSerbaguna
-                          ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4' 
-                          : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-5'
-                      }`}>
-                        {bRooms.length === 0 ? (
-                          <div className="col-span-full py-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <i className="fa-solid fa-door-closed text-2xl text-slate-300 mb-1.5 block"></i>
-                            <span>Belum ada kamar atau unit terdaftar yang cocok dengan filter QC di gedung ini.</span>
-                          </div>
-                        ) : (
-                          bRooms.map((room: Room) => {
-                            const qc = room.qcStatus || 'PERLU_INSPEKSI';
-                            let cardBorder = 'border-slate-200';
-                            if (qc === 'LOLOS_QC') cardBorder = 'border-emerald-300 hover:border-emerald-400';
-                            if (qc === 'MENUNGGU_QC') cardBorder = 'border-amber-300 ring-2 ring-amber-300/70 shadow-xs';
-                            if (qc === 'PERLU_PERBAIKAN') cardBorder = 'border-rose-200 hover:border-rose-300';
-                            if (qc === 'PERLU_INSPEKSI') cardBorder = 'border-amber-200 hover:border-amber-300';
+                    {/* Sisi Kanan: Daftar Kamar dari Gedung Terpilih (8 Kolom) */}
+                    <div className="lg:col-span-8 space-y-4">
+                      {selectedBuildingKey ? (() => {
+                        const bName = selectedBuildingKey;
+                        const bRooms = grouped[bName] || [];
+                        const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
+                        const bDescription = (bObj?.description && bObj.description.trim())
+                          || OFFICIAL_TARIFFS[bName]?.desc
+                          || 'Fasilitas Kamar Hunian UPT Asrama Haji Jakarta';
 
-                            const isAulaCard = isBldSerbaguna;
-                            const matchingMr = meetingRooms.find(m => m.id === room.id || m.name.toLowerCase() === room.roomNumber.toLowerCase());
-                            const isSGCard = isAulaCard && (
-                              room.building === "Gedung Serbaguna (SG)" || 
-                              room.building === "Gedung Serbaguna" || 
-                              room.type === "Gedung Serbaguna (SG)" || 
-                              matchingMr?.category === 'SERBAGUNA'
-                            );
-                            const displayName = matchingMr ? matchingMr.name : (isAulaCard ? room.roomNumber : `Kamar ${room.roomNumber}`);
-                            const subTitle = matchingMr 
-                              ? `${matchingMr.type || 'Gedung Serbaguna'} • Kap. ${matchingMr.capacity} org` 
-                              : (isSGCard ? 'Gedung Serbaguna (SG)' : isAulaCard ? 'Ruang Pertemuan / Aula' : `${room.building} • Hunian`);
-                            
-                            const effectiveStatus = matchingMr 
-                              ? (matchingMr.status === 'TERPAKAI' ? 'TERPAKAI' : matchingMr.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'TERSEDIA') 
-                              : room.status;
+                        const floorsInBuilding = Array.from(
+                          new Set(bRooms.map(r => r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1))
+                        ).sort((a, b) => a - b);
+                        const currentFloorFilter = buildingFloorFilters[bName] || 'ALL';
 
-                            const statusBadge = (
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold shrink-0 ${
-                                effectiveStatus === 'TERISI' || effectiveStatus === 'TERPAKAI' ? 'bg-rose-600 text-white' :
-                                effectiveStatus === 'BOOKED' ? 'bg-blue-600 text-white' :
-                                effectiveStatus === 'MAINTENANCE' ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'
-                              }`}>
-                                {effectiveStatus}
-                              </span>
-                            );
+                        const displayedRooms = currentFloorFilter === 'ALL'
+                          ? bRooms
+                          : bRooms.filter(r => (r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1) === currentFloorFilter);
 
-                            return (
-                              <div key={room.id} className={`p-2.5 sm:p-3 rounded-xl border ${cardBorder} shadow-xs flex flex-col justify-between space-y-2 sm:space-y-2.5 hover:shadow-md transition bg-white`}>
-                                <div>
-                                  {qc === 'MENUNGGU_QC' && (
-                                    <div className="mb-2 -mt-0.5 -mx-0.5 px-2 py-0.5 rounded-lg bg-amber-100 text-hajj-900 text-[9px] font-bold flex items-center justify-between border border-amber-300">
-                                      <span className="flex items-center">
-                                        <i className="fa-solid fa-bolt mr-1 text-amber-600 text-[8px]"></i> Siap Cek Pasca Teknisi
-                                      </span>
-                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-ping"></span>
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-start justify-between gap-1.5">
-                                    <div className="flex items-start gap-2 min-w-0 flex-1">
-                                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${
-                                        isSGCard
-                                          ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                                          : isAulaCard 
-                                          ? 'bg-purple-100 text-purple-900 border border-purple-200' 
-                                          : 'bg-slate-100 text-slate-700 border border-slate-200'
-                                      } shrink-0 shadow-2xs`}>
-                                        <i className={`fa-solid ${
-                                          isSGCard
-                                            ? 'fa-building-columns text-xs text-amber-700'
-                                            : isAulaCard 
-                                            ? 'fa-landmark text-xs text-purple-700' 
-                                            : 'fa-bed text-xs text-slate-600'
-                                        }`}></i>
-                                      </span>
-                                      <div className="min-w-0 flex-1 flex flex-col justify-center">
-                                        <span className="font-bold text-xs text-slate-900 leading-tight break-words block" title={displayName}>
-                                          {displayName}
-                                        </span>
-                                        <span className="text-[10px] text-slate-500 font-medium leading-tight block truncate mt-0.5" title={subTitle}>
-                                          {subTitle}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <div className="shrink-0 pt-0.5 flex flex-col items-end space-y-1">
-                                      {statusBadge}
-                                      {getQcBadge(room.qcStatus, true)}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center justify-between text-[10px] text-slate-500 mt-2 pt-1.5 border-t border-slate-100">
-                                    <span className="inline-flex items-center space-x-1 font-medium">
-                                      <i className={`fa-solid ${isAulaCard ? 'fa-users-line text-hajj-700' : 'fa-users text-slate-400'} text-[10px]`}></i>
-                                      <span>{room.capacity} {isAulaCard ? 'Pax' : 'Orang'}</span>
-                                    </span>
-                                    {isAulaCard ? (
-                                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
-                                        isSGCard 
-                                          ? 'text-amber-900 bg-amber-50 border-amber-200'
-                                          : 'text-purple-900 bg-purple-50 border-purple-200'
-                                      }`}>
-                                        {isSGCard ? 'Serbaguna (SG)' : 'Aula / Rapat'}
-                                      </span>
-                                    ) : (
-                                      <div className="flex items-center space-x-1">
-                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-                                          room.type === 'Superior'
-                                            ? 'bg-purple-100 text-purple-800 border-purple-300'
-                                            : room.type === 'Ekonomi'
-                                            ? 'bg-teal-100 text-teal-800 border-teal-300'
-                                            : 'bg-blue-100 text-blue-800 border-blue-300'
-                                        }`}>
-                                          {room.type || 'Standar'}
-                                        </span>
-                                        {room.bedType && (
-                                          <span className="text-[9px] font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                            {room.bedType}
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Tariffs */}
-                                  {isAulaCard ? (
-                                    (() => {
-                                      const sessionRate = matchingMr?.sessionRate || (isSGCard ? 8500000 : 7000000);
-                                      const dailyRate = matchingMr?.dailyRate || (isSGCard ? 15000000 : 12000000);
-                                      return (
-                                        <div className="text-[9.5px] text-right font-mono font-bold pt-1 flex flex-col items-end leading-tight">
-                                          <span className={isSGCard ? 'text-amber-800' : 'text-purple-800'}>
-                                            {formatRupiah(sessionRate)} <span className="text-[8.5px] font-sans text-slate-500 font-normal">/ 8 Jam</span>
-                                          </span>
-                                          <span className="text-[8.5px] text-slate-500 font-normal font-sans">
-                                            {formatRupiah(dailyRate)} / 12 Jam
-                                          </span>
-                                        </div>
-                                      );
-                                    })()
-                                  ) : room.pricePerNight && room.pricePerNight > 0 ? (
-                                    <div className="text-[10px] text-right font-mono font-bold text-emerald-700 pt-0.5">
-                                      {formatRupiah(room.pricePerNight)} <span className="text-[9px] font-sans text-slate-400 font-normal">/mlm</span>
-                                    </div>
-                                  ) : null}
-
-                                  {/* QC Audit Details */}
-                                  <div className="mt-2 space-y-1 bg-slate-50 p-1.5 rounded-lg border border-slate-100 text-[10px]">
-                                    {room.lastQcDate && (
-                                      <div className="text-slate-600 flex items-center justify-between">
-                                        <span className="text-slate-400 text-[9px]">Inspeksi:</span>
-                                        <span className="font-semibold text-slate-700 font-mono text-[9px]">{room.lastQcDate}</span>
-                                      </div>
-                                    )}
-                                    {room.lastQcBy && (
-                                      <div className="text-slate-600 flex items-center justify-between">
-                                        <span className="text-slate-400 text-[9px]">Pemeriksa:</span>
-                                        <span className="font-semibold text-slate-700 flex items-center text-[9px] truncate max-w-[90px]" title={room.lastQcBy}>
-                                          <i className="fa-solid fa-user-check text-teal-600 mr-1 text-[8px]"></i>
-                                          {room.lastQcBy}
-                                        </span>
-                                      </div>
-                                    )}
-                                    {room.lastQcNotes && (
-                                      <div className="text-slate-700 italic text-[9px] line-clamp-1 pt-0.5 border-t border-slate-200/60" title={room.lastQcNotes}>
-                                        "{room.lastQcNotes}"
-                                      </div>
-                                    )}
-                                  </div>
+                        return (
+                          <div
+                            id={`qc-building-section-${bName.replace(/[^a-zA-Z0-9]/g, '-')}`}
+                            className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-4"
+                          >
+                            {/* Header Gedung Terpilih */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                              <div className="flex items-center space-x-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-600 to-teal-800 text-white font-black text-lg flex items-center justify-center shadow-xs shrink-0">
+                                  <i className={`fa-solid ${getBuildingIcon(bName, bObj?.category)}`}></i>
                                 </div>
-
-                                {/* Action buttons */}
-                                <div className="mt-2 pt-1.5 border-t border-slate-100 space-y-1">
-                                  {canInspect ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => openModal('modalQcInspection', { room })}
-                                      className={`w-full py-1.5 font-bold rounded-lg text-[10px] shadow-xs flex items-center justify-center space-x-1.5 transition cursor-pointer ${
-                                        (qc === 'PERLU_INSPEKSI' || qc === 'MENUNGGU_QC')
-                                          ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border border-amber-500 font-extrabold shadow-sm ring-1 ring-amber-300'
-                                          : qc === 'PERLU_PERBAIKAN'
-                                          ? 'bg-rose-700 hover:bg-rose-800 text-white font-bold'
-                                          : 'bg-teal-700 hover:bg-teal-800 text-white font-semibold'
-                                      }`}
-                                    >
-                                      <i className={`fa-solid ${
-                                        qc === 'MENUNGGU_QC' ? 'fa-stamp text-slate-950' : 
-                                        qc === 'PERLU_INSPEKSI' ? 'fa-clipboard-check text-slate-950' :
-                                        qc === 'PERLU_PERBAIKAN' ? 'fa-wrench text-white' : 'fa-circle-check text-white'
-                                      } text-[9px]`}></i>
-                                      <span>
-                                        {qc === 'MENUNGGU_QC' ? 'Inspeksi QC (Perlu Cek)' : 
-                                         qc === 'PERLU_INSPEKSI' ? 'Inspeksi QC (Perlu Cek)' : 
-                                         qc === 'PERLU_PERBAIKAN' ? 'Re-Inspeksi Teknisi' : 'Inspeksi QC (Lolos)'}
-                                      </span>
-                                    </button>
-                                  ) : (
-                                    <div className="text-center text-[9px] text-slate-400 italic py-0.5">
-                                      <i className="fa-solid fa-lock mr-1 text-slate-300 text-[8px]"></i> Khusus QC
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-center space-x-1 pt-0.5">
-                                    {qc === 'PERLU_PERBAIKAN' && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => openModal('modalMaintenance', { roomId: room.id })}
-                                          className="flex-1 py-1 px-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded text-[9px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
-                                          title="Laporkan tiket perbaikan fasilitas ke tim teknisi"
-                                        >
-                                          <i className="fa-solid fa-plus text-[8px]"></i>
-                                          <span>Tiket</span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setActiveTab('laporanMaintenance')}
-                                          className="flex-1 py-1 px-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-[9px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
-                                          title="Buka laporan perawatan fasilitas"
-                                        >
-                                          <i className="fa-solid fa-screwdriver-wrench text-[8px]"></i>
-                                          <span>Perawatan</span>
-                                        </button>
-                                      </>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedBuilding(bName);
-                                        setActiveTab('gedung');
-                                      }}
-                                      className="flex-1 py-1 px-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded text-[9px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
-                                      title="Buka lokasi kamar di denah manajemen gedung"
-                                    >
-                                      <i className="fa-solid fa-door-open text-[8px] text-hajj-700"></i>
-                                      <span>Denah Gedung</span>
-                                    </button>
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="font-black text-base text-slate-900">
+                                      {bName}
+                                    </h3>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-teal-100 text-teal-900 border border-teal-300">
+                                      {bObj?.code || 'PENGINAPAN'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 tabular-nums">
+                                      {floorsInBuilding.length || 1} Lantai • {bRooms.length} Kamar
+                                    </span>
                                   </div>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    {bDescription}
+                                  </p>
                                 </div>
                               </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    )}
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedBuilding(bName);
+                                    setActiveTab('gedung');
+                                  }}
+                                  className="px-3 py-1.5 bg-slate-100 hover:bg-teal-50 border border-slate-200 hover:border-teal-300 text-slate-700 hover:text-teal-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                                  title="Buka denah gedung di Manajemen Gedung"
+                                >
+                                  <i className="fa-solid fa-map-location-dot text-teal-600"></i>
+                                  <span>Denah Gedung</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Bar Filter Lantai & Ringkasan QC */}
+                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
+                                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded-lg font-bold">
+                                  {bRooms.filter(r => r.qcStatus === 'LOLOS_QC').length} Lolos QC
+                                </span>
+                                <span className="px-2 py-1 bg-purple-100 text-purple-900 rounded-lg font-bold">
+                                  {bRooms.filter(r => r.qcStatus === 'MENUNGGU_QC').length} Cek QC
+                                </span>
+                                <span className="px-2 py-1 bg-rose-100 text-rose-800 rounded-lg font-bold">
+                                  {bRooms.filter(r => r.qcStatus === 'PERLU_PERBAIKAN').length} Perbaikan
+                                </span>
+                                <span className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg font-bold">
+                                  {bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI').length} Perlu Cek
+                                </span>
+                              </div>
+
+                              {/* Filter Lantai */}
+                              <div className="flex items-center flex-wrap gap-1">
+                                <span className="text-[11px] font-bold text-slate-500 mr-1">Lantai:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setBuildingFloorFilters(prev => ({ ...prev, [bName]: 'ALL' }))}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer tabular-nums whitespace-nowrap shrink-0 ${
+                                    currentFloorFilter === 'ALL'
+                                      ? 'bg-teal-700 text-white shadow-2xs'
+                                      : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
+                                  }`}
+                                >
+                                  Semua ({bRooms.length})
+                                </button>
+                                {floorsInBuilding.map(fl => {
+                                  const countInFloor = bRooms.filter(r => (r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1) === fl).length;
+                                  return (
+                                    <button
+                                      key={fl}
+                                      type="button"
+                                      onClick={() => setBuildingFloorFilters(prev => ({ ...prev, [bName]: fl }))}
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer tabular-nums whitespace-nowrap shrink-0 ${
+                                        currentFloorFilter === fl
+                                          ? 'bg-teal-700 text-white shadow-2xs'
+                                          : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
+                                      }`}
+                                    >
+                                      Lt. {fl} ({countInFloor})
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Daftar Kamar */}
+                            {displayedRooms.length === 0 ? (
+                              <div className="p-8 text-center bg-slate-50 border border-slate-100 rounded-xl space-y-2">
+                                <i className="fa-solid fa-bed text-3xl text-slate-300"></i>
+                                <p className="text-xs font-bold text-slate-700">Tidak ada unit kamar yang sesuai dengan filter QC di lantai ini.</p>
+                              </div>
+                            ) : (
+                              <div className="max-h-[500px] overflow-y-auto pr-1.5 custom-scrollbar">
+                                <div className="grid gap-2.5 sm:gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                                  {displayedRooms.map(r => renderRoomCard(r))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })() : (
+                        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+                          <i className="fa-solid fa-hotel text-3xl mb-2 text-slate-300"></i>
+                          <p className="text-xs font-semibold">Pilih gedung penginapan di sebelah kiri untuk melihat daftar kamar QC.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                );
-              })
+                )}
+              </div>
+            )}
+
+            {/* BAGIAN 2: FASILITAS GEDUNG SERBAGUNA & RUANG PERTEMUAN / AULA */}
+            {(bFilter === 'ALL' || bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Ruang Pertemuan / Aula') && (
+              <div className="space-y-4 pt-2">
+                <div className="border-b border-slate-200 pb-2.5">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center space-x-2">
+                    <i className="fa-solid fa-landmark text-purple-700"></i>
+                    <span>Ruang Pertemuan, Aula &amp; Gedung Serbaguna (QC)</span>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 tabular-nums">
+                      {meetingFacilities.length} Unit Aula/SG
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Inspeksi kelayakan fasilitas ruang rapat besar, auditorium, dan gedung serbaguna (SG).
+                  </p>
+                </div>
+
+                {meetingFacilities.length === 0 ? (
+                  <div className="bg-white p-8 text-center rounded-2xl border border-slate-200 text-slate-400">
+                    <i className="fa-solid fa-landmark text-3xl mb-2 text-slate-300"></i>
+                    <p className="text-xs font-semibold">Tidak ada aula atau ruang serbaguna yang sesuai dengan filter QC.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {meetingFacilities.map((m: MeetingRoom) => {
+                      const qc = m.qcStatus || 'PERLU_INSPEKSI';
+                      const isSG = m.category === 'SERBAGUNA' || (m.building || '').includes('Serbaguna');
+                      let cardBorder = 'border-slate-200';
+                      if (qc === 'LOLOS_QC') cardBorder = 'border-emerald-300 hover:border-emerald-400';
+                      if (qc === 'MENUNGGU_QC') cardBorder = 'border-purple-300 ring-2 ring-purple-300/70 shadow-xs';
+                      if (qc === 'PERLU_PERBAIKAN') cardBorder = 'border-rose-200 hover:border-rose-300';
+                      if (qc === 'PERLU_INSPEKSI') cardBorder = 'border-amber-200 hover:border-amber-300';
+
+                      return (
+                        <div key={m.id} className={`p-3.5 rounded-xl border ${cardBorder} shadow-xs flex flex-col justify-between space-y-3 bg-white`}>
+                          <div>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-start gap-2.5 min-w-0">
+                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl ${
+                                  isSG ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-purple-100 text-purple-900 border border-purple-200'
+                                } shrink-0 shadow-2xs`}>
+                                  <i className={`fa-solid ${isSG ? 'fa-building-columns text-amber-700' : 'fa-landmark text-purple-700'} text-xs`}></i>
+                                </span>
+                                <div className="min-w-0">
+                                  <h4 className="font-bold text-xs text-slate-900 truncate" title={m.name}>
+                                    {m.name}
+                                  </h4>
+                                  <p className="text-[10px] text-slate-500 truncate">
+                                    {m.building || 'Ruang Pertemuan / Aula'} • Kap. {m.capacity} Orang
+                                  </p>
+                                </div>
+                              </div>
+                              {getQcBadge(m.qcStatus, true)}
+                            </div>
+
+                            <div className="mt-2 text-[10px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 space-y-1">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Tarif 8 Jam:</span>
+                                <strong className="font-mono text-slate-800">{formatRupiah(m.sessionRate || 7000000)}</strong>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Tarif 12 Jam:</span>
+                                <strong className="font-mono text-slate-800">{formatRupiah(m.dailyRate || 12000000)}</strong>
+                              </div>
+                              {m.lastQcNotes && (
+                                <div className="italic text-slate-700 pt-1 border-t border-slate-200/60" title={m.lastQcNotes}>
+                                  "{m.lastQcNotes}"
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-100">
+                            {canInspect ? (
+                              <button
+                                type="button"
+                                onClick={() => openModal('modalQcInspection', { room: { ...m, roomNumber: m.name } })}
+                                className="w-full py-1.5 font-bold rounded-lg text-[10px] bg-teal-700 hover:bg-teal-800 text-white shadow-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                              >
+                                <i className="fa-solid fa-clipboard-check text-[9px]"></i>
+                                <span>Inspeksi QC Aula</span>
+                              </button>
+                            ) : (
+                              <div className="text-center text-[9px] text-slate-400 italic py-0.5">
+                                <i className="fa-solid fa-lock mr-1 text-slate-300 text-[8px]"></i> Khusus QC
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
