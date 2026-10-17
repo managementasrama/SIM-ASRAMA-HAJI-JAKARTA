@@ -644,10 +644,10 @@ export function Dashboard() {
       let icon = 'fa-building';
       let color = 'blue';
       const lower = name.toLowerCase();
-      if (lower.includes('arafah')) { icon = 'fa-kaaba'; color = 'emerald'; }
-      else if (lower.includes('muzdalifah')) { icon = 'fa-mosque'; color = 'blue'; }
-      else if (lower.includes('mina')) { icon = 'fa-tents'; color = 'teal'; }
-      else if (lower.includes('madinah')) { icon = 'fa-archway'; color = 'amber'; }
+      if (lower.includes('arafah') || lower === 'gedung a' || lower.startsWith('gedung a ')) { icon = 'fa-kaaba'; color = 'emerald'; }
+      else if (lower.includes('muzdalifah') || lower === 'gedung b' || lower.startsWith('gedung b ')) { icon = 'fa-mosque'; color = 'blue'; }
+      else if (lower.includes('mina') || lower === 'gedung c' || lower.startsWith('gedung c ')) { icon = 'fa-tents'; color = 'teal'; }
+      else if (lower.includes('madinah') || lower.startsWith('gedung d')) { icon = 'fa-archway'; color = 'amber'; }
       return {
         name,
         shortName: name,
@@ -659,10 +659,10 @@ export function Dashboard() {
     // If there were no regular buildings found, provide default 4
     if (result.length === 0) {
       result.push(
-        { name: 'Gedung A (Arafah)', shortName: 'Gedung A (Arafah)', icon: 'fa-kaaba', color: 'emerald' },
-        { name: 'Gedung B (Muzdalifah)', shortName: 'Gedung B (Muzdalifah)', icon: 'fa-mosque', color: 'blue' },
-        { name: 'Gedung C (Mina)', shortName: 'Gedung C (Mina)', icon: 'fa-tents', color: 'teal' },
-        { name: 'Gedung D (Madinah)', shortName: 'Gedung D (Madinah)', icon: 'fa-archway', color: 'amber' },
+        { name: 'Gedung A', shortName: 'Gedung A', icon: 'fa-kaaba', color: 'emerald' },
+        { name: 'Gedung B', shortName: 'Gedung B', icon: 'fa-mosque', color: 'blue' },
+        { name: 'Gedung C', shortName: 'Gedung C', icon: 'fa-tents', color: 'teal' },
+        { name: 'Gedung D1', shortName: 'Gedung D1', icon: 'fa-archway', color: 'amber' },
       );
     }
 

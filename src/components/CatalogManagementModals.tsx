@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isSuperAdmin, isRecepRole } from '../store';
 import { Building, MeetingRoom, Room, RoomCapacityRate } from '../types';
-import { formatRupiah, updateRoomNumberWithFloor, extractFloorFromRoomNumber, getNextRoomNumber, isMeetingFacility, getRoomBuildingKey, getNextSequentialId } from '../lib/utils';
+import { formatRupiah, updateRoomNumberWithFloor, extractFloorFromRoomNumber, getNextRoomNumber, isMeetingFacility, getRoomBuildingKey, getNextSequentialId, compareBuildingOrder } from '../lib/utils';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { findRoomRate, initialRoomCapacityRates } from '../data';
 
@@ -712,7 +712,7 @@ export function MeetingRoomModal({ isOpen, onClose, meetingRoomToEdit, defaultCa
                 >
                   <option value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
                   <option value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
-                  {Array.from(new Set(buildings.map(b => b.name)))
+                  {(Array.from(new Set(buildings.map(b => b.name))) as string[])
                     .filter(name => 
                       name !== 'Gedung Sekretariat' && 
                       name !== 'Kawasan Utama' && 
@@ -721,6 +721,8 @@ export function MeetingRoomModal({ isOpen, onClose, meetingRoomToEdit, defaultCa
                       name !== 'Gedung Serbaguna (SG)' && 
                       name !== 'Gedung Serbaguna'
                     )
+                    .slice()
+                    .sort((a, b) => compareBuildingOrder(a, b))
                     .map(bName => {
                       const bObj = buildings.find(b => b.name === bName);
                       return (
@@ -1278,6 +1280,8 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
                     b.name !== 'Gedung Sekretariat' && 
                     b.name !== 'Kawasan Utama'
                   )
+                  .slice()
+                  .sort((a, b) => compareBuildingOrder(a.name, b.name))
                   .map(b => (
                     <option key={b.id || b.name} value={b.name}>
                       🏨 {b.name} ({b.totalRooms || 3} Unit Kamar)

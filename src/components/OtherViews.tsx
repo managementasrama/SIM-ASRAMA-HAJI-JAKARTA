@@ -2651,7 +2651,7 @@ export function BreakfastOrdersView() {
                   className="py-1.5 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-orange-500 focus:outline-none"
                 >
                   <option value="ALL">Semua Gedung</option>
-                  {buildings.map(b => (
+                  {buildings.slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                     <option key={b.id} value={b.name}>{b.name}</option>
                   ))}
                   <option value="Ruang Pertemuan">Ruang Pertemuan / Aula</option>

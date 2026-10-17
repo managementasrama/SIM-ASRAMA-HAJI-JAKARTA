@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BuildingDetailModal } from './BuildingDetailModal';
 import { Room, Transaction, Maintenance } from '../../types';
 import { useAppContext } from '../../store';
+import { compareBuildingOrder } from '../../lib/utils';
 
 export interface BuildingStat {
   name: string;
@@ -56,15 +57,20 @@ export function BuildingOccupancySection({
   const [bCategoryFilter, setBCategoryFilter] = useState<'ALL' | 'RESIDENTIAL' | 'SG' | 'AULA'>('ALL');
   const [selectedBuildingDetail, setSelectedBuildingDetail] = useState<BuildingStat | null>(null);
 
-  const filteredBuildings = buildingStats.filter(b => {
-    const isSG = b.name.includes('Serbaguna') || b.name.includes('SG');
-    const isAula = !isSG && (b.name.includes('Pertemuan') || b.name.includes('Aula'));
-    const isResidential = !isSG && !isAula;
-    if (bCategoryFilter === 'RESIDENTIAL') return isResidential;
-    if (bCategoryFilter === 'SG') return isSG;
-    if (bCategoryFilter === 'AULA') return isAula;
-    return true;
-  });
+  const filteredBuildings = useMemo(() => {
+    return buildingStats
+      .filter(b => {
+        const isSG = b.name.includes('Serbaguna') || b.name.includes('SG');
+        const isAula = !isSG && (b.name.includes('Pertemuan') || b.name.includes('Aula'));
+        const isResidential = !isSG && !isAula;
+        if (bCategoryFilter === 'RESIDENTIAL') return isResidential;
+        if (bCategoryFilter === 'SG') return isSG;
+        if (bCategoryFilter === 'AULA') return isAula;
+        return true;
+      })
+      .slice()
+      .sort((a, b) => compareBuildingOrder(a.name, b.name));
+  }, [buildingStats, bCategoryFilter]);
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs p-4 sm:p-5 h-full flex flex-col justify-between space-y-4">

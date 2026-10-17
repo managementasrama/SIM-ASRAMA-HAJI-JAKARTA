@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useAppContext, isSuperAdmin, isKeuanganRole } from '../store';
 import { User, UserRole } from '../types';
 import { useBodyScrollLock } from '../lib/scrollLock';
-import { getNextSequentialId } from '../lib/utils';
+import { getNextSequentialId, compareBuildingOrder } from '../lib/utils';
 
 export function UserManagementView() {
   const { 
@@ -921,7 +921,7 @@ export function UserManagementView() {
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-hajj-600 focus:bg-white"
                 >
                   <option value="Semua Gedung">Semua Gedung (Umum)</option>
-                  {buildings.map(b => (
+                  {buildings.slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                     <option key={b.id} value={b.name}>{b.name}</option>
                   ))}
                   {!buildings.some(b => b.name === 'Ruang Pertemuan') && (
@@ -1144,7 +1144,7 @@ export function UserManagementView() {
             >
               <option value="ALL">Semua Penugasan</option>
               <option value="Semua Gedung">Semua Gedung (Umum)</option>
-              {buildings.map(b => (
+              {buildings.slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                 <option key={b.id} value={b.name}>{b.name}</option>
               ))}
               <option value="Ruang Pertemuan">Ruang Pertemuan / Aula</option>

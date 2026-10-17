@@ -106,16 +106,19 @@ export function QualityControlView() {
     }
   }, [selectedBuilding]);
 
-  // Master lodging buildings (selaras dengan RoomsView)
+  // Master lodging buildings (selaras dengan RoomsView & Katalog Gedung: Gedung A, Gedung B, Gedung C, dst)
   const lodgingBuildings = useMemo(() => {
-    return (buildings || []).filter(b => {
-      const name = b.name || '';
-      const cat = b.category || '';
-      if (name === 'Ruang Pertemuan' || name === 'Ruang Pertemuan / Aula' || name === 'Gedung Serbaguna' || name === 'Gedung Serbaguna (SG)') return false;
-      if (cat === 'SERBAGUNA' || cat === 'RUANG_PERTEMUAN') return false;
-      if (isMeetingFacility(name)) return false;
-      return true;
-    });
+    return (buildings || [])
+      .filter(b => {
+        const name = b.name || '';
+        const cat = b.category || '';
+        if (name === 'Ruang Pertemuan' || name === 'Ruang Pertemuan / Aula' || name === 'Gedung Serbaguna' || name === 'Gedung Serbaguna (SG)') return false;
+        if (cat === 'SERBAGUNA' || cat === 'RUANG_PERTEMUAN') return false;
+        if (isMeetingFacility(name)) return false;
+        return true;
+      })
+      .slice()
+      .sort((a, b) => compareBuildingOrder(a.name, b.name));
   }, [buildings]);
 
   // Master lodging rooms

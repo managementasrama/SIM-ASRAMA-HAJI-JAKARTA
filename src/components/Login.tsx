@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../store';
 import { UserRole } from '../types';
 import { useBodyScrollLock } from '../lib/scrollLock';
+import { compareBuildingOrder } from '../lib/utils';
 
 export function Login() {
   const { login, users, buildings = [], showToast, appSettings, registerAccountRequest, requestPasswordReset } = useAppContext();
@@ -499,7 +500,7 @@ export function Login() {
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-hajj-600 focus:border-hajj-600 focus:bg-white outline-none font-medium text-slate-800 cursor-pointer"
                   >
                     <option value="Semua Gedung">Semua Gedung (Umum)</option>
-                    {buildings.map(b => (
+                    {buildings.slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
                       <option key={b.id} value={b.name}>{b.name}</option>
                     ))}
                     {!buildings.some(b => b.name === 'Ruang Pertemuan') && (

@@ -265,9 +265,12 @@ export function RoomsView() {
     return true;
   };
 
-  // Gedung Penginapan (Asrama / Kamar Hunian)
+  // Gedung Penginapan (Asrama / Kamar Hunian) - Berurutan konsisten: Gedung A, Gedung B, Gedung C, dst
   const lodgingBuildings = useMemo(() => {
-    return buildings.filter(b => !b.category || b.category === 'PENGINAPAN');
+    return buildings
+      .filter(b => !b.category || b.category === 'PENGINAPAN')
+      .slice()
+      .sort((a, b) => compareBuildingOrder(a.name, b.name));
   }, [buildings]);
 
   // Filter Kamar Khusus Penginapan
@@ -2506,7 +2509,10 @@ export function RoomsView() {
 
       {/* VIEW 2: KATALOG GEDUNG & FASILITAS (PENGINAPAN, SERBAGUNA & RUANG PERTEMUAN / AULA) */}
       {activeCatalogTab === 'BUILDINGS_CATALOG' && (() => {
-        const penginapanBuildings = buildings.filter(b => !b.category || b.category === 'PENGINAPAN');
+        const penginapanBuildings = buildings
+          .filter(b => !b.category || b.category === 'PENGINAPAN')
+          .slice()
+          .sort((a, b) => compareBuildingOrder(a.name, b.name));
         const serbagunaMRs = meetingRooms.filter(isMeetingRoomSG);
         const aulaMRs = meetingRooms.filter(m => !isMeetingRoomSG(m));
 

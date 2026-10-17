@@ -139,21 +139,36 @@ export function formatIndonesianDateTime(dateTimeStr: string | null | undefined)
 }
 
 export const BUILDING_ORDER = [
+  'Gedung A',
   'Gedung A (Arafah)',
+  'Arafah',
+  'Gedung B',
   'Gedung B (Muzdalifah)',
+  'Muzdalifah',
+  'Gedung C',
   'Gedung C (Mina)',
+  'Mina',
+  'Gedung D',
+  'Gedung D1',
   'Gedung D (Madinah)',
+  'Madinah',
   'Gedung D2',
   'Gedung D3',
   'Gedung D4',
   'Gedung D5',
   'Gedung E',
+  'Gedung F',
   'Gedung G',
   'Gedung H',
+  'Gedung I',
+  'Gedung J',
+  'Gedung K',
   'Gedung Utama',
   'Gedung Serbaguna (SG)',
+  'Gedung Serbaguna',
   'Ruang Pertemuan / Aula',
   'Ruang Pertemuan',
+  'Aula'
 ];
 
 /**
@@ -176,9 +191,62 @@ export function isMeetingFacility(name: string): boolean {
 }
 
 /**
+ * Menghitung bobot urutan gedung agar konsisten dengan Katalog Gedung & Fasilitas UPT:
+ * 1. Gedung Hunian berurutan alfabetis & numerik: Gedung A, Gedung B, Gedung C, Gedung D1, Gedung D2, Gedung D3, Gedung D4, Gedung D5, Gedung E, Gedung G, Gedung H
+ * 2. Gedung Utama di akhir kelompok penginapan/hunian
+ * 3. Gedung Serbaguna (SG)
+ * 4. Ruang Pertemuan / Aula di urutan paling bawah
+ */
+export function getBuildingOrderRank(name?: string | null): number {
+  if (!name) return 99999;
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Fasilitas Aula & Ruang Pertemuan selalu paling bawah
+  if (lower.includes('aula') || lower.includes('pertemuan') || lower.includes('auditorium') || lower.includes('rapat')) {
+    return 10000;
+  }
+
+  // Gedung Serbaguna (SG) konvensi
+  if (lower.includes('serbaguna') || lower.includes('multipurpose') || lower.includes('sg')) {
+    return 9000;
+  }
+
+  // Gedung Utama / Sekretariat
+  if (lower.includes('utama') || lower.includes('sekretariat') || lower.includes('kantor')) {
+    return 8000;
+  }
+
+  // Pola regex: "Gedung <Huruf><Nomor>?" (misal: "Gedung A", "Gedung B", "Gedung C", "Gedung D1", "Gedung D2", "Gedung D3", "Gedung D4", "Gedung D5", "Gedung E", dst)
+  const m = lower.match(/gedung\s+([a-z])\s*(?:-|\s*)?(\d+)?/i);
+  if (m) {
+    const letterIdx = m[1].toUpperCase().charCodeAt(0) - 65; // A=0, B=1, C=2, D=3...
+    const subNum = m[2] ? parseInt(m[2], 10) : 1;
+    return 100 + (letterIdx * 20) + subNum;
+  }
+
+  // Pola huruf tunggal diawal string (misal: "A (Arafah)", "A-1", "D2")
+  const m2 = lower.match(/^([a-z])(?:\s*(?:-|\s*)(\d+))?(?:\s+|$|\()/i);
+  if (m2) {
+    const letterIdx = m2[1].toUpperCase().charCodeAt(0) - 65;
+    const subNum = m2[2] ? parseInt(m2[2], 10) : 1;
+    return 100 + (letterIdx * 20) + subNum;
+  }
+
+  // Pencocokan alias nama bersejarah jika nama gedung tidak menyertakan kata "Gedung"
+  if (lower.includes('arafah')) return 101;
+  if (lower.includes('muzdalifah')) return 121;
+  if (lower.includes('mina')) return 141;
+  if (lower.includes('madinah')) return 161;
+
+  return 5000;
+}
+
+/**
  * Compares building names to ensure consistent sorting:
- * 1. Standard residential buildings (A, B, C, D, etc.) first
- * 2. Ruang Pertemuan / Aula (fasilitas serbaguna & rapat) strictly at the very bottom
+ * 1. Standard residential buildings (Gedung A, Gedung B, Gedung C, Gedung D1, Gedung D2, Gedung D3, Gedung D4, Gedung D5, Gedung E, Gedung G, Gedung H, Gedung Utama)
+ * 2. Gedung Serbaguna (SG)
+ * 3. Ruang Pertemuan / Aula strictly at the very bottom
  */
 export function compareBuildingOrder(a?: string | null, b?: string | null): number {
   const strA = (a || '').trim();
@@ -187,23 +255,14 @@ export function compareBuildingOrder(a?: string | null, b?: string | null): numb
   if (!strA) return 1;
   if (!strB) return -1;
 
-  const isAMeeting = isMeetingFacility(strA);
-  const isBMeeting = isMeetingFacility(strB);
-  
-  // Meeting rooms / Aula / Serbaguna always strictly at the bottom
-  if (isAMeeting && !isBMeeting) return 1;
-  if (!isAMeeting && isBMeeting) return -1;
-  
-  const normA = normalizeBuildingName(strA).toLowerCase();
-  const normB = normalizeBuildingName(strB).toLowerCase();
+  const rankA = getBuildingOrderRank(strA);
+  const rankB = getBuildingOrderRank(strB);
 
-  const idxA = BUILDING_ORDER.findIndex(o => o.toLowerCase() === normA || o.toLowerCase() === strA.toLowerCase());
-  const idxB = BUILDING_ORDER.findIndex(o => o.toLowerCase() === normB || o.toLowerCase() === strB.toLowerCase());
-  
-  if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-  if (idxA !== -1) return -1;
-  if (idxB !== -1) return 1;
-  return strA.localeCompare(strB, undefined, { numeric: true });
+  if (rankA !== rankB) {
+    return rankA - rankB;
+  }
+
+  return strA.localeCompare(strB, 'id-ID', { numeric: true, sensitivity: 'base' });
 }
 
 export function getTxDays(t: Transaction): number {
