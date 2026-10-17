@@ -936,6 +936,7 @@ async function startServer() {
       if (t.includes("pertemuan") || t.includes("aula") || t.includes("serbaguna")) return false;
       return true;
     });
+    const buildingsList = normalizeItemsList(Array.isArray(data?.buildings) ? data.buildings : []);
     const roomsList = normalizeItemsList(pureLodgingRooms);
     const meetingRoomsList = normalizeItemsList(Array.isArray(data?.meetingRooms) ? data.meetingRooms : (Array.isArray(data?.meeting_rooms) ? data.meeting_rooms : []));
     const roomCapacityRatesList = normalizeItemsList(Array.isArray(data?.roomCapacityRates) ? data.roomCapacityRates : (Array.isArray(data?.room_capacity_rates) ? data.room_capacity_rates : []));

@@ -284,6 +284,60 @@ export function RoomsView() {
     });
   }, [rooms, meetingRooms]);
 
+  // Normalisasi tipe kamar baku (Ekonomi, Standar, Superior)
+  const normalizeRoomTypeKey = (rawType?: string): 'Ekonomi' | 'Standar' | 'Superior' => {
+    const clean = (rawType || '').toLowerCase().trim();
+    if (clean.includes('ekonomi')) return 'Ekonomi';
+    if (clean.includes('superior') || clean.includes('vip') || clean.includes('deluxe') || clean.includes('suite')) return 'Superior';
+    return 'Standar';
+  };
+
+  // Kamar target untuk ringkasan tipe (mengikuti filter gedung yang sedang dipilih)
+  const targetBreakdownRooms = useMemo(() => {
+    if (bFilter !== 'ALL' && bFilter !== 'Ruang Pertemuan / Aula' && bFilter !== 'Gedung Serbaguna (SG)' && bFilter !== 'Ruang Pertemuan' && bFilter !== 'Gedung Serbaguna') {
+      const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bFilter.toLowerCase());
+      return lodgingRooms.filter(r => {
+        return bObj ? isRoomMatchingBuilding(r, bObj, meetingRooms) : r.building.toLowerCase() === bFilter.toLowerCase();
+      });
+    }
+    return lodgingRooms;
+  }, [lodgingRooms, lodgingBuildings, meetingRooms, bFilter]);
+
+  // Rincian jumlah unit, terpakai, dan sisa per tipe kamar
+  const roomTypeBreakdown = useMemo(() => {
+    return [
+      {
+        type: 'Ekonomi' as const,
+        label: 'Tipe Ekonomi',
+        dotColor: 'bg-teal-600',
+        hoverBorder: 'hover:border-teal-400'
+      },
+      {
+        type: 'Standar' as const,
+        label: 'Tipe Standar',
+        dotColor: 'bg-blue-600',
+        hoverBorder: 'hover:border-blue-400'
+      },
+      {
+        type: 'Superior' as const,
+        label: 'Tipe Superior',
+        dotColor: 'bg-purple-600',
+        hoverBorder: 'hover:border-purple-400'
+      }
+    ].map(cfg => {
+      const matchingRooms = targetBreakdownRooms.filter(r => normalizeRoomTypeKey(r.type) === cfg.type);
+      const jumlah = matchingRooms.length;
+      const terpakai = matchingRooms.filter(r => r.status === 'TERISI' || r.status === 'BOOKED').length;
+      const sisa = matchingRooms.filter(r => r.status === 'KOSONG').length;
+      return {
+        ...cfg,
+        jumlah,
+        terpakai,
+        sisa
+      };
+    });
+  }, [targetBreakdownRooms]);
+
   // Filter Kamar Penginapan berdasarkan filter pengguna
   const filteredRooms = useMemo(() => {
     return lodgingRooms.filter(r => {
@@ -307,7 +361,9 @@ export function RoomsView() {
       if (sFilter !== 'ALL' && r.status !== sFilter) return false;
       if (roomTypeFilter !== 'ALL') {
         if (roomTypeFilter === 'Ruang Pertemuan / Aula') return false;
-        if (r.type !== roomTypeFilter) return false;
+        const matchesExact = r.type === roomTypeFilter;
+        const matchesNorm = normalizeRoomTypeKey(r.type) === roomTypeFilter;
+        if (!matchesExact && !matchesNorm) return false;
       }
       if (bedTypeFilter !== 'ALL' && r.bedType !== bedTypeFilter) return false;
       if (search) {
@@ -387,7 +443,9 @@ export function RoomsView() {
       if (sFilter !== 'ALL' && r.status !== sFilter) return false;
       if (roomTypeFilter !== 'ALL') {
         if (roomTypeFilter === 'Ruang Pertemuan / Aula') return false;
-        if (r.type !== roomTypeFilter) return false;
+        const matchesExact = r.type === roomTypeFilter;
+        const matchesNorm = normalizeRoomTypeKey(r.type) === roomTypeFilter;
+        if (!matchesExact && !matchesNorm) return false;
       }
       if (bedTypeFilter !== 'ALL' && r.bedType !== bedTypeFilter) return false;
       if (search) {
@@ -427,22 +485,28 @@ export function RoomsView() {
     }
   });
 
-  // Daftar Gedung Penginapan: Bersumber 100% dari lodgingBuildings (selaras dengan Katalog Gedung & Fasilitas)
+  // Daftar Gedung Penginapan: Menyesuaikan dengan filter aktif (tipe kamar, status, kapasitas bed, pencarian)
   const buildingNames = useMemo(() => {
     const list: string[] = [];
+    const isFilterActive = roomTypeFilter !== 'ALL' || sFilter !== 'ALL' || bedTypeFilter !== 'ALL' || Boolean(search);
+
     lodgingBuildings.forEach(b => {
       if (myZoneOnly && !isRoomInUserZone(b.name)) return;
+      const bRooms = grouped[b.name] || [];
+
+      // Jika ada filter aktif (tipe kamar, status, kapasitas bed, dll), hanya sertakan gedung yang memiliki kamar yang sesuai
+      if (isFilterActive && bRooms.length === 0) return;
+
       if (search) {
         const q = search.toLowerCase();
         const matchName = b.name.toLowerCase().includes(q);
         const matchCode = b.code?.toLowerCase().includes(q);
-        const bRooms = grouped[b.name] || [];
         if (!matchName && !matchCode && bRooms.length === 0) return;
       }
       list.push(b.name);
     });
 
-    // Tambahkan gedung non-katalog/orphan jika ada kamar yang belum terpetakan
+    // Tambahkan gedung non-katalog/orphan jika ada kamar yang belum terpetakan dan sesuai filter
     Object.keys(grouped).forEach(k => {
       if (!list.includes(k) && (grouped[k] || []).length > 0) {
         list.push(k);
@@ -450,7 +514,7 @@ export function RoomsView() {
     });
 
     return list.sort(compareBuildingOrder);
-  }, [lodgingBuildings, myZoneOnly, search, grouped]);
+  }, [lodgingBuildings, myZoneOnly, search, grouped, roomTypeFilter, sFilter, bedTypeFilter]);
 
   const selectedBuildingKey = useMemo(() => {
     if (
@@ -1370,137 +1434,171 @@ export function RoomsView() {
         const waitingQcRooms = rooms.filter(r => r.qcStatus === 'MENUNGGU_QC').length;
 
         return (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
-            {/* Okupansi Kamar */}
-            <div 
-              onClick={() => setActiveCatalogTab('ROOMS_GRID')}
-              className="bg-white dark:bg-slate-800 p-2.5 sm:p-3.5 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-sm transition cursor-pointer group"
-              title="Denah & daftar seluruh kamar"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider group-hover:text-emerald-700 dark:group-hover:text-emerald-400">Okupansi</span>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-black text-[9px] sm:text-[10px] border border-emerald-200 dark:border-emerald-800">
-                  {occupancyPercent}%
-                </span>
-              </div>
-              <div className="my-1.5 sm:my-2">
-                <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 group-hover:text-emerald-800 dark:group-hover:text-emerald-300">{terisiKamar}<span className="text-xs font-semibold text-slate-400 dark:text-slate-500">/{totalKamar}</span></div>
-                <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 mt-1 sm:mt-1.5 overflow-hidden">
-                  <div className="bg-emerald-600 dark:bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${occupancyPercent}%` }}></div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+              {/* Tingkat Okupansi */}
+              <div 
+                onClick={() => setActiveCatalogTab('ROOMS_GRID')}
+                className="bg-white dark:bg-slate-800 p-2.5 sm:p-3 rounded-xl shadow-2xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-xs transition cursor-pointer group"
+                title="Tingkat keterisian seluruh unit kamar hunian"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
+                    Okupansi
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-extrabold text-[10px] border border-emerald-200 dark:border-emerald-800">
+                    {occupancyPercent}%
+                  </span>
                 </div>
-              </div>
-              <span className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between">
-                <span className="truncate">{kosongKamar} Siap Huni</span>
-                <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition ml-1 shrink-0"></i>
-              </span>
-            </div>
-
-            {/* Tamu / Jemaah Menginap */}
-            <div 
-              onClick={() => setActiveCatalogTab('ROOMS_GRID')}
-              className="bg-white dark:bg-slate-800 p-2.5 sm:p-3.5 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-sm transition cursor-pointer group"
-              title="Daftar tamu dan jemaah yang sedang menginap"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] sm:text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Tamu Inap</span>
-                <i className="fa-solid fa-users text-emerald-600 dark:text-emerald-400 text-xs"></i>
-              </div>
-              <div className="my-1.5 sm:my-2">
-                <div className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400">{activeTransactions.length} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">Kamar</span></div>
-                <p className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{jemaahCount} Haji • {umumCount} Umum</p>
-              </div>
-              <span className="text-[9px] sm:text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center justify-between">
-                <span className="flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>Hunian Aktif</span>
+                <div className="my-1 sm:my-1.5">
+                  <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 group-hover:text-emerald-800 dark:group-hover:text-emerald-300">
+                    {terisiKamar}<span className="text-xs font-semibold text-slate-400 dark:text-slate-500">/{totalKamar}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 mt-1 overflow-hidden">
+                    <div className="bg-emerald-600 dark:bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${occupancyPercent}%` }}></div>
+                  </div>
+                </div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between">
+                  <span className="truncate">{kosongKamar} Kamar Tersedia</span>
+                  <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition ml-1 shrink-0"></i>
                 </span>
-                <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition ml-1 shrink-0"></i>
-              </span>
-            </div>
+              </div>
 
-            {/* Reservasi Terjadwal */}
-            <div 
-              onClick={() => setActiveCatalogTab('ROOMS_GRID')}
-              className="bg-white dark:bg-slate-800 p-2.5 sm:p-3.5 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-sm transition cursor-pointer group"
-              title="Kalender Reservasi & Hunian"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] sm:text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Reservasi</span>
-                <i className="fa-solid fa-calendar-check text-blue-600 dark:text-blue-400 text-xs"></i>
+              {/* Tamu Menginap */}
+              <div 
+                onClick={() => setActiveCatalogTab('ROOMS_GRID')}
+                className="bg-white dark:bg-slate-800 p-2.5 sm:p-3 rounded-xl shadow-2xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-emerald-400 dark:hover:border-emerald-500 hover:shadow-xs transition cursor-pointer group"
+                title="Daftar tamu dan jemaah yang sedang menginap"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                    Tamu Menginap
+                  </span>
+                  <i className="fa-solid fa-users text-emerald-600 dark:text-emerald-400 text-xs"></i>
+                </div>
+                <div className="my-1 sm:my-1.5">
+                  <div className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400">
+                    {activeTransactions.length} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">Kamar</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                    {jemaahCount} Haji • {umumCount} Umum
+                  </p>
+                </div>
+                <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center justify-between">
+                  <span className="flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Hunian Aktif</span>
+                  </span>
+                  <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition ml-1 shrink-0"></i>
+                </span>
               </div>
-              <div className="my-1.5 sm:my-2">
-                <div className="text-xl sm:text-2xl font-black text-blue-700 dark:text-blue-400">{bookedKamar}</div>
-                <p className="text-[9px] sm:text-[10px] text-blue-600 dark:text-blue-400 mt-0.5 truncate">{checkinTodayList.length} Check-in Hari Ini</p>
-              </div>
-              <span className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                <span>Booking Datang</span>
-                <i className="fa-solid fa-calendar text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition ml-1 shrink-0"></i>
-              </span>
-            </div>
 
-            {/* Ruang Pertemuan (Aula) */}
-            <div 
-              onClick={() => {
-                setActiveCatalogTab('BUILDINGS_CATALOG');
-                setBldgCategoryFilter('RUANG_PERTEMUAN');
-              }}
-              className="bg-white dark:bg-slate-800 p-2.5 sm:p-3.5 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-purple-400 dark:hover:border-purple-500 hover:shadow-sm transition cursor-pointer group"
-              title="Katalog Fasilitas Pertemuan & Aula"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] sm:text-[11px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">R. Pertemuan</span>
-                <i className="fa-solid fa-landmark text-purple-600 dark:text-purple-400 text-xs"></i>
+              {/* Reservasi Terjadwal */}
+              <div 
+                onClick={() => setActiveCatalogTab('ROOMS_GRID')}
+                className="bg-white dark:bg-slate-800 p-2.5 sm:p-3 rounded-xl shadow-2xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-xs transition cursor-pointer group"
+                title="Jadwal pemesanan dan kedatangan kamar"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
+                    Reservasi
+                  </span>
+                  <i className="fa-solid fa-calendar-check text-blue-600 dark:text-blue-400 text-xs"></i>
+                </div>
+                <div className="my-1 sm:my-1.5">
+                  <div className="text-xl sm:text-2xl font-black text-blue-700 dark:text-blue-400">
+                    {bookedKamar}
+                  </div>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-0.5 truncate">
+                    {checkinTodayList.length} Masuk Hari Ini
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>Pemesanan Datang</span>
+                  <i className="fa-solid fa-calendar text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition ml-1 shrink-0"></i>
+                </span>
               </div>
-              <div className="my-1.5 sm:my-2">
-                <div className="text-xl sm:text-2xl font-black text-purple-700 dark:text-purple-400">{totalAula}</div>
-                <p className="text-[9px] sm:text-[10px] text-purple-600 dark:text-purple-400 mt-0.5 truncate">{aulaTerisi} Sesi Sewa</p>
-              </div>
-              <span className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                <span className="truncate">Gedung SG &amp; Aula</span>
-                <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition ml-1 shrink-0"></i>
-              </span>
-            </div>
 
-            {/* Maintenance / Perbaikan */}
-            <div 
-              onClick={() => setActiveCatalogTab('ROOMS_GRID')}
-              className="bg-white dark:bg-slate-800 p-2.5 sm:p-3.5 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-amber-400 dark:hover:border-amber-500 hover:shadow-sm transition cursor-pointer group"
-              title="Tiket kendala teknis & sarana prasarana"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] sm:text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Maintenance</span>
-                <i className="fa-solid fa-screwdriver-wrench text-amber-600 dark:text-amber-400 text-xs"></i>
+              {/* Ruang Pertemuan & Aula */}
+              <div 
+                onClick={() => {
+                  setActiveCatalogTab('BUILDINGS_CATALOG');
+                  setBldgCategoryFilter('RUANG_PERTEMUAN');
+                }}
+                className="bg-white dark:bg-slate-800 p-2.5 sm:p-3 rounded-xl shadow-2xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-purple-400 dark:hover:border-purple-500 hover:shadow-xs transition cursor-pointer group"
+                title="Katalog Fasilitas Pertemuan & Aula"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider">
+                    R. Pertemuan
+                  </span>
+                  <i className="fa-solid fa-landmark text-purple-600 dark:text-purple-400 text-xs"></i>
+                </div>
+                <div className="my-1 sm:my-1.5">
+                  <div className="text-xl sm:text-2xl font-black text-purple-700 dark:text-purple-400">
+                    {totalAula}
+                  </div>
+                  <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5 truncate">
+                    {aulaTerisi} Sesi Digunakan
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span className="truncate">Gedung Serbaguna &amp; Aula</span>
+                  <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition ml-1 shrink-0"></i>
+                </span>
               </div>
-              <div className="my-1.5 sm:my-2">
-                <div className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-400">{maintKamar}</div>
-                <p className="text-[9px] sm:text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 truncate">{urgentMaintenances.length} Tiket Urgen</p>
-              </div>
-              <span className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                <span>{activeMaintenances.length} Kasus</span>
-                <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition ml-1 shrink-0"></i>
-              </span>
-            </div>
 
-            {/* Standar Mutu QC */}
-            <div 
-              onClick={() => setActiveCatalogTab('ROOMS_GRID')}
-              className="bg-white dark:bg-slate-800 p-2.5 sm:p-3.5 rounded-xl shadow-xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-teal-400 dark:hover:border-teal-500 hover:shadow-sm transition cursor-pointer group"
-              title="Modul verifikasi Kendali Mutu (QC)"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] sm:text-[11px] font-bold text-teal-700 dark:text-teal-400 uppercase tracking-wider">Mutu QC</span>
-                <i className="fa-solid fa-clipboard-check text-teal-600 dark:text-teal-400 text-xs"></i>
+              {/* Pemeliharaan Sarana */}
+              <div 
+                onClick={() => setActiveCatalogTab('ROOMS_GRID')}
+                className="bg-white dark:bg-slate-800 p-2.5 sm:p-3 rounded-xl shadow-2xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-amber-400 dark:hover:border-amber-500 hover:shadow-xs transition cursor-pointer group"
+                title="Status pemeliharaan dan perbaikan fasilitas kamar"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                    Pemeliharaan
+                  </span>
+                  <i className="fa-solid fa-screwdriver-wrench text-amber-600 dark:text-amber-400 text-xs"></i>
+                </div>
+                <div className="my-1 sm:my-1.5">
+                  <div className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-400">
+                    {maintKamar}
+                  </div>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 truncate">
+                    {urgentMaintenances.length} Perbaikan Mendesak
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>{activeMaintenances.length} Kasus Aktif</span>
+                  <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition ml-1 shrink-0"></i>
+                </span>
               </div>
-              <div className="my-1.5 sm:my-2">
-                <div className="text-xl sm:text-2xl font-black text-teal-700 dark:text-teal-400">{readyQcRooms}</div>
-                <p className="text-[9px] sm:text-[10px] text-teal-600 dark:text-teal-400 mt-0.5 truncate">{waitingQcRooms} Butuh Cek QC</p>
+
+              {/* Pemeriksaan Mutu (QC) */}
+              <div 
+                onClick={() => setActiveCatalogTab('ROOMS_GRID')}
+                className="bg-white dark:bg-slate-800 p-2.5 sm:p-3 rounded-xl shadow-2xs border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:border-teal-400 dark:hover:border-teal-500 hover:shadow-xs transition cursor-pointer group"
+                title="Status pengawasan mutu dan kesiapan kamar"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] sm:text-[11px] font-bold text-teal-700 dark:text-teal-400 uppercase tracking-wider">
+                    Uji Mutu (QC)
+                  </span>
+                  <i className="fa-solid fa-clipboard-check text-teal-600 dark:text-teal-400 text-xs"></i>
+                </div>
+                <div className="my-1 sm:my-1.5">
+                  <div className="text-xl sm:text-2xl font-black text-teal-700 dark:text-teal-400">
+                    {readyQcRooms}
+                  </div>
+                  <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-0.5 truncate">
+                    {waitingQcRooms} Perlu Inspeksi
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>Lolos Standar Mutu</span>
+                  <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition ml-1 shrink-0"></i>
+                </span>
               </div>
-              <span className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                <span>Lolos Mutu Standar</span>
-                <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition ml-1 shrink-0"></i>
-              </span>
             </div>
-          </div>
         );
       })()}
 
@@ -1566,282 +1664,413 @@ export function RoomsView() {
       {/* VIEW 1: DENAH & KAMAR HUNIAN */}
       {activeCatalogTab === 'ROOMS_GRID' && (
         <div className="space-y-4">
-          {/* Filter & Display Controls Bar - Neatly structured and modern */}
-          <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-xs border border-slate-200 space-y-4">
-            {/* Top Row: Title, Summary Count, Search Bar & Tombol Input Kamar Di Sampingnya */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base shrink-0 shadow-2xs border border-emerald-200">
-                  <i className="fa-solid fa-hotel"></i>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm sm:text-base font-black text-slate-800 tracking-tight">
-                      Denah Kamar &amp; Ruang Pertemuan
-                    </h3>
-                    <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold border border-slate-200">
-                      {filteredRooms.length} dari {rooms.length} Kamar
-                    </span>
+          {/* Main Command & Control Panel: Denah Kamar & Ruang Pertemuan */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-700 overflow-hidden space-y-0">
+            {/* 1. Header Toolbar: Title, Quick Count, Search Bar, & Input Kamar */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white flex items-center justify-center font-bold text-base shrink-0 shadow-xs">
+                    <i className="fa-solid fa-hotel"></i>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Kelola status hunian kamar, ketersediaan aula, dan pemeliharaan fasilitas per gedung.
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-black text-slate-800 dark:text-slate-100 tracking-tight">
+                        Denah Kamar &amp; Ruang Pertemuan
+                      </h3>
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 tabular-nums">
+                        {filteredRooms.length} dari {rooms.length} Unit
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Pusat kendali status hunian kamar, ketersediaan tipe kamar, dan denah fasilitas per lantai.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right Side: Pencarian Kamar & Tombol Input Kamar Baru */}
+                <div className="flex items-center gap-2 w-full lg:w-auto shrink-0">
+                  <div className="relative flex-1 sm:w-72">
+                    <input 
+                      type="text" 
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      placeholder="Cari No Kamar / Tamu / Aula..." 
+                      className="w-full text-xs bg-slate-50 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2.5 pl-8 pr-7 focus:ring-2 focus:ring-emerald-600 focus:bg-white dark:focus:bg-slate-800 outline-none font-medium text-slate-900 dark:text-slate-100 transition shadow-2xs" 
+                    />
+                    <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-3 text-slate-400 text-xs"></i>
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch('')}
+                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
+                        title="Hapus pencarian"
+                      >
+                        <i className="fa-solid fa-xmark"></i>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoomToEdit(null);
+                      setSelectedBuildingForNewRoom(bFilter !== 'ALL' && bFilter !== 'Ruang Pertemuan' ? bFilter : undefined);
+                      setIsRoomModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-98 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0 border border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    title="Input data kamar baru ke master gedung"
+                  >
+                    <i className="fa-solid fa-plus text-gold-300"></i>
+                    <span>Input Kamar</span>
+                  </button>
                 </div>
               </div>
+            </div>
 
-              {/* Right Side: Search Box & Tombol Input Kamar Berdampingan */}
-              <div className="flex items-center gap-2 w-full lg:w-auto shrink-0">
-                <div className="relative flex-1 sm:w-72">
-                  <input 
-                    type="text" 
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    placeholder="Cari No Kamar / Nama Aula..." 
-                    className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 pl-8 pr-7 focus:ring-2 focus:ring-emerald-600 focus:bg-white outline-none font-medium text-slate-900 transition" 
-                  />
-                  <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-3 text-slate-400 text-xs"></i>
-                  {search && (
+            {/* 2. Interactive Room Type Availability & Filter Hub (Pusat Ketersediaan Sekaligus Filter Tipe Kamar) */}
+            <div className="p-4 sm:p-5 bg-slate-50/70 dark:bg-slate-750/30 border-b border-slate-200/70 dark:border-slate-700/60 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                    Ketersediaan Berdasarkan Tipe Kamar
+                  </span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">|</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    {bFilter !== 'ALL' && bFilter !== 'Ruang Pertemuan / Aula' && bFilter !== 'Gedung Serbaguna (SG)' 
+                      ? `Ketersediaan khusus untuk ${bFilter}` 
+                      : 'Ketersediaan seluruh fasilitas gedung penginapan'}
+                  </span>
+                </div>
+
+                {/* Indikator Pilihan & Opsi Tipe Tambahan */}
+                <div className="flex items-center space-x-2 text-xs">
+                  {catalogRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior'].includes(t)).length > 0 && (
+                    <div className="flex items-center space-x-1">
+                      <span className="text-[10px] text-slate-400 font-semibold">Tipe Lain:</span>
+                      <select
+                        value={['ALL', 'Ekonomi', 'Standar', 'Superior'].includes(roomTypeFilter) ? 'NONE' : roomTypeFilter}
+                        onChange={e => {
+                          if (e.target.value !== 'NONE') {
+                            setRoomTypeFilter(e.target.value);
+                          }
+                        }}
+                        className="text-[11px] bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 font-semibold text-slate-700 dark:text-slate-200 cursor-pointer shadow-2xs"
+                      >
+                        <option value="NONE">Pilih Tipe Lainnya...</option>
+                        {catalogRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior'].includes(t)).map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {roomTypeFilter !== 'ALL' && (
                     <button
                       type="button"
-                      onClick={() => setSearch('')}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer p-0.5"
-                      title="Hapus pencarian"
+                      onClick={() => setRoomTypeFilter('ALL')}
+                      className="px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-700 rounded-lg border border-emerald-300 dark:border-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-650 transition flex items-center space-x-1 cursor-pointer shadow-2xs"
+                      title="Tampilkan semua tipe kamar"
                     >
-                      <i className="fa-solid fa-xmark"></i>
+                      <i className="fa-solid fa-rotate-left text-[10px]"></i>
+                      <span>Reset Tipe ({roomTypeFilter})</span>
                     </button>
                   )}
                 </div>
+              </div>
 
-                {/* Tombol Input Kamar Baru di Samping Kolom Pencarian */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRoomToEdit(null);
-                    setSelectedBuildingForNewRoom(bFilter !== 'ALL' && bFilter !== 'Ruang Pertemuan' ? bFilter : undefined);
-                    setIsRoomModalOpen(true);
-                  }}
-                  className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-98 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0 border border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  title="Input data kamar baru ke master gedung"
+              {/* 4 Kartu Interaktif: Semua Tipe, Ekonomi, Standar, Superior */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                {/* 1. Kartu Semua Tipe */}
+                <div
+                  onClick={() => setRoomTypeFilter('ALL')}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                    roomTypeFilter === 'ALL'
+                      ? 'bg-slate-900 text-white border-slate-900 ring-2 ring-slate-800 shadow-sm'
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-2xs text-slate-800 dark:text-slate-100'
+                  }`}
+                  title="Klik untuk menampilkan semua tipe kamar"
                 >
-                  <i className="fa-solid fa-plus text-gold-300"></i>
-                  <span>Input Kamar</span>
-                </button>
+                  <div className="flex items-center justify-between pb-2 border-b border-current/10">
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      <i className="fa-solid fa-layer-group text-xs text-emerald-400"></i>
+                      <span className="font-extrabold text-xs truncate">Semua Tipe</span>
+                    </div>
+                    {roomTypeFilter === 'ALL' ? (
+                      <span className="text-[9px] font-bold bg-white/20 text-white px-1.5 py-0.2 rounded uppercase tracking-wider">
+                        Aktif
+                      </span>
+                    ) : (
+                      <span className="text-[10px] opacity-60 font-semibold tabular-nums">
+                        {targetBreakdownRooms.length} Unit
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 text-center pt-2 tabular-nums divide-x divide-current/10">
+                    <div>
+                      <span className="block text-[9px] font-medium opacity-70">Jumlah</span>
+                      <span className="text-sm sm:text-base font-extrabold">{targetBreakdownRooms.length}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-semibold text-rose-500 dark:text-rose-400">Terpakai</span>
+                      <span className="text-sm sm:text-base font-extrabold text-rose-600 dark:text-rose-400">
+                        {targetBreakdownRooms.filter(r => r.status === 'TERISI' || r.status === 'BOOKED').length}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-semibold text-emerald-500 dark:text-emerald-400">Sisa</span>
+                      <span className="text-sm sm:text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+                        {targetBreakdownRooms.filter(r => r.status === 'KOSONG').length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2, 3, 4: Ekonomi, Standar, Superior */}
+                {roomTypeBreakdown.map(b => {
+                  const isSelected = roomTypeFilter === b.type;
+                  return (
+                    <div
+                      key={b.type}
+                      onClick={() => setRoomTypeFilter(prev => prev === b.type ? 'ALL' : b.type)}
+                      className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-600 ring-2 ring-emerald-500 shadow-sm text-slate-900 dark:text-slate-100'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-2xs text-slate-800 dark:text-slate-100'
+                      }`}
+                      title={`Klik untuk menyaring kamar ${b.label}`}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-700/60">
+                        <div className="flex items-center space-x-1.5 min-w-0">
+                          <span className={`w-2.5 h-2.5 rounded-full ${b.dotColor} shrink-0`}></span>
+                          <span className="font-extrabold text-xs truncate">{b.label}</span>
+                        </div>
+                        {isSelected ? (
+                          <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.2 rounded uppercase tracking-wider">
+                            Tersaring
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold tabular-nums">
+                            {b.jumlah} Unit
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 text-center pt-2 tabular-nums divide-x divide-slate-100 dark:divide-slate-700/60">
+                        <div>
+                          <span className="block text-[9px] font-medium text-slate-500 dark:text-slate-400">Jumlah</span>
+                          <span className="text-sm sm:text-base font-extrabold text-slate-800 dark:text-slate-200">{b.jumlah}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-semibold text-rose-600 dark:text-rose-400">Terpakai</span>
+                          <span className="text-sm sm:text-base font-extrabold text-rose-700 dark:text-rose-400">{b.terpakai}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">Sisa</span>
+                          <span className="text-sm sm:text-base font-extrabold text-emerald-700 dark:text-emerald-400">{b.sisa}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Middle Row: Quick Status Filters (1-Click Pill Buttons) */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline">Status:</span>
-                <button
-                  type="button"
-                  onClick={() => setSFilter('ALL')}
-                  className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
-                    sFilter === 'ALL'
-                      ? 'bg-slate-800 text-white border-slate-800 shadow-2xs'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                  }`}
-                >
-                  <span>Semua</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-current">{rooms.length}</span>
-                </button>
+            {/* 3. Toolbar Penyaringan Sekunder (Pilih Gedung, Kapasitas Bed, & Status Keterisian - Tanpa Duplikasi) */}
+            <div className="p-3.5 sm:p-4 bg-white dark:bg-slate-800 space-y-3">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
+                
+                {/* Bagian Kiri: Dropdown Gedung & Kapasitas Bed */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Filter Gedung */}
+                  <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                    <i className="fa-solid fa-building text-slate-400 text-xs"></i>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Gedung:</span>
+                    <select 
+                      value={bFilter} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setBFilter(val);
+                        if (
+                          val !== 'ALL' &&
+                          val !== 'Gedung Serbaguna (SG)' &&
+                          val !== 'Gedung Serbaguna' &&
+                          val !== 'Ruang Pertemuan / Aula' &&
+                          val !== 'Ruang Pertemuan'
+                        ) {
+                          setActiveBuildingName(val);
+                        }
+                      }} 
+                      className="bg-transparent font-bold text-xs text-slate-800 dark:text-slate-100 outline-none cursor-pointer pr-1"
+                    >
+                      <option key="all" value="ALL">
+                        {roomTypeFilter !== 'ALL' ? `Semua Gedung (${roomTypeFilter})` : 'Semua Fasilitas Gedung'}
+                      </option>
+                      {buildings.filter(b => 
+                        b.name !== 'Ruang Pertemuan' && 
+                        b.name !== 'Ruang Pertemuan / Aula' && 
+                        b.name !== 'Gedung Serbaguna (SG)' && 
+                        b.name !== 'Gedung Serbaguna' &&
+                        b.category !== 'SERBAGUNA' &&
+                        b.category !== 'RUANG_PERTEMUAN'
+                      ).filter(b => {
+                        if (roomTypeFilter !== 'ALL') {
+                          return (grouped[b.name] || []).length > 0;
+                        }
+                        return true;
+                      }).slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => {
+                        const count = (grouped[b.name] || []).length;
+                        return (
+                          <option key={b.id} value={b.name}>
+                            {b.name} {roomTypeFilter !== 'ALL' ? `(${count} Kamar)` : ''}
+                          </option>
+                        );
+                      })}
+                      {roomTypeFilter === 'ALL' && (
+                        <>
+                          <option key="gedung-serbaguna" value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
+                          <option key="ruang-pertemuan" value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => setSFilter('KOSONG')}
-                  className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
-                    sFilter === 'KOSONG'
-                      ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
-                      : 'bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span>Kosong</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current">
-                    {rooms.filter(r => r.status === 'KOSONG').length}
-                  </span>
-                </button>
+                  {/* Filter Kapasitas Bed */}
+                  <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                    <i className="fa-solid fa-bed text-slate-400 text-xs"></i>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Bed:</span>
+                    <select 
+                      value={bedTypeFilter} 
+                      onChange={e => setBedTypeFilter(e.target.value)} 
+                      className="bg-transparent font-bold text-xs text-slate-800 dark:text-slate-100 outline-none cursor-pointer pr-1"
+                    >
+                      <option value="ALL">Semua Kapasitas Bed</option>
+                      <option value="Double Bed">Double Bed (2 Orang)</option>
+                      <option value="2 Single Bed">2 Single Bed</option>
+                      <option value="3 Single Bed">3 Single Bed</option>
+                      <option value="4 Single Bed">4 Single Bed</option>
+                      <option value="5 Single Bed">5 Single Bed</option>
+                      <option value="6 Single Bed">6 Single Bed</option>
+                      <option value="7 Single Bed">7 Single Bed</option>
+                      <option value="8 Single Bed">8 Single Bed</option>
+                    </select>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => setSFilter('TERISI')}
-                  className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
-                    sFilter === 'TERISI'
-                      ? 'bg-rose-700 text-white border-rose-700 shadow-2xs'
-                      : 'bg-rose-50/60 hover:bg-rose-100 text-rose-800 border-rose-200'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                  <span>Terisi</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current">
-                    {rooms.filter(r => r.status === 'TERISI').length}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSFilter('BOOKED')}
-                  className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
-                    sFilter === 'BOOKED'
-                      ? 'bg-blue-700 text-white border-blue-700 shadow-2xs'
-                      : 'bg-blue-50/60 hover:bg-blue-100 text-blue-800 border-blue-200'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span>Booked</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current">
-                    {rooms.filter(r => r.status === 'BOOKED').length}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSFilter('MAINTENANCE')}
-                  className={`px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
-                    sFilter === 'MAINTENANCE'
-                      ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
-                      : 'bg-amber-50/60 hover:bg-amber-100 text-amber-800 border-amber-200'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                  <span>Maintenance</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current">
-                    {rooms.filter(r => r.status === 'MAINTENANCE').length}
-                  </span>
-                </button>
-              </div>
-
-              {/* Info Gedung Aktif */}
-              {selectedBuildingKey && (
-                <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-700 font-bold">
-                  <i className="fa-solid fa-hotel text-emerald-700"></i>
-                  <span>Gedung Aktif:</span>
-                  <span className="text-emerald-800 font-black">{selectedBuildingKey}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom Row: Detailed Dropdown Filter Bar in a Clean Light Box */}
-            <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                {/* Filter 1: Gedung */}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
-                    <i className="fa-solid fa-building text-slate-400"></i>
-                    <span>Pilih Gedung:</span>
-                  </label>
-                  <select 
-                    value={bFilter} 
-                    onChange={e => {
-                      const val = e.target.value;
-                      setBFilter(val);
-                      if (
-                        val !== 'ALL' &&
-                        val !== 'Gedung Serbaguna (SG)' &&
-                        val !== 'Gedung Serbaguna' &&
-                        val !== 'Ruang Pertemuan / Aula' &&
-                        val !== 'Ruang Pertemuan'
-                      ) {
-                        setActiveBuildingName(val);
-                      }
-                    }} 
-                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
-                  >
-                    <option key="all" value="ALL">Semua Fasilitas Gedung</option>
-                    {buildings.filter(b => 
-                      b.name !== 'Ruang Pertemuan' && 
-                      b.name !== 'Ruang Pertemuan / Aula' && 
-                      b.name !== 'Gedung Serbaguna (SG)' && 
-                      b.name !== 'Gedung Serbaguna' &&
-                      b.category !== 'SERBAGUNA' &&
-                      b.category !== 'RUANG_PERTEMUAN'
-                    ).slice().sort((a, b) => compareBuildingOrder(a.name, b.name)).map(b => (
-                      <option key={b.id} value={b.name}>{b.name}</option>
-                    ))}
-                    <option key="gedung-serbaguna" value="Gedung Serbaguna (SG)">🏢 Gedung Serbaguna (SG)</option>
-                    <option key="ruang-pertemuan" value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan / Aula</option>
-                  </select>
+                  {/* Info Gedung Aktif jika ada */}
+                  {selectedBuildingKey && bFilter === 'ALL' && (
+                    <span className="text-[11px] bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 px-2.5 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800 font-bold inline-flex items-center gap-1 shadow-2xs">
+                      <i className="fa-solid fa-hotel text-emerald-600 text-[10px]"></i>
+                      <span>Gedung: <strong>{selectedBuildingKey}</strong></span>
+                    </span>
+                  )}
                 </div>
 
-                {/* Filter 2: Tipe Kamar */}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
-                    <i className="fa-solid fa-tags text-slate-400"></i>
-                    <span>Tipe Kamar:</span>
-                  </label>
-                  <select 
-                    value={roomTypeFilter} 
-                    onChange={e => setRoomTypeFilter(e.target.value)} 
-                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
+                {/* Bagian Kanan: Filter Status Keterisian (Pills Terpadu Satu-Satunya) */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline">Status:</span>
+                  <button
+                    type="button"
+                    onClick={() => setSFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
+                      sFilter === 'ALL'
+                        ? 'bg-slate-800 text-white border-slate-800 shadow-2xs'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700/50 dark:text-slate-200 dark:border-slate-600'
+                    }`}
                   >
-                    <option value="ALL">Semua Tipe Kamar</option>
-                    <option value="Ekonomi">🟢 Ekonomi</option>
-                    <option value="Standar">🔵 Standar (Reguler)</option>
-                    <option value="Superior">🟣 Superior (VIP)</option>
-                    {catalogRoomTypes.filter(t => !['Ekonomi', 'Standar', 'Superior'].includes(t)).map(t => (
-                      <option key={t} value={t}>🏷️ {t}</option>
-                    ))}
-                    <option value="Ruang Pertemuan / Aula">🏛️ Ruang Pertemuan</option>
-                  </select>
-                </div>
+                    <span>Semua</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-current tabular-nums">{rooms.length}</span>
+                  </button>
 
-                {/* Filter 3: Kapasitas Bed */}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
-                    <i className="fa-solid fa-bed text-slate-400"></i>
-                    <span>Kapasitas Bed:</span>
-                  </label>
-                  <select 
-                    value={bedTypeFilter} 
-                    onChange={e => setBedTypeFilter(e.target.value)} 
-                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
+                  <button
+                    type="button"
+                    onClick={() => setSFilter('KOSONG')}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
+                      sFilter === 'KOSONG'
+                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                        : 'bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                    }`}
                   >
-                    <option value="ALL">Semua Kapasitas Bed</option>
-                    <option value="Double Bed">Double Bed (2 Orang)</option>
-                    <option value="2 Single Bed">2 Single Bed</option>
-                    <option value="3 Single Bed">3 Single Bed</option>
-                    <option value="4 Single Bed">4 Single Bed</option>
-                    <option value="5 Single Bed">5 Single Bed</option>
-                    <option value="6 Single Bed">6 Single Bed</option>
-                    <option value="7 Single Bed">7 Single Bed</option>
-                    <option value="8 Single Bed">8 Single Bed</option>
-                  </select>
-                </div>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>Kosong</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
+                      {rooms.filter(r => r.status === 'KOSONG').length}
+                    </span>
+                  </button>
 
-                {/* Filter 4: Status Keterisian */}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1 flex items-center gap-1">
-                    <i className="fa-solid fa-circle-dot text-slate-400"></i>
-                    <span>Status Keterisian:</span>
-                  </label>
-                  <select 
-                    value={sFilter} 
-                    onChange={e => setSFilter(e.target.value)} 
-                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-600 outline-none font-medium text-slate-800 cursor-pointer shadow-2xs"
+                  <button
+                    type="button"
+                    onClick={() => setSFilter('TERISI')}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
+                      sFilter === 'TERISI'
+                        ? 'bg-rose-700 text-white border-rose-700 shadow-2xs'
+                        : 'bg-rose-50/60 hover:bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+                    }`}
                   >
-                    <option key="all" value="ALL">Semua Status</option>
-                    <option key="kosong" value="KOSONG">🟢 Kosong (Tersedia)</option>
-                    <option key="terisi" value="TERISI">🔴 Terisi (Check-In)</option>
-                    <option key="booked" value="BOOKED">🔵 Booked (Reservasi)</option>
-                    <option key="maint" value="MAINTENANCE">🟠 Maintenance</option>
-                  </select>
+                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                    <span>Terisi</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
+                      {rooms.filter(r => r.status === 'TERISI').length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSFilter('BOOKED')}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
+                      sFilter === 'BOOKED'
+                        ? 'bg-blue-700 text-white border-blue-700 shadow-2xs'
+                        : 'bg-blue-50/60 hover:bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    <span>Booked</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
+                      {rooms.filter(r => r.status === 'BOOKED').length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSFilter('MAINTENANCE')}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
+                      sFilter === 'MAINTENANCE'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                        : 'bg-amber-50/60 hover:bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span>Maintenance</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
+                      {rooms.filter(r => r.status === 'MAINTENANCE').length}
+                    </span>
+                  </button>
                 </div>
               </div>
 
-              {/* Active Filters Reset Bar if any filter is applied */}
+              {/* Bar Reset Filter Aktif (Hanya muncul jika ada penyaringan aktif) */}
               {(bFilter !== 'ALL' || roomTypeFilter !== 'ALL' || bedTypeFilter !== 'ALL' || sFilter !== 'ALL' || search) && (
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-2.5 border-t border-slate-200 text-xs text-slate-600">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-300">
                   <div className="flex flex-wrap items-center gap-1.5 font-medium">
                     <i className="fa-solid fa-filter text-emerald-600"></i>
                     <span>Filter aktif: menampilkan <strong>{filteredRooms.length}</strong> kamar</span>
                     {bFilter !== 'ALL' && (
-                      <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full border border-blue-200">
+                      <span className="text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 font-bold px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
                         Gedung: {bFilter}
                       </span>
                     )}
-                    {(roomTypeFilter !== 'ALL' || bedTypeFilter !== 'ALL') && (
-                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200">
-                        Katalog Tipe: {roomTypeFilter !== 'ALL' ? roomTypeFilter : ''} {bedTypeFilter !== 'ALL' ? `(${bedTypeFilter})` : ''}
+                    {roomTypeFilter !== 'ALL' && (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                        Tipe: {roomTypeFilter}
+                      </span>
+                    )}
+                    {bedTypeFilter !== 'ALL' && (
+                      <span className="text-[10px] bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 font-bold px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800">
+                        Bed: {bedTypeFilter}
+                      </span>
+                    )}
+                    {sFilter !== 'ALL' && (
+                      <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                        Status: {sFilter}
                       </span>
                     )}
                   </div>
@@ -1854,7 +2083,7 @@ export function RoomsView() {
                       setSFilter('ALL');
                       setSearch('');
                     }}
-                    className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                    className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 font-bold hover:underline cursor-pointer flex items-center gap-1"
                   >
                     <i className="fa-solid fa-rotate-left text-[11px]"></i>
                     <span>Reset Semua Filter</span>
@@ -1874,7 +2103,7 @@ export function RoomsView() {
                       <i className="fa-solid fa-hotel text-emerald-700"></i>
                       <span>Gedung Penginapan &amp; Kamar Hunian</span>
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 tabular-nums">
-                        {buildingNames.length} Gedung • {lodgingRooms.length} Kamar Tidur
+                        {buildingNames.length} Gedung • {(roomTypeFilter !== 'ALL' || sFilter !== 'ALL' || bedTypeFilter !== 'ALL' || Boolean(search)) ? `${filteredRooms.length} Kamar Sesuai Filter` : `${lodgingRooms.length} Kamar Tidur`}
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1921,11 +2150,26 @@ export function RoomsView() {
                             lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
                           const bAllRooms = lodgingRooms.filter(r => isRoomMatchingBuilding(r, bObj || ({ name: bName } as any), meetingRooms));
                           const isSelected = selectedBuildingKey.toLowerCase() === bName.toLowerCase();
-                          const floorsCount = bObj?.floors || Array.from(new Set(bAllRooms.map(r => r.floor || extractFloorFromRoomNumber(r.roomNumber) || 1))).length || 1;
-                          const kosongCount = bRooms.filter(r => r.status === 'KOSONG').length;
-                          const terisiCount = bRooms.filter(r => r.status === 'TERISI').length;
-                          const bookedCount = bRooms.filter(r => r.status === 'BOOKED').length;
-                          const maintCount = bRooms.filter(r => r.status === 'MAINTENANCE').length;
+                          const isAnyFilterActive = roomTypeFilter !== 'ALL' || sFilter !== 'ALL' || bedTypeFilter !== 'ALL' || Boolean(search);
+                          const targetBldRooms = isAnyFilterActive ? bRooms : (bAllRooms.length > 0 ? bAllRooms : bRooms);
+                          const kosongCount = targetBldRooms.filter(r => r.status === 'KOSONG').length;
+                          const terisiCount = targetBldRooms.filter(r => r.status === 'TERISI').length;
+                          const bookedCount = targetBldRooms.filter(r => r.status === 'BOOKED').length;
+                          const maintCount = targetBldRooms.filter(r => r.status === 'MAINTENANCE').length;
+                          const uniqueTypes: string[] = Array.from(
+                            new Set(targetBldRooms.map(r => (r.type || 'Standar').trim()).filter(Boolean))
+                          );
+                          const formattedTypes = uniqueTypes.map(t => {
+                            const clean = String(t).replace(/^(type|tipe)\s+/i, '').trim();
+                            return `Type ${clean}`;
+                          });
+                          const roomTypesLabel = formattedTypes.length === 0
+                            ? 'Type Standar'
+                            : formattedTypes.length === 1
+                            ? formattedTypes[0]
+                            : formattedTypes.length === 2
+                            ? `${formattedTypes[0]} & ${formattedTypes[1]}`
+                            : `${formattedTypes.slice(0, -1).join(', ')} & ${formattedTypes[formattedTypes.length - 1]}`;
 
                           return (
                             <div
@@ -1955,8 +2199,8 @@ export function RoomsView() {
                                     <h4 className="font-bold text-xs text-slate-900 dark:text-white truncate">
                                       {bName}
                                     </h4>
-                                    <p className="text-[10px] text-slate-500 truncate tabular-nums">
-                                      {bRooms.length} Kamar Hunian • {floorsCount} Lantai
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate" title={roomTypesLabel}>
+                                      {roomTypesLabel}
                                     </p>
                                   </div>
                                 </div>

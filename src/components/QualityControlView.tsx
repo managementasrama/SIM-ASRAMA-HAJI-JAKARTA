@@ -847,6 +847,20 @@ export function QualityControlView() {
                           const bMenunggu = bRooms.filter(r => r.qcStatus === 'MENUNGGU_QC').length;
                           const bPerluPerbaikan = bRooms.filter(r => r.qcStatus === 'PERLU_PERBAIKAN').length;
                           const bPerluInspeksi = bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI').length;
+                          const uniqueTypes: string[] = Array.from(
+                            new Set(bRooms.map(r => (r.type || 'Standar').trim()).filter(Boolean))
+                          );
+                          const formattedTypes = uniqueTypes.map(t => {
+                            const clean = String(t).replace(/^(type|tipe)\s+/i, '').trim();
+                            return `Type ${clean}`;
+                          });
+                          const roomTypesLabel = formattedTypes.length === 0
+                            ? 'Type Standar'
+                            : formattedTypes.length === 1
+                            ? formattedTypes[0]
+                            : formattedTypes.length === 2
+                            ? `${formattedTypes[0]} & ${formattedTypes[1]}`
+                            : `${formattedTypes.slice(0, -1).join(', ')} & ${formattedTypes[formattedTypes.length - 1]}`;
 
                           return (
                             <div
@@ -876,8 +890,8 @@ export function QualityControlView() {
                                     <h4 className="font-bold text-xs text-slate-900 truncate">
                                       {bName}
                                     </h4>
-                                    <p className="text-[10px] text-slate-500 truncate tabular-nums">
-                                      {bRooms.length} Kamar Hunian
+                                    <p className="text-[10px] text-slate-500 truncate" title={roomTypesLabel}>
+                                      {roomTypesLabel}
                                     </p>
                                   </div>
                                 </div>
@@ -1130,9 +1144,9 @@ export function QualityControlView() {
                                 <span className="text-slate-400">Tarif 12 Jam:</span>
                                 <strong className="font-mono text-slate-800">{formatRupiah(m.dailyRate || 12000000)}</strong>
                               </div>
-                              {m.lastQcNotes && (
-                                <div className="italic text-slate-700 pt-1 border-t border-slate-200/60" title={m.lastQcNotes}>
-                                  "{m.lastQcNotes}"
+                              {(m as any).lastQcNotes && (
+                                <div className="italic text-slate-700 pt-1 border-t border-slate-200/60" title={(m as any).lastQcNotes}>
+                                  "{(m as any).lastQcNotes}"
                                 </div>
                               )}
                             </div>
