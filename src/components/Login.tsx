@@ -3,9 +3,10 @@ import { useAppContext } from '../store';
 import { UserRole } from '../types';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { compareBuildingOrder } from '../lib/utils';
+import { dataStorage } from '../services/dataStorage';
 
 export function Login() {
-  const { login, users, buildings = [], showToast, appSettings, registerAccountRequest, requestPasswordReset } = useAppContext();
+  const { login, users, buildings = [], showToast, appSettings, registerAccountRequest, requestPasswordReset, pullFromCentralDatabase } = useAppContext();
 
   // Kunci scrollbar laman utama selama halaman login aktif agar tidak ada scrollbar browser
   useEffect(() => {
@@ -80,46 +81,91 @@ export function Login() {
   const [fpNotes, setFpNotes] = useState('');
   const [fpError, setFpError] = useState('');
   const [fpSuccessMsg, setFpSuccessMsg] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const executeLogin = (e: React.FormEvent) => {
+  const executeLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoggingIn) return;
+
     const cleanUser = username.trim().toLowerCase();
-    const foundUser = users.find(u => u.username.toLowerCase() === cleanUser);
-    
-    if (!foundUser) {
-      showToast("Username / NIP tidak terdaftar di pangkalan data!", "error");
+    const cleanPass = password.trim();
+
+    if (!cleanUser) {
+      showToast("Silakan masukkan Username / NIP Petugas!", "warning");
+      return;
+    }
+    if (!cleanPass) {
+      showToast("Silakan masukkan Kata Sandi!", "warning");
       return;
     }
 
-    if (foundUser.status === 'Menunggu Persetujuan') {
-      showToast("Pendaftaran akun Anda masih menunggu persetujuan (ACC) dari Administrator!", "warning");
-      return;
-    }
-
-    if (foundUser.status === 'Non-Aktif') {
-      showToast("Akses Ditolak: Akun petugas ini berstatus Non-Aktif. Hubungi Administrator!", "error");
-      return;
-    }
-
-    const expectedPassword = foundUser.password || '12345';
-    if (password.trim() !== expectedPassword) {
-      showToast("Kata sandi yang Anda masukkan tidak cocok!", "error");
-      return;
-    }
+    setIsLoggingIn(true);
+    const startMs = Date.now();
 
     try {
-      if (rememberDevice) {
-        localStorage.setItem('sim_haji_remember_session', 'true');
-        localStorage.setItem('sim_haji_remembered_username', cleanUser);
-        localStorage.setItem('sim_haji_remembered_password', password);
-      } else {
-        localStorage.setItem('sim_haji_remember_session', 'false');
-        localStorage.removeItem('sim_haji_remembered_username');
-        localStorage.removeItem('sim_haji_remembered_password');
+      // 1. Tarik & sinkronkan data termutakhir dari basis data Spreadsheet agar data di setiap akun yang login identik
+      try {
+        await Promise.race([
+          pullFromCentralDatabase(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2800))
+        ]);
+      } catch (_) {
+        // Fallback cepat jika timeout: tetap lanjutkan dengan data lokal tersimpan
       }
-    } catch (_) {}
 
-    login(foundUser, undefined, rememberDevice);
+      // Berikan jeda halus minimal 400ms agar animasi titik berjalan terlihat jelas
+      const elapsed = Date.now() - startMs;
+      if (elapsed < 400) {
+        await new Promise(r => setTimeout(r, 400 - elapsed));
+      }
+
+      // 2. Ambil daftar users terbaru setelah penarikan database
+      const currentUsers = dataStorage.getUsers();
+      const userList = currentUsers && currentUsers.length > 0 ? currentUsers : users;
+      const foundUser = userList.find(u => u.username.toLowerCase() === cleanUser);
+      
+      if (!foundUser) {
+        showToast("Username / NIP tidak terdaftar di pangkalan data!", "error");
+        setIsLoggingIn(false);
+        return;
+      }
+
+      if (foundUser.status === 'Menunggu Persetujuan') {
+        showToast("Pendaftaran akun Anda masih menunggu persetujuan (ACC) dari Administrator!", "warning");
+        setIsLoggingIn(false);
+        return;
+      }
+
+      if (foundUser.status === 'Non-Aktif') {
+        showToast("Akses Ditolak: Akun petugas ini berstatus Non-Aktif. Hubungi Administrator!", "error");
+        setIsLoggingIn(false);
+        return;
+      }
+
+      const expectedPassword = foundUser.password || '12345';
+      if (cleanPass !== expectedPassword) {
+        showToast("Kata sandi yang Anda masukkan tidak cocok!", "error");
+        setIsLoggingIn(false);
+        return;
+      }
+
+      try {
+        if (rememberDevice) {
+          localStorage.setItem('sim_haji_remember_session', 'true');
+          localStorage.setItem('sim_haji_remembered_username', cleanUser);
+          localStorage.setItem('sim_haji_remembered_password', cleanPass);
+        } else {
+          localStorage.setItem('sim_haji_remember_session', 'false');
+          localStorage.removeItem('sim_haji_remembered_username');
+          localStorage.removeItem('sim_haji_remembered_password');
+        }
+      } catch (_) {}
+
+      login(foundUser, undefined, rememberDevice);
+    } catch (err: any) {
+      showToast(`Terjadi kesalahan saat masuk: ${err?.message || 'Error'}`, 'error');
+      setIsLoggingIn(false);
+    }
   };
 
   const handleRoleSelection = (selected: UserRole) => {
@@ -332,9 +378,25 @@ export function Login() {
 
             <button 
               type="submit" 
-              className="w-full py-2 bg-gradient-to-r from-hajj-800 to-hajj-700 hover:from-hajj-900 hover:to-hajj-800 text-white font-bold rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center space-x-2 cursor-pointer mt-0.5 text-xs"
+              disabled={isLoggingIn}
+              className="w-full py-2.5 bg-gradient-to-r from-hajj-800 to-hajj-700 hover:from-hajj-900 hover:to-hajj-800 disabled:opacity-90 disabled:cursor-wait text-white font-bold rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center space-x-2 cursor-pointer mt-0.5 text-xs select-none"
             >
-              <span>Masuk</span>
+              {isLoggingIn ? (
+                <div className="flex items-center space-x-1.5 font-bold tracking-wide text-xs">
+                  <i className="fa-solid fa-circle-notch fa-spin text-gold-300 text-xs"></i>
+                  <span>Menyinkronkan Data</span>
+                  <span className="inline-flex tracking-widest font-black text-gold-300">
+                    <span className="inline-block animate-bounce [animation-delay:-0.3s]">.</span>
+                    <span className="inline-block animate-bounce [animation-delay:-0.15s]">.</span>
+                    <span className="inline-block animate-bounce">.</span>
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <i className="fa-solid fa-right-to-bracket text-xs text-gold-300"></i>
+                  <span>Masuk</span>
+                </>
+              )}
             </button>
           </form>
 

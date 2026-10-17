@@ -1392,10 +1392,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }, 3200);
         }
       } else if (event.type === 'database:sync') {
-        // Jangan timpa state lokal jika sedang ada mutasi lokal yang sedang diproses / disimpan
+        // Jangan timpa state lokal jika sedang ada mutasi lokal yang sedang aktif diedit
         if (dataStorage.hasPendingSync()) {
           return;
         }
+
+        const payloadDb = (event.payload as any)?.db;
+        if (payloadDb && typeof payloadDb === 'object') {
+          // Update cache internal dataStorage secara instan (0ms)
+          dataStorage.hydrateFromPayload(payloadDb);
+
+          // Update seluruh state React seketika agar User B langsung melihat perubahan User A tanpa jeda
+          if (Array.isArray(payloadDb.buildings) && payloadDb.buildings.length > 0) setBuildings(payloadDb.buildings);
+          if (Array.isArray(payloadDb.rooms) && payloadDb.rooms.length > 0) setRooms(payloadDb.rooms);
+          if (Array.isArray(payloadDb.meetingRooms) && payloadDb.meetingRooms.length > 0) setMeetingRooms(payloadDb.meetingRooms);
+          if (Array.isArray(payloadDb.transactions)) setTransactions(payloadDb.transactions);
+          if (Array.isArray(payloadDb.maintenances)) setMaintenances(payloadDb.maintenances);
+          if (Array.isArray(payloadDb.qcInspections)) setQcInspections(payloadDb.qcInspections);
+          if (Array.isArray(payloadDb.roomCapacityRates) && payloadDb.roomCapacityRates.length > 0) setRoomCapacityRates(payloadDb.roomCapacityRates);
+          if (Array.isArray(payloadDb.breakfastMenuItems) && payloadDb.breakfastMenuItems.length > 0) setBreakfastMenuItems(payloadDb.breakfastMenuItems);
+          if (Array.isArray(payloadDb.breakfastOrders)) setBreakfastOrders(payloadDb.breakfastOrders);
+          if (Array.isArray(payloadDb.users) && payloadDb.users.length > 0) setUsers(payloadDb.users);
+          return;
+        }
+
+        // Fallback cepat via server cache jika payload tidak menyertakan db utuh
         dataStorage.hydrateFromSpreadsheet(false).then((freshDb) => {
           if (freshDb) {
             if (Array.isArray(freshDb.buildings) && freshDb.buildings.length > 0) setBuildings(freshDb.buildings);

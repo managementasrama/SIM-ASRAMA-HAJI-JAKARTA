@@ -263,7 +263,30 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
     cfg.webAppUrl ||
     'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
 
-  // 1. Ambil langsung dari Web App URL Google Apps Script yang sudah dideploy
+  // 1. Utamakan pembacaan instan (< 10ms) dari endpoint backend proxy /api/sheets/database
+  try {
+    const proxyRes = await fetch('/api/sheets/database', {
+      method: 'GET',
+      headers: { Accept: 'application/json' }
+    });
+
+    if (proxyRes.ok) {
+      const json = await proxyRes.json();
+      if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
+        const d = json.data;
+        if (d && typeof d === 'object') {
+          const normalized = normalizeSpreadsheetPayload(d);
+          if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
+            return normalized;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Proxy /api/sheets/database tidak merespons, mencoba akses direct Web App:', e);
+  }
+
+  // 2. Fallback direct fetch ke Web App Apps Script jika server proxy offline/preview
   if (webAppUrl) {
     try {
       const directRes = await fetch(webAppUrl, {
@@ -284,31 +307,8 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
         }
       }
     } catch (directErr) {
-      console.warn('Direct fetch to Google Apps Script failed, mencoba via server proxy:', directErr);
+      console.warn('Direct fetch to Google Apps Script failed:', directErr);
     }
-  }
-
-  // 2. Fallback melalui endpoint backend proxy /api/sheets/database
-  try {
-    const proxyRes = await fetch('/api/sheets/database', {
-      method: 'GET',
-      headers: { Accept: 'application/json' }
-    });
-
-    if (proxyRes.ok) {
-      const json = await proxyRes.json();
-      if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
-        const d = json.data;
-        if (d && typeof d === 'object') {
-          const normalized = normalizeSpreadsheetPayload(d);
-          if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
-            return normalized;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('Proxy /api/sheets/database tidak merespons:', e);
   }
 
   return null;

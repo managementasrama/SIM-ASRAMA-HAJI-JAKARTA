@@ -264,6 +264,10 @@ class RealtimeService {
   public broadcastChatTyping(channelId: string, userId: string, userName: string) {
     this.emit('chat:typing', { channelId, userId, userName });
   }
+
+  public broadcastDatabaseSync(payload?: any) {
+    this.emit('database:sync', payload || { timestamp: Date.now() });
+  }
 }
 
 export const realtimeService = new RealtimeService();

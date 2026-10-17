@@ -1324,7 +1324,7 @@ async function startServer() {
     } catch (_) {}
 
     // Broadcast ke seluruh klien real-time bahwa database telah diperbarui
-    broadcastRealtimeEvent("database:sync", { timestamp: Date.now() });
+    broadcastRealtimeEvent("database:sync", { timestamp: Date.now(), db: serverDatabaseCache }, req.body?.clientId);
 
     if (!targetUrl) {
       return res.json({
@@ -1578,6 +1578,14 @@ async function startServer() {
       broadcastRealtimeEvent("chat:clear", { channelId }, clientId);
     } else if (type === "chat:typing" && payload?.channelId && payload?.userId) {
       broadcastRealtimeEvent("chat:typing", payload, clientId);
+    } else if (type === "database:sync") {
+      if (payload?.db && typeof payload.db === "object") {
+        serverDatabaseCache = payload.db;
+        try {
+          fs.writeFileSync(serverDbCachePath, JSON.stringify(payload.db, null, 2), "utf-8");
+        } catch (_) {}
+      }
+      broadcastRealtimeEvent("database:sync", payload, clientId);
     }
 
     res.json({ ok: true });

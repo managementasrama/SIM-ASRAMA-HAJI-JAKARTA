@@ -41,6 +41,7 @@ import {
   getSpreadsheetConfig,
   type SpreadsheetSyncState
 } from './spreadsheetStorage';
+import { realtimeService } from './realtimeService';
 
 // Alias tipe untuk kompatibilitas ke belakang
 export type SupabaseSyncState = SpreadsheetSyncState;
@@ -340,6 +341,22 @@ export class DataStorageService {
   }
 
   /**
+   * Hidrasi instan dari payload real-time SSE (0ms roundtrip)
+   */
+  public hydrateFromPayload(sheetDb: CompleteStorageDatabase): CompleteStorageDatabase {
+    const base = this.cache || this.loadFromStorage() || generateInitialDatabase(false);
+    const mergedDb = this.mergeDatabases(base, sheetDb, true);
+    this.cache = mergedDb;
+    this.saveToStorage(mergedDb);
+    this.lastSyncTime = new Date().toISOString();
+    this.syncStatus = 'connected';
+    this.syncError = null;
+    this.hasHydratedFromCloud = true;
+    this.notifySyncListeners({ status: 'connected', db: mergedDb });
+    return mergedDb;
+  }
+
+  /**
    * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir berbasis timestamp dan proteksi edit pengguna)
    */
   public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, _preferCloud: boolean = false): CompleteStorageDatabase {
@@ -618,7 +635,7 @@ export class DataStorageService {
         this.syncStatus = 'connected';
         this.notifySyncListeners({ status: 'connected', db: payload });
       }
-    }, 500);
+    }, 100);
   }
 
   // Alias kompatibilitas
@@ -713,6 +730,11 @@ export class DataStorageService {
 
     this.cache = updated;
     this.saveToStorage(updated);
+
+    // Siarkan pembaruan database seketika (0ms) ke semua klien & tab real-time
+    try {
+      realtimeService.broadcastDatabaseSync({ timestamp: Date.now(), db: updated });
+    } catch (_) {}
 
     // Sinkronisasi langsung ke Google Spreadsheet & Server Database Cache
     const shouldSkipCloud = Boolean(options && typeof options === 'object' && options.skipCloudSync);
