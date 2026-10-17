@@ -61,6 +61,7 @@ export function SpreadsheetIntegrationView() {
   const [syncStatus, setSyncStatus] = useState<string>('Belum disinkronkan');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isForbiddenError, setIsForbiddenError] = useState(false);
+  const [isScriptUpdateNeeded, setIsScriptUpdateNeeded] = useState(false);
   const [showWhyMissingGuide, setShowWhyMissingGuide] = useState(true);
   const [isCleaningConflicts, setIsCleaningConflicts] = useState(false);
 
@@ -326,12 +327,37 @@ export function SpreadsheetIntegrationView() {
         })
       });
 
-      const resJson = await res.json();
+      const resJson = await res.json().catch(() => ({ ok: false, error: 'Respon server tidak valid' }));
+
       if (!res.ok || !resJson.ok) {
-        throw new Error(resJson.error || 'Gagal menjalankan auto-provisioning');
+        if (resJson.needsScriptUpdate || resJson.is500 || String(resJson.error || '').includes('500')) {
+          setIsScriptUpdateNeeded(true);
+          const errorMsg = resJson.error || 'Google Apps Script memerlukan pembaruan kode ke Versi 3.0 (Dukungan 13 Tabel & 74 Kolom).';
+          setSyncStatus(errorMsg);
+          addLog('PROVISION', errorMsg, false);
+          showToast('Pembaruan kode Apps Script diperlukan. Klik tombol "Salin Kode Script Terbaru" di bawah.', 'warning');
+          return;
+        }
+
+        if (resJson.isForbidden) {
+          setIsForbiddenError(true);
+          const errorMsg = resJson.error || 'Akses ditolak (HTTP 403). Pastikan akses Web App diatur ke Anyone.';
+          setSyncStatus(errorMsg);
+          addLog('PROVISION', errorMsg, false);
+          showToast(errorMsg, 'error');
+          return;
+        }
+
+        const errMsg = resJson.error || `HTTP ${res.status}: Gagal melakukan auto-provisioning`;
+        setSyncStatus(errMsg);
+        addLog('PROVISION', errMsg, false);
+        showToast(errMsg, 'error');
+        return;
       }
 
       setIsConnected(true);
+      setIsScriptUpdateNeeded(false);
+      setIsForbiddenError(false);
       const successMsg = 'Inisialisasi Otomatis Berhasil! Seluruh lembar kerja & header tabel telah dibuat di Google Spreadsheet.';
       setSyncStatus(successMsg);
       addLog('PROVISION', successMsg, true);
@@ -342,21 +368,24 @@ export function SpreadsheetIntegrationView() {
         handleInspectSchema();
       }, 1000);
     } catch (err: any) {
-      console.error('Error auto-provisioning:', err);
+      console.warn('Kendala koneksi auto-provisioning:', err);
       // Fallback direct request
       try {
         const directPayload = {
           action: 'AUTO_PROVISION',
-          populateData: populateSeedOnProvision,
-          data: payloadData
+          populateData: false, // fallback ringan tanpa payload masif
+          data: {}
         };
         const directRes = await fetch(scriptUrl.trim(), {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(directPayload)
         });
-        const directJson = await directRes.json();
+        const directJson = await directRes.json().catch(() => null);
         if (directJson && directJson.status === 'success') {
+          setIsConnected(true);
+          setIsScriptUpdateNeeded(false);
+          setIsForbiddenError(false);
           showToast('Inisialisasi otomatis berhasil dijalankan langsung ke Apps Script!', 'success');
           setTimeout(() => handleInspectSchema(), 1000);
           return;
@@ -366,7 +395,7 @@ export function SpreadsheetIntegrationView() {
       const errorMsg = `Gagal inisialisasi: ${err?.message || 'Cek deploy Web App'}`;
       setSyncStatus(errorMsg);
       addLog('PROVISION', errorMsg, false);
-      showToast('Gagal melakukan inisialisasi otomatis. Pastikan kode Google Apps Script terbaru telah dipasang di Spreadsheet.', 'error');
+      showToast('Gagal melakukan inisialisasi otomatis. Silakan salin kode Google Apps Script terbaru di tab Panduan & Kode Script.', 'warning');
     } finally {
       setIsAutoProvisioning(false);
     }
@@ -696,7 +725,9 @@ function doGet(e) {
         breakfast_orders: safeRead("breakfast_orders"),
         work_sessions: safeRead("work_sessions"),
         app_settings: safeRead("app_settings"),
-        system_logs: safeRead("system_logs")
+        system_logs: safeRead("system_logs"),
+        chat_channels: safeRead("chat_channels"),
+        chat_messages: safeRead("chat_messages")
       }
     };
 
@@ -715,7 +746,22 @@ function doPost(e) {
   try {
     var contents = e.postData ? e.postData.contents : "";
     var payload = JSON.parse(contents || "{}");
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = null;
+    try {
+      ss = SpreadsheetApp.getActiveSpreadsheet();
+    } catch (_) {}
+    if (!ss && payload && (payload.spreadsheetId || payload.spreadsheetUrl)) {
+      try {
+        if (payload.spreadsheetId) ss = SpreadsheetApp.openById(payload.spreadsheetId);
+        else if (payload.spreadsheetUrl) ss = SpreadsheetApp.openByUrl(payload.spreadsheetUrl);
+      } catch (_) {}
+    }
+    if (!ss) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "Google Spreadsheet tidak terhubung. Buka Ekstensi (Extensions) > Apps Script langsung dari file Google Spreadsheet Anda."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
     var action = payload.action || "SAVE_ALL";
 
     // AKSI 0: PEMBERSIHAN SHEET KONFLIK (misal: users_conflict...)
@@ -763,6 +809,7 @@ function doPost(e) {
       var targetSheet = getSheetCaseInsensitive(ss, sDef.sheetName);
       if (!targetSheet) {
         targetSheet = ss.insertSheet(sDef.sheetName);
+        ensureSheetDimensions(targetSheet, 1, sDef.headers.length);
         targetSheet.getRange(1, 1, 1, sDef.headers.length).setValues([sDef.headers]);
         var hr = targetSheet.getRange(1, 1, 1, sDef.headers.length);
         hr.setFontWeight("bold");
@@ -814,6 +861,12 @@ function doPost(e) {
     var sysLogs = payload.auditLogs || payload.system_logs || [];
     writeObjectsToSheet(ss, "system_logs", Array.isArray(sysLogs) ? sysLogs.slice(0, 100) : [], defaultSchema.system_logs.headers);
 
+    var cChannels = payload.chatChannels || payload.chat_channels || [];
+    writeObjectsToSheet(ss, "chat_channels", Array.isArray(cChannels) ? cChannels : [], defaultSchema.chat_channels.headers);
+
+    var cMessages = payload.chatMessages || payload.chat_messages || [];
+    writeObjectsToSheet(ss, "chat_messages", Array.isArray(cMessages) ? cMessages : [], defaultSchema.chat_messages.headers);
+
     // Bersihkan lembar default "Sheet1" jika ada lembar tabel lain
     try {
       var defaultSheet = ss.getSheetByName("Sheet1") || ss.getSheetByName("Sheet 1") || ss.getSheetByName("Lembar 1");
@@ -824,7 +877,7 @@ function doPost(e) {
 
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
-      message: "Data seluruh 13 tabel berhasil disimpan dan disinkronkan ke Google Spreadsheet!",
+      message: "Data seluruh tabel master, operasional, dan riwayat chat berhasil disimpan dan disinkronkan ke Google Spreadsheet!",
       updatedAt: new Date().toISOString()
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -913,6 +966,23 @@ function inspectAllSheets(ss) {
   };
 }
 
+// HELPER AUTO-EXPAND DIMENSI SHEET (Mencegah Error Limit 26 Kolom Google Sheets)
+function ensureSheetDimensions(sheet, minRows, minCols) {
+  if (!sheet) return;
+  try {
+    var maxCols = sheet.getMaxColumns();
+    if (minCols && maxCols < minCols) {
+      sheet.insertColumnsAfter(maxCols, minCols - maxCols);
+    }
+  } catch (_) {}
+  try {
+    var maxRows = sheet.getMaxRows();
+    if (minRows && maxRows < minRows) {
+      sheet.insertRowsAfter(maxRows, minRows - maxRows);
+    }
+  } catch (_) {}
+}
+
 // FUNGSI AUTO-PROVISIONING: MEMBUAT SHEET & MENATA HEADER OTOMATIS
 function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
   var created = [];
@@ -934,8 +1004,9 @@ function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
       updated.push(sheetName);
     }
 
-    // Tulis dan Format Baris Header di Baris 1
+    // Tulis dan Format Baris Header di Baris 1 (Auto-Expand Kolom agar tidak error limit 26 kolom)
     if (headers.length > 0) {
+      ensureSheetDimensions(sheet, 1, headers.length);
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       var headerRange = sheet.getRange(1, 1, 1, headers.length);
       headerRange.setFontWeight("bold");
@@ -975,6 +1046,7 @@ function autoProvisionAllSheets(ss, schema, populateData, dataObj) {
           rowsData.push(row);
         }
         if (rowsData.length > 0) {
+          ensureSheetDimensions(sheet, rowsData.length + 1, headers.length);
           var lastRow = sheet.getLastRow();
           if (lastRow > 1) {
             sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
@@ -1084,6 +1156,18 @@ function getDefaultSchema() {
       sheetName: "system_logs",
       headers: [
         "id", "timestamp", "user", "role", "action", "details", "duration_minutes", "verification_code", "document_title", "target_id", "signatory_name", "signatory_role", "signatory_nip", "qr_code_hash", "has_qr_and_signature"
+      ]
+    },
+    chat_channels: {
+      sheetName: "chat_channels",
+      headers: [
+        "id", "name", "scope", "type", "department", "participant_ids", "description", "icon", "last_message", "last_message_time", "last_sender_name", "created_at", "updated_at"
+      ]
+    },
+    chat_messages: {
+      sheetName: "chat_messages",
+      headers: [
+        "id", "channel_id", "channel_type", "sender_id", "sender_name", "sender_role", "sender_department", "message", "timestamp", "time_formatted", "priority", "is_instruction", "read_by", "reply_to_id", "reply_to_sender", "reply_to_text", "created_at"
       ]
     }
   };
@@ -1241,6 +1325,7 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
     }
   }
 
+  ensureSheetDimensions(sheet, output.length, headers.length);
   sheet.getRange(1, 1, output.length, headers.length).setValues(output);
   var headerRange = sheet.getRange(1, 1, 1, headers.length);
   headerRange.setFontWeight("bold");
@@ -1427,6 +1512,67 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
           </div>
         </div>
       </div>
+
+      {/* Box Penanganan Pembaruan Kode Apps Script (Error 500 / Kolom Melebihi Batas) */}
+      {isScriptUpdateNeeded && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-400 dark:border-amber-600 shadow-md space-y-3 animate-in fade-in">
+          <div className="flex items-start space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center text-lg font-black shrink-0">
+              <i className="fa-solid fa-code-compare"></i>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-extrabold text-amber-950 dark:text-amber-100 text-sm sm:text-base">
+                Pembaruan Kode Google Apps Script Diperlukan (Versi 3.0)
+              </h3>
+              <p className="text-xs text-amber-900/90 dark:text-amber-200/90 mt-0.5 leading-relaxed">
+                Google Apps Script di Spreadsheet Anda perlu diperbarui dengan kode terbaru agar dapat otomatis memperluas kolom tabel transaksi (74 kolom) dan menyusun 13 lembar kerja secara lengkap tanpa terbentur batas 26 kolom bawaan Google Sheets.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white/80 dark:bg-slate-900/80 p-3.5 rounded-xl border border-amber-300 dark:border-amber-700/60 space-y-2 text-xs text-slate-800 dark:text-slate-200">
+            <span className="font-bold text-emerald-700 dark:text-emerald-400 block">
+              🛠️ Langkah Mudah Memperbarui Script (Hanya 1 Menit):
+            </span>
+            <ol className="list-decimal list-inside space-y-1.5 pl-1 leading-relaxed">
+              <li>Klik tombol hijau <strong>"Salin Kode Script Terbaru (v3.0)"</strong> di bawah.</li>
+              <li>Buka Google Spreadsheet Anda &gt; menu <strong>Extensions &gt; Apps Script</strong>.</li>
+              <li>Hapus seluruh kode lama di editor Apps Script (tekan Ctrl+A lalu Delete), kemudian Paste kode baru.</li>
+              <li>Klik tombol biru <strong>Deploy &gt; New deployment</strong> &gt; pilih jenis <strong>Web app</strong> (Who has access: <em>Anyone</em>) &gt; klik <strong>Deploy</strong>.</li>
+              <li>Kembali ke sini dan klik tombol <strong>"Inisialisasi Otomatis"</strong> lagi.</li>
+            </ol>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleCopyScript}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl text-xs shadow transition flex items-center space-x-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-copy"></i>
+              <span>{copiedScript ? "Kode Tersalin!" : "Salin Kode Script Terbaru (v3.0)"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveGuideTab('SCRIPT');
+                const guideEl = document.getElementById('apps-script-guide-section');
+                if (guideEl) guideEl.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+            >
+              Lihat Editor Kode Script
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsScriptUpdateNeeded(false)}
+              className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-300 rounded-xl text-xs ml-auto cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Box Penanganan Khusus Error 403 Forbidden */}
       {isForbiddenError && (

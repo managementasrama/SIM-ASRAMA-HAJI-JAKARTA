@@ -21,6 +21,7 @@ import {
 } from './types';
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages, getDirectChannelId, resolveDirectPartner, isUserParticipantInChannel } from './chatData';
+import { persistChatMessage, persistChatChannel, markChatChannelAsRead } from './services/chatStorage';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings, CompleteStorageDatabase } from './services/dataStorage';
@@ -1567,6 +1568,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
     if (hasUnread) {
       realtimeService.broadcastChatRead(channelId, currentUser.id);
+      markChatChannelAsRead(channelId, currentUser.id);
     }
   };
 
@@ -1598,7 +1600,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         lastMessageTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
         lastSenderName: currentUser.fullName
       };
-      dataStorage.saveChatChannel(newDirectChannel);
+      persistChatChannel(newDirectChannel);
       setChatChannels(prev => [newDirectChannel, ...prev.filter(c => c.id !== canonicalId)]);
       realtimeService.broadcastChatChannel(newDirectChannel);
     }
@@ -1637,7 +1639,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             lastMessageTime: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
             lastSenderName: 'Sistem'
           };
-          dataStorage.saveChatChannel(newDirectChannel);
+          persistChatChannel(newDirectChannel);
           setChatChannels(prev => [newDirectChannel, ...prev.filter(c => c.id !== canonicalId)]);
           realtimeService.broadcastChatChannel(newDirectChannel);
           setActiveChatChannelId(canonicalId);
@@ -1730,8 +1732,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       : undefined;
 
-    // 1. Update local state & storage immediately (optimistic 0ms)
-    dataStorage.saveChatMessage(newMsg, updatedChannel);
+    // 1. Update local state & permanent storage immediately (optimistic 0ms)
+    persistChatMessage(newMsg, updatedChannel);
     setChatMessages(prev => (prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]));
     if (updatedChannel) {
       setChatChannels(prev => prev.map(c => (c.id === channelId ? updatedChannel : c)));

@@ -156,6 +156,43 @@ async function startServer() {
     }
   } catch (_) {}
 
+  // File penyimpanan permanen database chat mengambang (Grup & 1-on-1 Direct Chat)
+  const chatStoragePath = path.join(process.cwd(), "chat_storage_database.json");
+  try {
+    if (fs.existsSync(chatStoragePath)) {
+      const savedChat = JSON.parse(fs.readFileSync(chatStoragePath, "utf-8"));
+      if (savedChat && Array.isArray(savedChat.channels) && savedChat.channels.length > 0) {
+        realtimeState.chatChannels = savedChat.channels;
+      }
+      if (savedChat && Array.isArray(savedChat.messages) && savedChat.messages.length > 0) {
+        realtimeState.chatMessages = savedChat.messages;
+      }
+    }
+  } catch (err) {
+    console.warn("Gagal memuat chat_storage_database.json:", err);
+  }
+
+  function saveChatStorageToDisk() {
+    try {
+      fs.writeFileSync(
+        chatStoragePath,
+        JSON.stringify(
+          {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            channels: realtimeState.chatChannels,
+            messages: realtimeState.chatMessages,
+          },
+          null,
+          2
+        ),
+        "utf-8"
+      );
+    } catch (err) {
+      console.warn("Gagal menyimpan chat_storage_database.json:", err);
+    }
+  }
+
   // 1. Endpoint status konfigurasi Google Spreadsheet
   app.get("/api/sheets-config", (_req, res) => {
     res.json(activeSheetsConfig);
@@ -584,6 +621,52 @@ async function startServer() {
       ],
       description: "Audit trail aktivitas sistem, verifikasi tanda tangan sah ber-QR, dan riwayat operasional",
     },
+    chat_channels: {
+      sheetName: "chat_channels",
+      label: "Saluran & Grup Chat",
+      category: "Sistem & Pengguna",
+      headers: [
+        "id",
+        "name",
+        "scope",
+        "type",
+        "department",
+        "participant_ids",
+        "description",
+        "icon",
+        "last_message",
+        "last_message_time",
+        "last_sender_name",
+        "created_at",
+        "updated_at",
+      ],
+      description: "Daftar saluran chat grup divisi, forum koordinasi terpadu, dan ruang chat personal 1-on-1",
+    },
+    chat_messages: {
+      sheetName: "chat_messages",
+      label: "Riwayat Pesan Chat",
+      category: "Sistem & Pengguna",
+      headers: [
+        "id",
+        "channel_id",
+        "channel_type",
+        "sender_id",
+        "sender_name",
+        "sender_role",
+        "sender_department",
+        "message",
+        "timestamp",
+        "time_formatted",
+        "priority",
+        "is_instruction",
+        "read_by",
+        "reply_to_id",
+        "reply_to_sender",
+        "reply_to_text",
+        "created_at",
+      ],
+      description: "Penyimpanan permanen riwayat pesan obrolan grup dan chat pribadi dengan timestamp ISO, status prioritas, dan tanda baca",
+    },
   };
 
   /**
@@ -993,30 +1076,85 @@ async function startServer() {
         action: "AUTO_PROVISION",
         schema: APP_DATABASE_SCHEMA,
         populateData,
-        data: formattedData,
+        data: populateData ? formattedData : {},
+        spreadsheetId: activeSheetsConfig.sheetId || undefined,
         timestamp: new Date().toISOString(),
       };
 
-      const response = await fetchGoogleAppsScript(targetUrl, {
+      let response = await fetchGoogleAppsScript(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        if (response.status === 403) {
-          throw new Error("HTTP 403 Forbidden: Akses Web App ditolak. Pastikan deploy diatur ke 'Anyone' (Siapa saja).");
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // Jika gagal dan menyertakan populateData, coba sekali lagi secara ringan (hanya struktur sheet & header)
+      if (!response.ok && populateData) {
+        try {
+          const lightweightPayload = {
+            action: "AUTO_PROVISION",
+            schema: APP_DATABASE_SCHEMA,
+            populateData: false,
+            data: {},
+            spreadsheetId: activeSheetsConfig.sheetId || undefined,
+            timestamp: new Date().toISOString(),
+          };
+          const retryResp = await fetchGoogleAppsScript(targetUrl, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(lightweightPayload),
+          });
+          if (retryResp.ok) {
+            response = retryResp;
+          }
+        } catch (_) {}
       }
 
-      const text = await response.text();
+      const text = await response.text().catch(() => "");
+
+      if (!response.ok) {
+        if (response.status === 403 || text.includes("accounts.google.com") || text.includes("ServiceLogin")) {
+          return res.status(200).json({
+            ok: false,
+            isForbidden: true,
+            error: "HTTP 403 Forbidden: Akses Web App ditolak. Pastikan deploy diatur ke 'Anyone' (Siapa saja).",
+          });
+        }
+
+        if (response.status === 500) {
+          let diagnostic = "Google Apps Script mengalami kendala saat inisialisasi tabel.";
+          if (text.includes("coordinates") || text.includes("dimensions")) {
+            diagnostic = "Jumlah kolom pada tabel melebihi batas default 26 kolom Google Sheets. Salin dan perbarui kode Google Apps Script Versi 3.0 dari tab Panduan & Kode Script yang telah dilengkapi fitur auto-expand dimensi kolom.";
+          } else if (text.includes("Script function not found")) {
+            diagnostic = "Fungsi doPost tidak ditemukan di Google Apps Script Anda. Pasang kode terbaru di Extensions > Apps Script.";
+          } else {
+            diagnostic = "Google Apps Script mengembalikan HTTP 500. Silakan salin kode Apps Script versi terbaru dari tab 'Panduan & Kode Script' pada menu Integrasi Spreadsheet, lalu buat New Deployment.";
+          }
+          return res.status(200).json({
+            ok: false,
+            is500: true,
+            needsScriptUpdate: true,
+            error: diagnostic,
+            rawError: text.slice(0, 300),
+          });
+        }
+
+        return res.status(200).json({
+          ok: false,
+          error: `HTTP ${response.status}: ${response.statusText || "Gagal menghubungi Google Apps Script"}`,
+          rawError: text.slice(0, 200),
+        });
+      }
+
       let resJson: any = null;
       try {
         resJson = JSON.parse(text);
       } catch (_) {
         if (text.includes("accounts.google.com") || text.includes("ServiceLogin")) {
-          throw new Error("HTTP 403 Forbidden: Google Apps Script meminta login. Pastikan deploy diatur ke 'Anyone'.");
+          return res.status(200).json({
+            ok: false,
+            isForbidden: true,
+            error: "HTTP 403 Forbidden: Google Apps Script meminta login. Pastikan deploy diatur ke 'Anyone'.",
+          });
         }
         resJson = {
           status: "success",
@@ -1527,9 +1665,6 @@ async function startServer() {
       const channel = payload.channel;
       if (!realtimeState.chatMessages.some((m: any) => m.id === msg.id)) {
         realtimeState.chatMessages.push(msg);
-        if (realtimeState.chatMessages.length > 500) {
-          realtimeState.chatMessages = realtimeState.chatMessages.slice(-500);
-        }
       }
       if (channel?.id) {
         const cIdx = realtimeState.chatChannels.findIndex((c: any) => c.id === channel.id);
@@ -1540,6 +1675,7 @@ async function startServer() {
             lastMessage: msg.message,
             lastMessageTime: msg.timeFormatted,
             lastSenderName: msg.senderName,
+            updatedAt: new Date().toISOString(),
           };
         } else {
           realtimeState.chatChannels.unshift({
@@ -1547,26 +1683,34 @@ async function startServer() {
             lastMessage: msg.message,
             lastMessageTime: msg.timeFormatted,
             lastSenderName: msg.senderName,
+            updatedAt: new Date().toISOString(),
           });
         }
       }
+      saveChatStorageToDisk();
       broadcastRealtimeEvent("chat:message", { message: msg, channel }, clientId);
     } else if (type === "chat:read" && payload?.channelId && payload?.userId) {
       const { channelId, userId } = payload;
+      let readChanged = false;
       realtimeState.chatMessages = realtimeState.chatMessages.map((m: any) => {
         if (m.channelId === channelId && Array.isArray(m.readBy) && !m.readBy.includes(userId)) {
+          readChanged = true;
           return { ...m, readBy: [...m.readBy, userId] };
         }
         return m;
       });
+      if (readChanged) {
+        saveChatStorageToDisk();
+      }
       broadcastRealtimeEvent("chat:read", { channelId, userId }, clientId);
     } else if (type === "chat:channel" && payload?.id) {
       const cIdx = realtimeState.chatChannels.findIndex((c: any) => c.id === payload.id);
       if (cIdx >= 0) {
-        realtimeState.chatChannels[cIdx] = { ...realtimeState.chatChannels[cIdx], ...payload };
+        realtimeState.chatChannels[cIdx] = { ...realtimeState.chatChannels[cIdx], ...payload, updatedAt: new Date().toISOString() };
       } else {
-        realtimeState.chatChannels.unshift(payload);
+        realtimeState.chatChannels.unshift({ ...payload, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       }
+      saveChatStorageToDisk();
       broadcastRealtimeEvent("chat:channel", payload, clientId);
     } else if (type === "chat:clear") {
       const channelId = payload?.channelId;
@@ -1575,6 +1719,7 @@ async function startServer() {
       } else {
         realtimeState.chatMessages = [];
       }
+      saveChatStorageToDisk();
       broadcastRealtimeEvent("chat:clear", { channelId }, clientId);
     } else if (type === "chat:typing" && payload?.channelId && payload?.userId) {
       broadcastRealtimeEvent("chat:typing", payload, clientId);
@@ -1588,6 +1733,115 @@ async function startServer() {
       broadcastRealtimeEvent("database:sync", payload, clientId);
     }
 
+    res.json({ ok: true });
+  });
+
+  // =========================================================================
+  // REST API PERMANEN UNTUK CHAT MENGAMBANG (CHANNELS & MESSAGES)
+  // =========================================================================
+  app.get("/api/chat/database", (_req, res) => {
+    res.json({
+      ok: true,
+      channels: realtimeState.chatChannels,
+      messages: realtimeState.chatMessages,
+      schema: {
+        channels: APP_DATABASE_SCHEMA.chat_channels,
+        messages: APP_DATABASE_SCHEMA.chat_messages,
+      },
+      count: {
+        channels: realtimeState.chatChannels.length,
+        messages: realtimeState.chatMessages.length,
+      },
+      timestamp: Date.now(),
+    });
+  });
+
+  app.post("/api/chat/messages", (req, res) => {
+    const { message, channel, clientId } = req.body || {};
+    if (!message || !message.channelId || !message.message) {
+      res.status(400).json({ ok: false, error: "Pesan tidak lengkap" });
+      return;
+    }
+
+    const now = new Date();
+    const finalMsg = {
+      id: message.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      channelId: message.channelId,
+      channelType: message.channelType || (channel?.type || 'GROUP'),
+      senderId: message.senderId,
+      senderName: message.senderName,
+      senderRole: message.senderRole,
+      senderDepartment: message.senderDepartment || 'Operasional',
+      message: message.message,
+      timestamp: message.timestamp || now.toISOString(),
+      timeFormatted: message.timeFormatted || now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB',
+      priority: message.priority || 'NORMAL',
+      isInstruction: Boolean(message.isInstruction),
+      readBy: Array.isArray(message.readBy) ? message.readBy : [message.senderId].filter(Boolean),
+      replyToId: message.replyToId || undefined,
+      replyToSender: message.replyToSender || undefined,
+      replyToText: message.replyToText || undefined,
+      createdAt: message.createdAt || now.toISOString(),
+    };
+
+    if (!realtimeState.chatMessages.some((m: any) => m.id === finalMsg.id)) {
+      realtimeState.chatMessages.push(finalMsg);
+    }
+
+    if (channel?.id) {
+      const cIdx = realtimeState.chatChannels.findIndex((c: any) => c.id === channel.id);
+      const chData = {
+        ...channel,
+        lastMessage: finalMsg.message,
+        lastMessageTime: finalMsg.timeFormatted,
+        lastSenderName: finalMsg.senderName,
+        updatedAt: now.toISOString(),
+      };
+      if (cIdx >= 0) {
+        realtimeState.chatChannels[cIdx] = { ...realtimeState.chatChannels[cIdx], ...chData };
+      } else {
+        realtimeState.chatChannels.unshift(chData);
+      }
+    }
+
+    saveChatStorageToDisk();
+    broadcastRealtimeEvent("chat:message", { message: finalMsg, channel }, clientId);
+    res.json({ ok: true, message: finalMsg });
+  });
+
+  app.post("/api/chat/channels", (req, res) => {
+    const { channel } = req.body || {};
+    if (!channel || !channel.id) {
+      res.status(400).json({ ok: false, error: "Data channel tidak lengkap" });
+      return;
+    }
+    const cIdx = realtimeState.chatChannels.findIndex((c: any) => c.id === channel.id);
+    if (cIdx >= 0) {
+      realtimeState.chatChannels[cIdx] = { ...realtimeState.chatChannels[cIdx], ...channel, updatedAt: new Date().toISOString() };
+    } else {
+      realtimeState.chatChannels.unshift({ ...channel, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    }
+    saveChatStorageToDisk();
+    broadcastRealtimeEvent("chat:channel", channel);
+    res.json({ ok: true, channel });
+  });
+
+  app.post("/api/chat/mark-read", (req, res) => {
+    const { channelId, userId } = req.body || {};
+    if (channelId && userId) {
+      let readChanged = false;
+      realtimeState.chatMessages = realtimeState.chatMessages.map((m: any) => {
+        if (m.channelId === channelId && Array.isArray(m.readBy) && !m.readBy.includes(userId)) {
+          readChanged = true;
+          return { ...m, readBy: [...m.readBy, userId] };
+        }
+        return m;
+      });
+      if (readChanged) {
+        saveChatStorageToDisk();
+        broadcastRealtimeEvent("chat:read", { channelId, userId });
+      }
+    }
     res.json({ ok: true });
   });
 

@@ -463,23 +463,31 @@ export function FloatingChatPanel() {
         </div>
       )}
 
-      {/* 3. PROFESSIONAL 2-WAY REAL-TIME CHAT & COORDINATION PANEL */}
+      {/* 3. COMPACT & RESPONSIVE 2-WAY REAL-TIME CHAT PANEL */}
       {isChatOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-950/70 backdrop-blur-xs lg:bg-transparent lg:inset-auto lg:p-0 lg:fixed lg:bottom-4 lg:right-6 lg:z-40">
-          {/* Backdrop click to close on mobile & tablet */}
-          <div className="fixed inset-0 bg-transparent lg:hidden" onClick={closeChat} />
+        <>
+          {/* Backdrop on mobile only for closing on click outside */}
+          <div
+            className="fixed inset-0 z-40 bg-slate-950/30 backdrop-blur-[1.5px] sm:hidden"
+            onClick={closeChat}
+          />
 
           <div
             ref={chatPanelRef}
             id="floating-chat-modal"
-            className={`relative z-10 w-full h-full sm:h-[86vh] sm:max-h-[680px] sm:max-w-lg md:max-w-xl ${
-              isExpandedWidth ? 'lg:w-[540px] lg:h-[650px]' : 'lg:w-[430px] lg:h-[600px]'
-            } bg-white dark:bg-slate-900 sm:rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 transition-all`}
+            className={`fixed z-50 sm:z-40 transition-all duration-200 ease-out flex flex-col overflow-hidden bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 rounded-2xl
+              /* Mobile: compact floating card anchored comfortably at bottom, not overtaking full screen */
+              left-2.5 right-2.5 bottom-2.5 sm:left-auto sm:inset-auto sm:bottom-4 sm:right-4 md:right-6
+              /* Height: ergonomic & compact across mobile and desktop */
+              h-[68vh] max-h-[520px] min-h-[380px] sm:h-[485px] sm:max-h-[82vh]
+              /* Desktop Width: compact default 360px with expandable 440px option */
+              w-auto sm:w-[360px] ${isExpandedWidth ? 'sm:w-[440px] sm:h-[530px]' : ''}
+              animate-in fade-in zoom-in-95`}
           >
             {/* Top Header Bar */}
-            <div className="bg-hajj-800 text-white px-3.5 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between shrink-0 shadow-sm border-b border-gold-500/25">
-              <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0 pr-2">
-                <div className="w-8 h-8 rounded-xl bg-gold-500 text-hajj-950 flex items-center justify-center font-bold text-sm shadow shrink-0">
+            <div className="bg-hajj-800 text-white px-3 py-2 sm:px-3.5 sm:py-2 flex items-center justify-between shrink-0 shadow-sm border-b border-gold-500/25">
+              <div className="flex items-center space-x-2 min-w-0 pr-1.5">
+                <div className="w-7 h-7 rounded-lg bg-gold-500 text-hajj-950 flex items-center justify-center font-bold text-xs shadow shrink-0">
                   <i className="fa-solid fa-comments"></i>
                 </div>
                 <div className="min-w-0">
@@ -487,7 +495,7 @@ export function FloatingChatPanel() {
                     <span className="truncate">Chat Operasional UPT</span>
                     <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-bold border border-emerald-400/30 shrink-0 flex items-center space-x-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                      <span>2-Arah Live</span>
+                      <span>2-Arah</span>
                     </span>
                   </h3>
                   <p className="text-[10px] text-slate-300 flex items-center space-x-1 mt-0.5 truncate">
@@ -503,8 +511,8 @@ export function FloatingChatPanel() {
                 <button
                   type="button"
                   onClick={() => setIsNewChatModalOpen(true)}
-                  className="px-2 py-1 rounded-lg bg-gold-500/20 hover:bg-gold-500/30 text-gold-300 border border-gold-500/30 text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer mr-0.5"
-                  title="Mulai Chat Pribadi dengan Akun Lain"
+                  className="px-2 py-0.5 rounded-md bg-gold-500/20 hover:bg-gold-500/30 text-gold-300 border border-gold-500/30 text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer"
+                  title="Mulai Chat Pribadi dengan Rekan"
                 >
                   <i className="fa-solid fa-user-plus text-[9px]"></i>
                   <span className="hidden sm:inline">Pesan Baru</span>
@@ -512,26 +520,26 @@ export function FloatingChatPanel() {
                 <button
                   type="button"
                   onClick={toggleChatSound}
-                  className={`w-7 h-7 rounded-lg text-xs flex items-center justify-center transition cursor-pointer ${
+                  className={`w-6 h-6 rounded-md text-[11px] flex items-center justify-center transition cursor-pointer ${
                     chatSoundEnabled ? 'text-gold-300 bg-white/10' : 'text-slate-400 hover:text-white'
                   }`}
-                  title={chatSoundEnabled ? 'Suara Notifikasi: Aktif' : 'Suara Notifikasi: Senyap'}
+                  title={chatSoundEnabled ? 'Suara: Aktif' : 'Suara: Senyap'}
                 >
                   <i className={`fa-solid ${chatSoundEnabled ? 'fa-volume-high' : 'fa-volume-xmark'}`}></i>
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsExpandedWidth(prev => !prev)}
-                  className="hidden lg:flex w-7 h-7 rounded-lg text-slate-300 hover:text-white items-center justify-center hover:bg-white/10 transition cursor-pointer"
-                  title={isExpandedWidth ? 'Ukuran Standar' : 'Perlebar Panel Chat'}
+                  className="hidden sm:flex w-6 h-6 rounded-md text-slate-300 hover:text-white items-center justify-center hover:bg-white/10 transition cursor-pointer"
+                  title={isExpandedWidth ? 'Perkecil Ukuran' : 'Perlebar Panel'}
                 >
-                  <i className={`fa-solid ${isExpandedWidth ? 'fa-compress' : 'fa-expand'} text-xs`}></i>
+                  <i className={`fa-solid ${isExpandedWidth ? 'fa-compress' : 'fa-expand'} text-[11px]`}></i>
                 </button>
                 <button
                   type="button"
                   onClick={closeChat}
-                  className="w-7 h-7 rounded-lg text-slate-300 hover:text-white flex items-center justify-center hover:bg-white/10 transition cursor-pointer"
-                  title="Tutup Panel"
+                  className="w-6 h-6 rounded-md text-slate-300 hover:text-white flex items-center justify-center hover:bg-white/10 transition cursor-pointer"
+                  title="Tutup Panel Chat"
                 >
                   <i className="fa-solid fa-xmark text-sm"></i>
                 </button>
@@ -642,20 +650,20 @@ export function FloatingChatPanel() {
                   </div>
 
                   {/* Message History List */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2.5">
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-2 min-w-0 max-w-full overflow-x-hidden">
                     {channelMessages.length === 0 ? (
-                      <div className="text-center py-12 px-4 text-slate-400 space-y-2.5">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-200/70 text-slate-400 flex items-center justify-center mx-auto text-xl">
+                      <div className="text-center py-10 px-3 text-slate-400 space-y-2">
+                        <div className="w-10 h-10 rounded-2xl bg-slate-200/70 text-slate-400 flex items-center justify-center mx-auto text-lg">
                           <i className="fa-solid fa-comments"></i>
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-0.5">
                           <p className="text-xs font-bold text-slate-600">
                             Ruang Komunikasi {getChannelDisplayName(activeChannel)}
                           </p>
-                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                          <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-relaxed">
                             {activeChannel.type === 'DIRECT'
-                              ? 'Pesan yang Anda kirimkan di sini bersifat pribadi (2 arah) dan diterima langsung secara real-time.'
-                              : 'Seluruh anggota dalam grup ini dapat mengirim dan menerima pesan koordinasi secara real-time.'}
+                              ? 'Pesan tersimpan permanen di database dan diterima seketika secara 2 arah.'
+                              : 'Seluruh tim dapat berkoordinasi secara real-time dengan riwayat tersimpan permanen.'}
                           </p>
                         </div>
                       </div>
@@ -664,52 +672,55 @@ export function FloatingChatPanel() {
                         const isMe = msg.senderId === currentUser.id;
                         const readCount = (msg.readBy || []).filter(id => id !== msg.senderId).length;
                         const senderUser = users.find(u => u.id === msg.senderId);
+                        const displayTime = msg.timeFormatted || (msg.timestamp ? (msg.timestamp.includes('T') ? msg.timestamp.split('T')[1].substring(0, 5) : msg.timestamp.substring(11, 16)) : '');
 
                         return (
                           <div
                             key={msg.id}
-                            className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group`}
+                            className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-full min-w-0 group`}
                           >
                             {/* Sender Meta Header */}
-                            <div className="flex items-center space-x-1.5 text-[10px] text-slate-500 mb-1 px-1">
+                            <div className="flex items-center space-x-1 text-[9px] text-slate-500 mb-0.5 px-0.5 max-w-full min-w-0 truncate">
                               {!isMe && senderUser ? (
                                 <button
                                   type="button"
                                   onClick={() => handleStartDirectChat(senderUser)}
-                                  className="font-bold text-slate-800 hover:text-hajj-700 hover:underline cursor-pointer flex items-center space-x-1"
+                                  className="font-bold text-slate-800 hover:text-hajj-700 hover:underline cursor-pointer flex items-center space-x-1 truncate max-w-[140px]"
                                   title={`Klik untuk chat pribadi dengan ${msg.senderName}`}
                                 >
-                                  <span>{msg.senderName}</span>
-                                  <span className="text-[9px] font-semibold px-1.5 py-0.1 bg-slate-200 text-slate-700 rounded">
+                                  <span className="truncate">{msg.senderName}</span>
+                                  <span className="text-[8px] font-semibold px-1 py-0.1 bg-slate-200 text-slate-700 rounded shrink-0">
                                     {msg.senderRole}
                                   </span>
                                 </button>
                               ) : (
-                                <span className="font-bold text-hajj-800">Anda ({msg.senderName})</span>
+                                <span className="font-bold text-hajj-800 truncate max-w-[140px]">
+                                  {isMe ? 'Anda' : msg.senderName}
+                                </span>
                               )}
                               <span>•</span>
-                              <span className="font-mono text-[9px]">{msg.timestamp}</span>
-                              {msg.isUrgent && (
-                                <span className="px-1.5 py-0.2 bg-red-100 text-red-700 font-bold rounded text-[9px]">
+                              <span className="font-mono text-[8px] text-slate-400 shrink-0">{displayTime}</span>
+                              {msg.priority === 'URGENT' && (
+                                <span className="px-1 py-0.1 bg-red-100 text-red-700 font-bold rounded text-[8px] shrink-0">
                                   URGENT
                                 </span>
                               )}
                               {msg.isInstruction && (
-                                <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 font-bold rounded text-[9px]">
-                                  ★ Arahan Pimpinan
+                                <span className="px-1 py-0.1 bg-amber-100 text-amber-800 font-bold rounded text-[8px] shrink-0">
+                                  ★ Arahan
                                 </span>
                               )}
                             </div>
 
                             {/* Message Bubble + Action Buttons */}
-                            <div className={`flex items-end gap-1.5 max-w-[88%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                            <div className={`flex items-end gap-1 max-w-[86%] sm:max-w-[82%] min-w-0 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                               <div
-                                className={`p-3 rounded-2xl text-xs shadow-2xs relative ${
+                                className={`p-2.5 rounded-2xl text-xs shadow-2xs relative min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere] [word-break:break-word] hyphens-auto ${
                                   isMe
                                     ? 'bg-hajj-700 text-white rounded-tr-none'
                                     : msg.isInstruction
                                     ? 'bg-amber-50 text-slate-900 border border-amber-300 rounded-tl-none font-medium'
-                                    : msg.isUrgent
+                                    : msg.priority === 'URGENT'
                                     ? 'bg-red-50 text-slate-900 border border-red-300 rounded-tl-none font-medium'
                                     : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none'
                                 }`}
@@ -717,24 +728,26 @@ export function FloatingChatPanel() {
                                 {/* Quoted Reply Preview if any */}
                                 {msg.replyToText && (
                                   <div
-                                    className={`mb-2 p-2 rounded-lg text-[10px] border-l-2 ${
+                                    className={`mb-1.5 p-1.5 rounded-lg text-[10px] border-l-2 min-w-0 max-w-full overflow-hidden ${
                                       isMe
                                         ? 'bg-hajj-800/80 border-gold-400 text-slate-100'
                                         : 'bg-slate-100 border-hajj-600 text-slate-600'
                                     }`}
                                   >
-                                    <p className="font-bold text-[9px] opacity-90">
+                                    <p className="font-bold text-[8px] opacity-90 truncate">
                                       Membalas {msg.replyToSender || 'Pesan'}:
                                     </p>
-                                    <p className="truncate opacity-80">{msg.replyToText}</p>
+                                    <p className="truncate opacity-80 text-[10px]">{msg.replyToText}</p>
                                   </div>
                                 )}
 
-                                <p className="whitespace-pre-wrap leading-relaxed break-words">{msg.message}</p>
+                                <p className="whitespace-pre-wrap leading-relaxed text-xs break-words [overflow-wrap:anywhere] [word-break:break-word] hyphens-auto min-w-0 max-w-full select-text">
+                                  {msg.message}
+                                </p>
 
                                 {/* Read Receipt & Delivery Indicator */}
                                 {isMe && (
-                                  <div className="mt-1 flex items-center justify-end space-x-1 text-[9px] text-emerald-200/90">
+                                  <div className="mt-0.5 flex items-center justify-end space-x-1 text-[8px] text-emerald-200/90 shrink-0">
                                     <i className={`fa-solid ${readCount > 0 ? 'fa-check-double text-gold-300' : 'fa-check'}`}></i>
                                     <span>
                                       {activeChannel.type === 'DIRECT'
@@ -756,7 +769,7 @@ export function FloatingChatPanel() {
                                   setReplyingTo(msg);
                                   inputRef.current?.focus();
                                 }}
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 text-slate-400 hover:text-hajj-700 hover:bg-slate-200/60 rounded-lg text-[10px] transition cursor-pointer shrink-0"
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-slate-400 hover:text-hajj-700 hover:bg-slate-200/60 rounded-md text-[10px] transition cursor-pointer shrink-0"
                                 title="Balas pesan ini"
                               >
                                 <i className="fa-solid fa-reply"></i>
@@ -837,26 +850,26 @@ export function FloatingChatPanel() {
                   )}
 
                   {/* Message Input Form */}
-                  <form onSubmit={handleSend} className="p-3 bg-white border-t border-slate-200 space-y-2 shrink-0">
-                    <div className="flex items-center justify-between text-[11px] px-0.5">
-                      <div className="flex items-center space-x-3">
+                  <form onSubmit={handleSend} className="p-2 sm:p-2.5 bg-white border-t border-slate-200 space-y-1.5 shrink-0">
+                    <div className="flex items-center justify-between text-[10px] px-0.5">
+                      <div className="flex items-center space-x-2.5">
                         {isCurrentUserManager && (
-                          <label className="flex items-center space-x-1.5 text-slate-700 font-medium cursor-pointer">
+                          <label className="flex items-center space-x-1 text-slate-700 font-medium cursor-pointer">
                             <input
                               type="checkbox"
                               checked={isOfficialInstruction}
                               onChange={e => setIsOfficialInstruction(e.target.checked)}
-                              className="rounded text-hajj-700 focus:ring-hajj-600"
+                              className="w-3.5 h-3.5 rounded text-hajj-700 focus:ring-hajj-600"
                             />
                             <span>Arahan Pimpinan</span>
                           </label>
                         )}
-                        <label className="flex items-center space-x-1.5 text-red-700 font-medium cursor-pointer">
+                        <label className="flex items-center space-x-1 text-red-700 font-medium cursor-pointer">
                           <input
                             type="checkbox"
                             checked={isUrgent}
                             onChange={e => setIsUrgent(e.target.checked)}
-                            className="rounded text-red-600 focus:ring-red-500"
+                            className="w-3.5 h-3.5 rounded text-red-600 focus:ring-red-500"
                           />
                           <span>Penting / Urgent</span>
                         </label>
@@ -867,31 +880,31 @@ export function FloatingChatPanel() {
                         onClick={() => setShowQuickTemplates(prev => !prev)}
                         className="text-[10px] font-bold text-hajj-700 hover:text-hajj-800 flex items-center space-x-1 cursor-pointer"
                       >
-                        <i className="fa-solid fa-bolt text-amber-500"></i>
+                        <i className="fa-solid fa-bolt text-amber-500 text-[9px]"></i>
                         <span>Pesan Cepat</span>
                       </button>
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-1.5">
                       <input
                         ref={inputRef}
                         type="text"
                         placeholder={
                           activeChannel.type === 'DIRECT'
-                            ? `Kirim pesan pribadi ke ${getChannelDisplayName(activeChannel)}...`
-                            : `Kirim pesan ke ${getChannelDisplayName(activeChannel)}...`
+                            ? `Pesan pribadi ke ${getChannelDisplayName(activeChannel)}...`
+                            : `Pesan ke ${getChannelDisplayName(activeChannel)}...`
                         }
                         value={messageInput}
                         onChange={handleInputChange}
-                        className="flex-1 px-3.5 py-2 bg-slate-100 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-hajj-600 focus:bg-white focus:outline-none text-slate-900"
+                        className="flex-1 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-hajj-600 focus:bg-white focus:outline-none text-slate-900 placeholder:text-slate-400 min-w-0"
                       />
                       <button
                         type="submit"
                         disabled={!messageInput.trim()}
-                        className="px-4 py-2 bg-hajj-700 hover:bg-hajj-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow transition flex items-center justify-center cursor-pointer"
+                        className="px-3 py-1.5 bg-hajj-700 hover:bg-hajj-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-2xs transition flex items-center justify-center cursor-pointer shrink-0"
                         title="Kirim Pesan (Enter)"
                       >
-                        <i className="fa-solid fa-paper-plane"></i>
+                        <i className="fa-solid fa-paper-plane text-xs"></i>
                       </button>
                     </div>
                   </form>
@@ -962,12 +975,12 @@ export function FloatingChatPanel() {
                   </div>
 
                   {/* Search & Filter Tabs */}
-                  <div className="p-3 bg-white border-b border-slate-200 space-y-2 shrink-0">
-                    <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  <div className="p-2 sm:p-2.5 bg-white border-b border-slate-200 space-y-1.5 shrink-0">
+                    <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
                       <button
                         type="button"
                         onClick={() => setChatSubFilter('ALL')}
-                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center justify-center space-x-1 ${
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer flex items-center justify-center space-x-1 ${
                           chatSubFilter === 'ALL'
                             ? 'bg-white text-hajj-800 shadow-2xs'
                             : 'text-slate-600 hover:text-slate-900'
@@ -975,7 +988,7 @@ export function FloatingChatPanel() {
                       >
                         <span>Semua</span>
                         {unreadTotalCount > 0 && (
-                          <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.1 rounded-full">
+                          <span className="bg-red-500 text-white text-[8px] px-1.5 py-0.1 rounded-full font-black">
                             {unreadTotalCount}
                           </span>
                         )}
@@ -983,16 +996,16 @@ export function FloatingChatPanel() {
                       <button
                         type="button"
                         onClick={() => setChatSubFilter('GROUP')}
-                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center justify-center space-x-1 ${
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer flex items-center justify-center space-x-1 ${
                           chatSubFilter === 'GROUP'
                             ? 'bg-white text-hajj-800 shadow-2xs'
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        <i className="fa-solid fa-users text-[10px]"></i>
+                        <i className="fa-solid fa-users text-[9px]"></i>
                         <span>Grup ({accessibleChannels.filter(c => c.type === 'GROUP').length})</span>
                         {groupUnreadTotal > 0 && (
-                          <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.1 rounded-full">
+                          <span className="bg-red-500 text-white text-[8px] px-1.5 py-0.1 rounded-full font-black">
                             {groupUnreadTotal}
                           </span>
                         )}
@@ -1000,16 +1013,16 @@ export function FloatingChatPanel() {
                       <button
                         type="button"
                         onClick={() => setChatSubFilter('DIRECT')}
-                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center justify-center space-x-1 ${
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer flex items-center justify-center space-x-1 ${
                           chatSubFilter === 'DIRECT'
                             ? 'bg-white text-hajj-800 shadow-2xs'
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        <i className="fa-solid fa-user-group text-[10px]"></i>
+                        <i className="fa-solid fa-user-group text-[9px]"></i>
                         <span>Pribadi ({accessibleChannels.filter(c => c.type === 'DIRECT').length})</span>
                         {directUnreadTotal > 0 && (
-                          <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.1 rounded-full">
+                          <span className="bg-red-500 text-white text-[8px] px-1.5 py-0.1 rounded-full font-black">
                             {directUnreadTotal}
                           </span>
                         )}
@@ -1019,24 +1032,24 @@ export function FloatingChatPanel() {
                     <div className="relative">
                       <input
                         type="text"
-                        placeholder="Cari grup divisi, nama rekan, atau isi pesan..."
+                        placeholder="Cari saluran atau rekan..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-hajj-600 focus:bg-white focus:outline-none text-slate-800"
+                        className="w-full pl-7 pr-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-hajj-600 focus:bg-white focus:outline-none text-slate-800 placeholder:text-slate-400"
                       />
-                      <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
+                      <i className="fa-solid fa-magnifying-glass absolute left-2 top-2 text-slate-400 text-[10px]"></i>
                     </div>
                   </div>
 
                   {/* Channels List */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-2 sm:p-2.5 space-y-1.5 min-w-0">
                     {filteredChannels.length === 0 ? (
-                      <div className="text-center py-8 px-4 text-slate-400 space-y-2">
+                      <div className="text-center py-6 px-3 text-slate-400 space-y-1.5">
                         <p className="text-xs">Belum ada percakapan pada kategori ini.</p>
                         <button
                           type="button"
                           onClick={() => setIsNewChatModalOpen(true)}
-                          className="px-3 py-1.5 bg-hajj-700 text-white rounded-lg text-xs font-bold shadow-2xs cursor-pointer"
+                          className="px-2.5 py-1 bg-hajj-700 text-white rounded-lg text-xs font-bold shadow-2xs cursor-pointer"
                         >
                           + Mulai Chat Pribadi Baru
                         </button>
@@ -1061,16 +1074,16 @@ export function FloatingChatPanel() {
                             key={channel.id}
                             type="button"
                             onClick={() => openChat(channel.id)}
-                            className={`w-full text-left p-3 bg-white hover:bg-hajj-50/60 border rounded-xl transition flex items-center justify-between group cursor-pointer shadow-2xs ${
+                            className={`w-full text-left p-2 sm:p-2.5 bg-white hover:bg-hajj-50/60 border rounded-xl transition flex items-center justify-between group cursor-pointer shadow-2xs min-w-0 ${
                               unread > 0
                                 ? 'border-hajj-400 bg-hajj-50/30'
                                 : 'border-slate-200'
                             }`}
                           >
-                            <div className="flex items-center space-x-3 min-w-0 flex-1">
+                            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
                               <div className="relative shrink-0">
                                 <div
-                                  className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm border ${
+                                  className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs border ${
                                     channel.type === 'DIRECT'
                                       ? 'bg-blue-100 text-blue-800 border-blue-200'
                                       : 'bg-hajj-100 text-hajj-800 border-hajj-200'
@@ -1083,12 +1096,12 @@ export function FloatingChatPanel() {
                                       'DM'
                                     )
                                   ) : (
-                                    <i className={`fa-solid ${channel.icon || 'fa-users'}`}></i>
+                                    <i className={`fa-solid ${channel.icon || 'fa-users'} text-[11px]`}></i>
                                   )}
                                 </div>
                                 {channel.type === 'DIRECT' && (
                                   <span
-                                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-white ${
+                                    className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1.5 ring-white ${
                                       online ? 'bg-emerald-500' : 'bg-slate-300'
                                     }`}
                                   />
@@ -1102,7 +1115,7 @@ export function FloatingChatPanel() {
                                       {displayName}
                                     </span>
                                     <span
-                                      className={`text-[9px] font-bold px-1.5 py-0.1 rounded shrink-0 ${
+                                      className={`text-[8px] font-bold px-1.5 py-0.1 rounded shrink-0 ${
                                         channel.type === 'DIRECT'
                                           ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                           : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -1112,25 +1125,25 @@ export function FloatingChatPanel() {
                                     </span>
                                   </div>
                                   {channel.lastMessageTime && (
-                                    <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                    <span className="text-[9px] text-slate-400 font-mono shrink-0">
                                       {channel.lastMessageTime}
                                     </span>
                                   )}
                                 </div>
 
-                                <p className="text-[10px] text-slate-400 truncate">{subtitle}</p>
+                                <p className="text-[9px] text-slate-400 truncate">{subtitle}</p>
                                 <p
-                                  className={`text-[11px] truncate mt-0.5 ${
+                                  className={`text-[10px] truncate mt-0.5 ${
                                     unread > 0 ? 'font-bold text-slate-900' : 'text-slate-500'
                                   }`}
                                 >
-                                  {channel.lastMessage || 'Belum ada pesan — klik untuk mulai percakapan'}
+                                  {channel.lastMessage || 'Belum ada pesan — klik untuk mulai obrolan'}
                                 </p>
                               </div>
                             </div>
 
                             {unread > 0 && (
-                              <span className="ml-2 bg-red-500 text-white font-black px-2 py-0.5 rounded-full text-[10px] shrink-0 shadow-2xs">
+                              <span className="ml-1.5 bg-red-500 text-white font-black px-1.5 py-0.2 rounded-full text-[9px] shrink-0 shadow-2xs">
                                 {unread}
                               </span>
                             )}
@@ -1140,14 +1153,14 @@ export function FloatingChatPanel() {
                     )}
                   </div>
 
-                  {/* Mobile & Tablet Bottom Close Action Bar */}
-                  <div className="lg:hidden p-2.5 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0">
+                  {/* Mobile Bottom Close Action Bar */}
+                  <div className="sm:hidden p-1.5 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shrink-0">
                     <button
                       type="button"
                       onClick={closeChat}
-                      className="w-full py-2 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold rounded-lg text-xs transition flex items-center justify-center space-x-2 shadow-2xs border border-slate-200 dark:border-slate-600 cursor-pointer"
+                      className="w-full py-1.5 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold rounded-lg text-[11px] transition flex items-center justify-center space-x-1.5 shadow-2xs border border-slate-200 dark:border-slate-600 cursor-pointer"
                     >
-                      <i className="fa-solid fa-arrow-left text-xs"></i>
+                      <i className="fa-solid fa-chevron-down text-[10px]"></i>
                       <span>Tutup Panel Chat</span>
                     </button>
                   </div>
@@ -1155,22 +1168,22 @@ export function FloatingChatPanel() {
               )}
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* ================= MODAL: NEW DIRECT CHAT (PILIH AKUN REKAN KERJA) ================= */}
       {isNewChatModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 flex flex-col max-h-[82vh]">
-            <div className="p-3.5 bg-hajj-800 text-white flex items-center justify-between border-b border-gold-500/25">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-gold-500 text-hajj-950 flex items-center justify-center font-bold text-xs">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-[92vw] sm:w-[380px] overflow-hidden border border-slate-200 flex flex-col max-h-[76vh]">
+            <div className="p-3 bg-hajj-800 text-white flex items-center justify-between border-b border-gold-500/25">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded-lg bg-gold-500 text-hajj-950 flex items-center justify-center font-bold text-xs">
                   <i className="fa-solid fa-user-plus"></i>
                 </div>
                 <div>
                   <h4 className="font-bold text-xs text-white">Mulai Chat Pribadi (2 Arah)</h4>
                   <p className="text-[10px] text-slate-300">
-                    Pilih akun petugas untuk berkomunikasi langsung secara personal
+                    Pilih akun rekan untuk pesan personal
                   </p>
                 </div>
               </div>

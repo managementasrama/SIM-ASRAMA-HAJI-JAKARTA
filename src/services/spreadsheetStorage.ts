@@ -361,6 +361,8 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     qcInspections: Array.isArray(db.qcInspections) ? db.qcInspections : [],
     workSessions: Array.isArray(db.workSessions) ? db.workSessions : [],
     auditLogs: Array.isArray(db.auditLogs) ? db.auditLogs : [],
+    chatChannels: Array.isArray(db.chatChannels) ? db.chatChannels : [],
+    chatMessages: Array.isArray(db.chatMessages) ? db.chatMessages : [],
     appSettings: safeAppSettings,
     // Alias snake_case untuk kompatibilitas penuh dengan skrip Google Spreadsheet
     meeting_rooms: Array.isArray(db.meetingRooms) ? db.meetingRooms : [],
@@ -370,6 +372,8 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     qc_inspections: Array.isArray(db.qcInspections) ? db.qcInspections : [],
     work_sessions: Array.isArray(db.workSessions) ? db.workSessions : [],
     system_logs: Array.isArray(db.auditLogs) ? db.auditLogs : [],
+    chat_channels: Array.isArray(db.chatChannels) ? db.chatChannels : [],
+    chat_messages: Array.isArray(db.chatMessages) ? db.chatMessages : [],
     app_settings: safeAppSettings,
   };
 
@@ -962,6 +966,43 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
       };
     });
 
+  // 14. Normalisasi Saluran Chat (Grup Divisi & Chat Personal)
+  const rawChannels = Array.isArray(d.chatChannels) ? d.chatChannels : (Array.isArray(d.chat_channels) ? d.chat_channels : []);
+  const normalizedChatChannels = rawChannels.map((c: any) => ({
+    id: String(c.id || ''),
+    name: String(c.name || 'Ruang Obrolan'),
+    type: (c.type === 'DIRECT' ? 'DIRECT' : 'GROUP') as 'DIRECT' | 'GROUP',
+    scope: (c.scope || 'ALL_MANAGERS_GROUP') as any,
+    department: c.department || undefined,
+    participantIds: safeArray(c.participantIds || c.participant_ids),
+    description: c.description || '',
+    icon: c.icon || (c.type === 'DIRECT' ? 'fa-user' : 'fa-comments'),
+    lastMessage: c.lastMessage || c.last_message || undefined,
+    lastMessageTime: c.lastMessageTime || c.last_message_time || undefined,
+    lastSenderName: c.lastSenderName || c.last_sender_name || undefined,
+  }));
+
+  // 15. Normalisasi Riwayat Pesan Chat
+  const rawMessages = Array.isArray(d.chatMessages) ? d.chatMessages : (Array.isArray(d.chat_messages) ? d.chat_messages : []);
+  const normalizedChatMessages = rawMessages.map((m: any) => ({
+    id: String(m.id || `msg-${Date.now()}`),
+    channelId: String(m.channelId || m.channel_id || ''),
+    channelType: (m.channelType || m.channel_type || (m.channelId?.startsWith('dm___') ? 'DIRECT' : 'GROUP')) as 'GROUP' | 'DIRECT',
+    senderId: String(m.senderId || m.sender_id || ''),
+    senderName: String(m.senderName || m.sender_name || 'Petugas'),
+    senderRole: String(m.senderRole || m.sender_role || 'Staf'),
+    senderDepartment: m.senderDepartment || m.sender_department || undefined,
+    message: String(m.message || ''),
+    timestamp: m.timestamp || m.created_at || new Date().toISOString(),
+    timeFormatted: m.timeFormatted || m.time_formatted || '00:00 WIB',
+    priority: (m.priority || 'NORMAL') as any,
+    isInstruction: safeBool(m.isInstruction ?? m.is_instruction, false),
+    readBy: safeArray(m.readBy || m.read_by),
+    replyToId: m.replyToId || m.reply_to_id || undefined,
+    replyToSender: m.replyToSender || m.reply_to_sender || undefined,
+    replyToText: m.replyToText || m.reply_to_text || undefined,
+  }));
+
   return {
     schemaVersion: 4,
     appName: d.appName || 'SIM-Akomodasi UPT Asrama Haji Jakarta',
@@ -979,8 +1020,8 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     breakfastOrders: normalizedOrders,
     workSessions: normalizedWork,
     auditLogs: normalizedAudit,
-    chatChannels: Array.isArray(d.chatChannels) ? d.chatChannels : [],
-    chatMessages: Array.isArray(d.chatMessages) ? d.chatMessages : [],
+    chatChannels: normalizedChatChannels.length > 0 ? normalizedChatChannels : (Array.isArray(d.chatChannels) ? d.chatChannels : []),
+    chatMessages: normalizedChatMessages.length > 0 ? normalizedChatMessages : (Array.isArray(d.chatMessages) ? d.chatMessages : []),
     passwordResetRequests: Array.isArray(d.passwordResetRequests) ? d.passwordResetRequests : []
   };
 }

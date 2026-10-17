@@ -672,8 +672,8 @@ export class DataStorageService {
       ? db.auditLogs.slice(0, 250)
       : (this.cache?.auditLogs || []).slice(0, 250);
 
-    // Batasi chatMessages maksimal 300 terbaru
-    const trimmedChatMessages = Array.isArray(db.chatMessages) ? db.chatMessages.slice(-300) : [];
+    // Riwayat chatMessages disimpan secara permanen (Grup & Chat Pribadi)
+    const trimmedChatMessages = Array.isArray(db.chatMessages) ? db.chatMessages : [];
 
     // Deduplikasi rooms & meetingRooms secara ketat untuk mencegah React non-unique key warning
     const uniqueRooms: Room[] = [];
