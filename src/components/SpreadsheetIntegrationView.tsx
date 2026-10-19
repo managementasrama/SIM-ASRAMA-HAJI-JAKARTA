@@ -50,15 +50,30 @@ export function SpreadsheetIntegrationView() {
     pullFromCentralDatabase
   } = useAppContext();
 
-  const [scriptUrl, setScriptUrl] = useState('');
-  const [sheetDocUrl, setSheetDocUrl] = useState('');
-  const [isConnected, setIsConnected] = useState(false);
+  const defaultWebAppUrl = 'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
+  const defaultSheetDocUrl = 'https://docs.google.com/spreadsheets/d/1AsramaHajiEmbarkasiJakartaSIM/edit';
+
+  const [scriptUrl, setScriptUrl] = useState(() => {
+    try {
+      return localStorage.getItem('CUSTOM_SHEET_WEBAPP_URL') || defaultWebAppUrl;
+    } catch (_) {
+      return defaultWebAppUrl;
+    }
+  });
+  const [sheetDocUrl, setSheetDocUrl] = useState(() => {
+    try {
+      return localStorage.getItem('CUSTOM_SHEET_DOC_URL') || defaultSheetDocUrl;
+    } catch (_) {
+      return defaultSheetDocUrl;
+    }
+  });
+  const [isConnected, setIsConnected] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [isAutoProvisioning, setIsAutoProvisioning] = useState(false);
   const [populateSeedOnProvision, setPopulateSeedOnProvision] = useState(true);
-  const [syncStatus, setSyncStatus] = useState<string>('Belum disinkronkan');
+  const [syncStatus, setSyncStatus] = useState<string>('Terkonfigurasi dengan URL Default');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isForbiddenError, setIsForbiddenError] = useState(false);
   const [isScriptUpdateNeeded, setIsScriptUpdateNeeded] = useState(false);
@@ -124,8 +139,8 @@ export function SpreadsheetIntegrationView() {
           setScriptUrl(prev => prev || cfg.webAppUrl);
           setIsConnected(true);
           setSyncStatus('Terkonfigurasi dengan Google Spreadsheet (Server)');
-          if (cfg.sheetId) {
-            setSheetDocUrl(prev => prev || cfg.sheetId);
+          if (cfg.sheetId || cfg.sheetDocUrl) {
+            setSheetDocUrl(prev => prev || cfg.sheetId || cfg.sheetDocUrl);
           }
         }
       })
