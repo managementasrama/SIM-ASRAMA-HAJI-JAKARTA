@@ -117,12 +117,15 @@ async function startServer() {
     return {};
   }
 
+  const defaultWebAppUrl = "https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec";
+  const defaultSheetDocUrl = "https://docs.google.com/spreadsheets/d/1AsramaHajiEmbarkasiJakartaSIM/edit";
+
   const envSheetsConfig = parseEnvForSheets();
   let activeSheetsConfig = {
-    webAppUrl: envSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || process.env.VITE_SHEET_WEBAPP_URL || "",
-    sheetId: envSheetsConfig.sheetId || process.env.GOOGLE_SHEETS_ID || process.env.VITE_GOOGLE_SHEETS_ID || "",
+    webAppUrl: envSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || process.env.VITE_SHEET_WEBAPP_URL || defaultWebAppUrl,
+    sheetId: envSheetsConfig.sheetId || process.env.GOOGLE_SHEETS_ID || process.env.VITE_GOOGLE_SHEETS_ID || defaultSheetDocUrl,
     apiKey: envSheetsConfig.apiKey || process.env.GOOGLE_SHEETS_API_KEY || "",
-    isConfigured: false,
+    isConfigured: true,
     updatedAt: new Date().toISOString(),
   };
 

@@ -227,6 +227,8 @@ export async function fetchChatDatabaseFromServer(): Promise<{ channels: ChatCha
     if (res.ok) {
       const data = await res.json();
       if (data && data.ok) {
+        // Sinkronkan antrean offline jika ada saat koneksi pulih
+        syncOfflineMessageQueue().catch(() => {});
         return {
           channels: (data.channels || []).map(mapRecordToChatChannel),
           messages: (data.messages || []).map(mapRecordToChatMessage)
@@ -242,6 +244,52 @@ export async function fetchChatDatabaseFromServer(): Promise<{ channels: ChatCha
 /**
  * Menyimpan pesan chat secara permanen ke server database dan penyimpanan lokal
  */
+const OFFLINE_QUEUE_KEY = 'SIM_OFFLINE_CHAT_QUEUE_V1';
+
+export function queueOfflineMessage(message: ChatMessage, channel?: ChatChannel) {
+  try {
+    const queue = getOfflineMessageQueue();
+    queue.push({ message, channel, queuedAt: new Date().toISOString() });
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  } catch (_) {}
+}
+
+export function getOfflineMessageQueue(): Array<{ message: ChatMessage; channel?: ChatChannel; queuedAt: string }> {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export async function syncOfflineMessageQueue(): Promise<void> {
+  const queue = getOfflineMessageQueue();
+  if (queue.length === 0) return;
+
+  const remaining: Array<{ message: ChatMessage; channel?: ChatChannel; queuedAt: string }> = [];
+  for (const item of queue) {
+    try {
+      const res = await fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: item.message, channel: item.channel })
+      });
+      if (!res.ok) {
+        remaining.push(item);
+      }
+    } catch (_) {
+      remaining.push(item);
+    }
+  }
+
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
+  } catch (_) {}
+}
+
 export async function persistChatMessage(
   message: ChatMessage,
   channel?: ChatChannel
@@ -251,14 +299,21 @@ export async function persistChatMessage(
 
   // 2. Kirim ke backend server untuk persistensi permanen ke disk & broadcast SSE
   try {
-    fetch('/api/chat/messages', {
+    const res = await fetch('/api/chat/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, channel })
-    }).catch(err => {
-      console.warn('[ChatStorage] Gagal persistensi pesan ke server:', err);
     });
-  } catch (_) {}
+    if (!res.ok) {
+      queueOfflineMessage(message, channel);
+    } else {
+      // Jika berhasil, coba sinkronkan antrean offline yang mungkin tertunda
+      syncOfflineMessageQueue().catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[ChatStorage] Gagal persistensi pesan ke server (masuk antrean offline):', err);
+    queueOfflineMessage(message, channel);
+  }
 
   return message;
 }

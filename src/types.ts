@@ -56,6 +56,7 @@ export interface User {
   qrCodeUrl?: string;
   signatureHistory?: { id: string; timestamp: string; signatureUrl: string; method: 'UPLOAD' | 'DRAWN'; resolution?: string }[];
   permissions?: UserPermissions;
+  lastSeen?: string | number;
   updatedAt?: string;
 }
 
