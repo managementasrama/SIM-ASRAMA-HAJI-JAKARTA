@@ -115,7 +115,7 @@ export function FloatingChatPanel() {
     const hasLivePresence = onlinePresences.some(p => {
       if (p.userId !== userId) return false;
       const lastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
-      return !lastSeen || (now - lastSeen < 60000);
+      return !lastSeen || (now - lastSeen < 120000);
     });
     if (hasLivePresence) return true;
 

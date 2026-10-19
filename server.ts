@@ -77,12 +77,12 @@ async function startServer() {
     }
   }
 
-  // Cleanup stale presences older than 45 seconds
+  // Cleanup stale presences older than 120 seconds
   setInterval(() => {
     const now = Date.now();
     let changed = false;
     for (const [key, p] of Object.entries(realtimeState.presences)) {
-      if (now - p.lastSeenMs > 45000) {
+      if (now - p.lastSeenMs > 120000) {
         delete realtimeState.presences[key];
         changed = true;
       }
@@ -1659,7 +1659,7 @@ async function startServer() {
     // Send initial authoritative state immediately upon connect
     const now = Date.now();
     for (const [key, p] of Object.entries(realtimeState.presences)) {
-      if (now - p.lastSeenMs > 45000) {
+      if (now - p.lastSeenMs > 120000) {
         delete realtimeState.presences[key];
       }
     }
@@ -1698,7 +1698,7 @@ async function startServer() {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     const now = Date.now();
     for (const [key, p] of Object.entries(realtimeState.presences)) {
-      if (now - p.lastSeenMs > 45000) {
+      if (now - p.lastSeenMs > 120000) {
         delete realtimeState.presences[key];
       }
     }
