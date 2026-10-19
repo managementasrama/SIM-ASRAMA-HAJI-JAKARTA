@@ -194,6 +194,7 @@ async function startServer() {
     } catch (err) {
       console.warn("Gagal menyimpan chat_storage_database.json:", err);
     }
+    triggerAsyncChatSpreadsheetSync();
   }
 
   // 1. Endpoint status konfigurasi Google Spreadsheet
@@ -697,6 +698,54 @@ async function startServer() {
     });
   }
 
+  let chatSyncTimeout: NodeJS.Timeout | null = null;
+  function triggerAsyncChatSpreadsheetSync() {
+    const targetUrl = (activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+    if (!targetUrl) return;
+    if (chatSyncTimeout) clearTimeout(chatSyncTimeout);
+    chatSyncTimeout = setTimeout(async () => {
+      try {
+        const payload = {
+          action: "SYNC_CHAT",
+          timestamp: new Date().toISOString(),
+          chatChannels: realtimeState.chatChannels,
+          chat_channels: realtimeState.chatChannels,
+          chatMessages: realtimeState.chatMessages,
+          chat_messages: realtimeState.chatMessages,
+          spreadsheetId: activeSheetsConfig.sheetId || undefined,
+        };
+        fetchGoogleAppsScript(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload),
+        }).catch(() => {});
+      } catch (_) {}
+    }, 1500);
+  }
+
+  let sessionSyncTimeout: NodeJS.Timeout | null = null;
+  function triggerAsyncWorkSessionSpreadsheetSync() {
+    const targetUrl = (activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+    if (!targetUrl) return;
+    if (sessionSyncTimeout) clearTimeout(sessionSyncTimeout);
+    sessionSyncTimeout = setTimeout(async () => {
+      try {
+        const payload = {
+          action: "SYNC_WORK_SESSIONS",
+          timestamp: new Date().toISOString(),
+          workSessions: realtimeState.workSessions,
+          work_sessions: realtimeState.workSessions,
+          spreadsheetId: activeSheetsConfig.sheetId || undefined,
+        };
+        fetchGoogleAppsScript(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload),
+        }).catch(() => {});
+      } catch (_) {}
+    }, 1500);
+  }
+
   // Endpoint Mendapatkan Definisi Skema Tabel & Header
   app.get("/api/sheets/schema-definition", (_req, res) => {
     res.json({
@@ -1034,6 +1083,8 @@ async function startServer() {
     const qcInspectionsList = normalizeItemsList(Array.isArray(data?.qcInspections) ? data.qcInspections : (Array.isArray(data?.qc_inspections) ? data.qc_inspections : []));
     const workSessionsList = normalizeItemsList(Array.isArray(data?.workSessions) ? data.workSessions : (Array.isArray(data?.work_sessions) ? data.work_sessions : []));
     const auditLogsList = normalizeItemsList(Array.isArray(data?.auditLogs) ? data.auditLogs : (Array.isArray(data?.system_logs) ? data.system_logs : []));
+    const chatChannelsList = normalizeItemsList(Array.isArray(data?.chatChannels) ? data.chatChannels : (Array.isArray(data?.chat_channels) ? data.chat_channels : (realtimeState.chatChannels || [])));
+    const chatMessagesList = normalizeItemsList(Array.isArray(data?.chatMessages) ? data.chatMessages : (Array.isArray(data?.chat_messages) ? data.chat_messages : (realtimeState.chatMessages || [])));
 
     return {
       buildings: buildingsList,
@@ -1057,6 +1108,10 @@ async function startServer() {
       system_logs: auditLogsList,
       appSettings: appSettingsList,
       app_settings: appSettingsList,
+      chatChannels: chatChannelsList,
+      chat_channels: chatChannelsList,
+      chatMessages: chatMessagesList,
+      chat_messages: chatMessagesList,
     };
   }
 
@@ -1641,6 +1696,7 @@ async function startServer() {
           return s;
         });
       }
+      triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:upsert", payload, clientId);
     } else if (type === "session:sync_bulk" && Array.isArray(payload)) {
       const byId = new Map<string, any>();
@@ -1660,8 +1716,10 @@ async function startServer() {
         }
       }
       realtimeState.workSessions = Array.from(byId.values());
+      triggerAsyncWorkSessionSpreadsheetSync();
     } else if (type === "session:clear") {
       realtimeState.workSessions = [];
+      triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:clear", {}, clientId);
     } else if (type === "chat:message" && payload?.message?.id) {
       const msg = payload.message;

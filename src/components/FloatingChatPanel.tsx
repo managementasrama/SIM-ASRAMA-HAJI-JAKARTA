@@ -34,7 +34,8 @@ export function FloatingChatPanel() {
     workSessions = [],
     onlinePresences = [],
     typingByChannel = {},
-    notifyChatTyping
+    notifyChatTyping,
+    setActiveTab
   } = useAppContext();
 
   const [chatSubFilter, setChatSubFilter] = useState<'ALL' | 'GROUP' | 'DIRECT'>('ALL');
@@ -51,6 +52,16 @@ export function FloatingChatPanel() {
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
+  const [showPartnerSessionModal, setShowPartnerSessionModal] = useState(false);
+  const [selectedSessionUser, setSelectedSessionUser] = useState<User | null>(null);
+  const [ticker, setTicker] = useState(0);
+
+  // Live ticking timer for work session hours and durations
+  useEffect(() => {
+    if (!isChatOpen && !showPartnerSessionModal) return;
+    const timer = setInterval(() => setTicker(t => (t + 1) % 1000), 1000);
+    return () => clearInterval(timer);
+  }, [isChatOpen, showPartnerSessionModal]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,7 +81,7 @@ export function FloatingChatPanel() {
     if (!isChatOpen) return;
 
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      if (isNewChatModalOpen || showGroupInfoModal || showClearConfirmModal) return;
+      if (isNewChatModalOpen || showGroupInfoModal || showClearConfirmModal || showPartnerSessionModal) return;
 
       const target = event.target as Node;
       if (chatPanelRef.current && !chatPanelRef.current.contains(target)) {
@@ -87,9 +98,9 @@ export function FloatingChatPanel() {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
     };
-  }, [isChatOpen, isNewChatModalOpen, showGroupInfoModal, showClearConfirmModal, closeChat]);
+  }, [isChatOpen, isNewChatModalOpen, showGroupInfoModal, showClearConfirmModal, showPartnerSessionModal, closeChat]);
 
-  const isAnyChatModalOpen = isNewChatModalOpen || showGroupInfoModal || showClearConfirmModal || (isChatOpen && isMobile);
+  const isAnyChatModalOpen = isNewChatModalOpen || showGroupInfoModal || showClearConfirmModal || showPartnerSessionModal || (isChatOpen && isMobile);
   useBodyScrollLock(isAnyChatModalOpen);
 
   if (!currentUser) return null;
@@ -118,6 +129,31 @@ export function FloatingChatPanel() {
   // Get active session info for a user
   const getUserActiveSession = (userId: string) => {
     return workSessions.find(s => s.userId === userId && s.status === 'AKTIF' && !s.logoutTime);
+  };
+
+  // Live formatted elapsed time for an active session
+  const formatSessionLiveDuration = (loginTimeStr?: string): string => {
+    if (!loginTimeStr) return '0 mnt';
+    try {
+      let d: Date;
+      if (loginTimeStr.includes('T')) {
+        d = new Date(loginTimeStr);
+      } else {
+        const parts = loginTimeStr.split(' ');
+        const dateParts = (parts[0] || '').split('-').map(Number);
+        const timeParts = (parts[1] || '00:00:00').split(':').map(Number);
+        d = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], timeParts[0] || 0, timeParts[1] || 0, timeParts[2] || 0);
+      }
+      const diffSec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+      const hours = Math.floor(diffSec / 3600);
+      const minutes = Math.floor((diffSec % 3600) / 60);
+      const seconds = diffSec % 60;
+      if (hours > 0) return `${hours}j ${minutes}m ${seconds}d`;
+      if (minutes > 0) return `${minutes}m ${seconds}d`;
+      return `${seconds} dtk`;
+    } catch (_) {
+      return '0 mnt';
+    }
   };
 
   // Channel helpers
@@ -269,6 +305,10 @@ export function FloatingChatPanel() {
     activeChannel && activeChannel.type === 'DIRECT'
       ? getDirectChatPartner(activeChannel)
       : undefined;
+  const activePartnerSession = useMemo(() => {
+    if (!activeDirectPartner) return undefined;
+    return getUserActiveSession(activeDirectPartner.id);
+  }, [activeDirectPartner, workSessions, ticker]);
   const activeGroupMembers = activeChannel ? getGroupMembers(activeChannel) : [];
   const activeGroupOnlineMembers = activeGroupMembers.filter(u => isUserOnline(u.id));
 
@@ -546,6 +586,33 @@ export function FloatingChatPanel() {
               </div>
             </div>
 
+            {/* Sub-Header: Status Sinkronisasi Spreadsheet & Pintasan Rekap Sesi */}
+            <div className="bg-hajj-900/95 text-[10px] text-slate-200 px-3 py-1.5 border-b border-gold-500/20 flex items-center justify-between shrink-0 select-none shadow-inner">
+              <div className="flex items-center space-x-2 min-w-0 truncate">
+                <span className="flex items-center space-x-1.5 text-emerald-300 font-semibold truncate">
+                  <i className="fa-solid fa-file-excel text-[10px] text-emerald-400"></i>
+                  <span>Spreadsheet: Tersinkron</span>
+                </span>
+                <span className="text-slate-500">•</span>
+                <span className="text-gold-300 font-medium truncate">
+                  {onlineColleaguesCount + 1} Akun Online
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('other');
+                  closeChat();
+                }}
+                className="text-gold-300 hover:text-white font-bold flex items-center space-x-1 text-[9.5px] hover:underline cursor-pointer shrink-0 ml-1.5 bg-white/10 px-2 py-0.5 rounded border border-gold-500/30 transition"
+                title="Buka menu lengkap Rekap Sesi dan Jam Kerja Petugas"
+              >
+                <i className="fa-solid fa-business-time text-[9px] text-gold-400"></i>
+                <span>Rekap Sesi &amp; Jam</span>
+                <i className="fa-solid fa-chevron-right text-[7px]"></i>
+              </button>
+            </div>
+
             {/* ================= TEAM CHANNELS / ACTIVE CHAT ROOM ================= */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {activeChatChannelId && activeChannel ? (
@@ -584,7 +651,7 @@ export function FloatingChatPanel() {
                         {activeChannel.type === 'DIRECT' && activeDirectPartner && (
                           <span
                             className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
-                              isUserOnline(activeDirectPartner.id) ? 'bg-emerald-500' : 'bg-slate-300'
+                              isUserOnline(activeDirectPartner.id) ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
                             }`}
                           />
                         )}
@@ -597,27 +664,54 @@ export function FloatingChatPanel() {
                         <div className="flex items-center space-x-1.5 text-[10px] text-slate-500 truncate mt-0.5">
                           {activeChannel.type === 'DIRECT' ? (
                             activeDirectPartner ? (
-                              <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSessionUser(activeDirectPartner);
+                                  setShowPartnerSessionModal(true);
+                                }}
+                                className="flex items-center space-x-1 truncate hover:underline text-left cursor-pointer group"
+                                title="Klik untuk melihat rekap sesi dan jam kerja petugas ini"
+                              >
                                 <span
-                                  className={`font-bold ${
+                                  className={`font-bold flex items-center space-x-1 ${
                                     isUserOnline(activeDirectPartner.id) ? 'text-emerald-600' : 'text-slate-400'
                                   }`}
                                 >
-                                  {isUserOnline(activeDirectPartner.id) ? '● Sedang Aktif Bertugas' : '○ Offline'}
+                                  {isUserOnline(activeDirectPartner.id) ? (
+                                    <>
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-ping"></span>
+                                      <span>● Sedang Bertugas</span>
+                                      {activePartnerSession && (
+                                        <span className="font-mono text-[9px] text-emerald-800 bg-emerald-100/90 font-bold px-1.5 py-0.2 rounded border border-emerald-300 ml-1">
+                                          {formatSessionLiveDuration(activePartnerSession.loginTime)}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span>○ Offline</span>
+                                  )}
                                 </span>
                                 <span>•</span>
-                                <span className="truncate">{activeDirectPartner.role}</span>
-                              </>
+                                <span className="truncate text-slate-600 group-hover:text-hajj-800">{activeDirectPartner.role}</span>
+                                <i className="fa-solid fa-circle-info text-[9px] text-hajj-600 ml-0.5"></i>
+                              </button>
                             ) : (
                               <span>Percakapan Pribadi 2 Arah</span>
                             )
                           ) : (
-                            <>
-                              <span className="text-emerald-700 font-bold">
-                                ● {activeGroupOnlineMembers.length} Online
+                            <button
+                              type="button"
+                              onClick={() => setShowGroupInfoModal(true)}
+                              className="flex items-center space-x-1.5 truncate hover:underline text-left cursor-pointer"
+                              title="Klik untuk melihat status anggota grup & rekap sesi kerja"
+                            >
+                              <span className="text-emerald-700 font-bold flex items-center space-x-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span>● {activeGroupOnlineMembers.length} Online</span>
                               </span>
                               <span>dari {activeGroupMembers.length} Petugas</span>
-                            </>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1357,28 +1451,51 @@ export function FloatingChatPanel() {
                         <p className="text-[10px] text-slate-500 truncate">
                           {member.role} • {member.department || 'Operasional'}
                         </p>
-                        {activeSess && (
-                          <p className="text-[9px] text-emerald-700 font-semibold">
-                            Sedang bertugas sejak {activeSess.loginTime.split(' ')[1] || activeSess.loginTime} WIB
-                          </p>
+                        {activeSess ? (
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <span className="text-[9px] text-emerald-800 bg-emerald-50 border border-emerald-200 font-semibold px-1.5 py-0.2 rounded font-mono">
+                              Masuk {activeSess.loginTime.split(' ')[1] || activeSess.loginTime} WIB
+                            </span>
+                            <span className="text-[9px] text-emerald-900 font-bold bg-emerald-100/80 px-1.5 py-0.2 rounded border border-emerald-300 font-mono">
+                              {formatSessionLiveDuration(activeSess.loginTime)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[9px] text-slate-400 block mt-0.5">
+                            Belum ada sesi shift aktif
+                          </span>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 shrink-0 ml-2">
-                      {!isSelf && activeChannel.type === 'GROUP' && (
+                    <div className="flex items-center space-x-1.5 shrink-0 ml-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSessionUser(member);
+                          setShowPartnerSessionModal(true);
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[9.5px] font-bold transition cursor-pointer"
+                        title="Lihat rincian rekap sesi kerja petugas ini"
+                      >
+                        <i className="fa-solid fa-clock-rotate-left text-[9px] text-blue-600 mr-1"></i>
+                        <span>Sesi</span>
+                      </button>
+
+                      {!isSelf && (
                         <button
                           type="button"
                           onClick={() => handleStartDirectChat(member)}
-                          className="px-2.5 py-1 bg-hajj-700 hover:bg-hajj-800 text-white rounded-lg text-[10px] font-bold transition cursor-pointer flex items-center space-x-1"
+                          className="px-2.5 py-1 bg-hajj-700 hover:bg-hajj-800 text-white rounded-lg text-[10px] font-bold transition cursor-pointer flex items-center space-x-1 shadow-2xs"
+                          title={`Kirim pesan pribadi 2 arah ke ${member.fullName}`}
                         >
                           <i className="fa-solid fa-comment-dots text-[9px]"></i>
-                          <span>Chat Pribadi</span>
+                          <span className="hidden sm:inline">Chat</span>
                         </button>
                       )}
                       {isSelf && (
                         <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                          ● Online
+                          ● Anda
                         </span>
                       )}
                     </div>
@@ -1387,7 +1504,19 @@ export function FloatingChatPanel() {
               })}
             </div>
 
-            <div className="p-2.5 bg-slate-50 border-t border-slate-200 text-right">
+            <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGroupInfoModal(false);
+                  setActiveTab('other');
+                  closeChat();
+                }}
+                className="text-hajj-800 hover:text-hajj-900 text-xs font-bold flex items-center space-x-1.5 hover:underline cursor-pointer"
+              >
+                <i className="fa-solid fa-business-time text-xs text-hajj-700"></i>
+                <span>Buka Rekap Sesi dan Jam Lengkap</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setShowGroupInfoModal(false)}
@@ -1434,6 +1563,196 @@ export function FloatingChatPanel() {
           </div>
         </div>
       )}
+
+      {/* ================= MODAL: REKAP SESI & JAM PETUGAS ================= */}
+      {showPartnerSessionModal && selectedSessionUser && (() => {
+        const online = isUserOnline(selectedSessionUser.id);
+        const userSess = getUserActiveSession(selectedSessionUser.id);
+        const isSelf = selectedSessionUser.id === currentUser.id;
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-[92vw] sm:w-[390px] overflow-hidden border border-slate-200 flex flex-col max-h-[82vh]">
+              {/* Modal Top Header */}
+              <div className="p-3.5 bg-hajj-800 text-white flex items-center justify-between border-b border-gold-500/25">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-gold-500 text-hajj-950 flex items-center justify-center font-bold text-xs shrink-0 shadow">
+                    <i className="fa-solid fa-business-time"></i>
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-xs text-white truncate">
+                      Rekap Sesi &amp; Jam Petugas
+                    </h4>
+                    <p className="text-[10px] text-slate-300 truncate">
+                      Status kehadiran real-time &amp; sinkronisasi database
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPartnerSessionModal(false)}
+                  className="text-slate-300 hover:text-white p-1 rounded-lg cursor-pointer"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-3.5 overflow-y-auto custom-scrollbar flex-1 space-y-3 bg-slate-50">
+                {/* Officer Profile Card */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center space-x-3">
+                  <div className="relative shrink-0">
+                    <div
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-sm border shadow-xs ${
+                        online
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {selectedSessionUser.fullName.substring(0, 2).toUpperCase()}
+                    </div>
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-white ${
+                        online ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                      }`}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center space-x-1.5">
+                      <h5 className="font-bold text-slate-900 text-xs truncate">
+                        {selectedSessionUser.fullName}
+                      </h5>
+                      {isSelf && (
+                        <span className="px-1.5 py-0.2 bg-gold-500 text-slate-950 font-black rounded text-[8.5px]">
+                          ANDA
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 truncate">
+                      {selectedSessionUser.role} • {selectedSessionUser.department || 'Operasional'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      Username / NIP: {selectedSessionUser.username}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Duty Session Card */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1.5">
+                      <i className="fa-solid fa-clock-rotate-left text-blue-600"></i>
+                      <span>Rekap Sesi Shift Aktif</span>
+                    </span>
+                    <span
+                      className={`text-[9.5px] font-bold px-2 py-0.5 rounded-full ${
+                        online
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-100 text-slate-500 border border-slate-200'
+                      }`}
+                    >
+                      {online ? '● Sedang Bertugas' : '○ Offline / Non-Aktif'}
+                    </span>
+                  </div>
+
+                  {userSess ? (
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 text-[11px]">ID Sesi:</span>
+                        <span className="font-mono font-bold text-slate-800 text-[11px]">
+                          #{userSess.id}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 text-[11px]">Jam Masuk Shift:</span>
+                        <span className="font-bold text-slate-900 text-[11px] font-mono">
+                          {userSess.loginTime.split(' ')[1] || userSess.loginTime} WIB
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between bg-emerald-50/70 p-2 rounded-lg border border-emerald-200/80">
+                        <span className="text-emerald-800 font-bold text-[11px] flex items-center space-x-1.5">
+                          <i className="fa-solid fa-stopwatch text-emerald-600 animate-spin"></i>
+                          <span>Durasi Berjalan:</span>
+                        </span>
+                        <span className="font-mono font-black text-emerald-800 text-xs">
+                          {formatSessionLiveDuration(userSess.loginTime)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 text-[11px]">Penugasan Gedung:</span>
+                        <span className="font-semibold text-slate-800 text-[11px]">
+                          {selectedSessionUser.assignedBuilding || 'Semua Gedung (Umum)'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-3 text-center space-y-1 text-slate-400">
+                      <i className="fa-regular fa-clock text-lg text-slate-300"></i>
+                      <p className="text-[11px] text-slate-500 font-medium">
+                        Petugas ini belum memulai sesi shift tugas baru hari ini.
+                      </p>
+                      <p className="text-[9.5px] text-slate-400">
+                        Sesi akan otomatis tercatat saat petugas login ke sistem.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Database & Google Spreadsheet Guarantee */}
+                <div className="bg-gradient-to-r from-emerald-50 to-blue-50 p-2.5 rounded-xl border border-emerald-200/60 text-[10px] space-y-1">
+                  <div className="flex items-center space-x-1.5 text-emerald-800 font-bold">
+                    <i className="fa-solid fa-shield-check text-xs text-emerald-600"></i>
+                    <span>Database Google Spreadsheet &amp; Real-Time SSE</span>
+                  </div>
+                  <p className="text-slate-600 leading-relaxed text-[9.5px]">
+                    Riwayat obrolan pesan 2 arah dan rekap jam kerja petugas tersimpan permanen di basis data Google Spreadsheet (lembar <code className="text-emerald-700 font-bold">work_sessions</code> &amp; <code className="text-emerald-700 font-bold">chat_messages</code>).
+                  </p>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPartnerSessionModal(false);
+                    setActiveTab('other');
+                    closeChat();
+                  }}
+                  className="px-2.5 py-1.5 text-blue-700 hover:text-blue-800 text-xs font-bold flex items-center space-x-1.5 hover:underline cursor-pointer"
+                  title="Lihat riwayat seluruh shift dan jam kerja"
+                >
+                  <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                  <span>Menu Rekap Lengkap</span>
+                </button>
+
+                <div className="flex items-center space-x-1.5">
+                  {!isSelf && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPartnerSessionModal(false);
+                        handleStartDirectChat(selectedSessionUser);
+                      }}
+                      className="px-3 py-1.5 bg-hajj-700 hover:bg-hajj-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs cursor-pointer"
+                    >
+                      <i className="fa-solid fa-comment-dots text-xs"></i>
+                      <span>Chat Pribadi</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowPartnerSessionModal(false)}
+                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
