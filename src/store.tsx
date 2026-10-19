@@ -21,7 +21,7 @@ import {
 } from './types';
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages, getDirectChannelId, resolveDirectPartner, isUserParticipantInChannel } from './chatData';
-import { persistChatMessage, persistChatChannel, markChatChannelAsRead } from './services/chatStorage';
+import { persistChatMessage, persistChatChannel, markChatChannelAsRead, fetchChatDatabaseFromServer } from './services/chatStorage';
 import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings, CompleteStorageDatabase } from './services/dataStorage';
@@ -972,6 +972,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, 300000);
     return () => clearInterval(timer);
   }, []);
+
+  // Sinkronisasi live chat & online presence berkala (setiap 12 detik) dan saat tab kembali aktif (visibilitychange)
+  useEffect(() => {
+    if (!currentUser) return;
+    const syncLiveChatAndPresence = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        try {
+          realtimeService.sendHeartbeat({
+            userId: currentUser.id,
+            userName: currentUser.fullName,
+            userRole: currentUser.role,
+            department: currentUser.department || 'Operasional',
+            activeTab
+          });
+          const chatDb = await fetchChatDatabaseFromServer();
+          if (chatDb && (chatDb.messages.length > 0 || chatDb.channels.length > 0)) {
+            mergeAndApplyCloudRealtimeData({
+              ...dataStorage.getDatabase(),
+              chatChannels: chatDb.channels,
+              chatMessages: chatDb.messages
+            });
+          }
+        } catch (_) {}
+      }
+    };
+
+    const interval = setInterval(syncLiveChatAndPresence, 12000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncLiveChatAndPresence();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [currentUser]);
 
   const pullFromCentralDatabase = async () => {
     showToast('Menarik & menyamakan data dari Google Spreadsheet...', 'info');
