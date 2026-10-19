@@ -1384,35 +1384,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
               }
               return c;
             });
-          } else if (incomingCh) {
-            const created: ChatChannel = {
-              ...incomingCh,
-              lastMessage: incomingMsg.message,
-              lastMessageTime: incomingMsg.timeFormatted,
-              lastSenderName: incomingMsg.senderName,
-            };
-            resolvedChannel = created;
-            return [created, ...prev];
-          } else if (incomingMsg.channelId.startsWith('dm___') || incomingMsg.channelId.startsWith('dm-')) {
-            const parts = incomingMsg.channelId.startsWith('dm___')
-              ? incomingMsg.channelId.split('___').slice(1)
-              : [incomingMsg.senderId, me?.id || ''].filter(Boolean);
-            const fallbackDm: ChatChannel = {
+          } else {
+            const fallbackChannel: ChatChannel = incomingCh || {
               id: incomingMsg.channelId,
-              name: incomingMsg.senderName,
-              type: 'DIRECT',
-              scope: 'DIRECT',
-              participantIds: parts,
-              description: `Obrolan Pribadi dengan ${incomingMsg.senderName}`,
-              icon: 'fa-user',
+              name: incomingMsg.channelId.startsWith('dm___') || incomingMsg.channelId.startsWith('dm-') ? incomingMsg.senderName : 'Saluran Percakapan UPT',
+              type: incomingMsg.channelId.startsWith('dm___') || incomingMsg.channelId.startsWith('dm-') ? 'DIRECT' : 'GROUP',
+              scope: incomingMsg.channelId.startsWith('dm___') || incomingMsg.channelId.startsWith('dm-') ? 'DIRECT' : 'DIVISION_GROUP',
+              participantIds: [incomingMsg.senderId, me?.id || ''].filter(Boolean),
+              description: `Saluran Percakapan UPT`,
+              icon: incomingMsg.channelId.startsWith('dm___') || incomingMsg.channelId.startsWith('dm-') ? 'fa-user' : 'fa-comments',
               lastMessage: incomingMsg.message,
               lastMessageTime: incomingMsg.timeFormatted,
               lastSenderName: incomingMsg.senderName,
             };
-            resolvedChannel = fallbackDm;
-            return [fallbackDm, ...prev];
+            resolvedChannel = fallbackChannel;
+            return [fallbackChannel, ...prev];
           }
-          return prev;
         });
 
         setChatMessages(prev => {
