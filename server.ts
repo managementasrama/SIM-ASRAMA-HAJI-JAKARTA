@@ -10,6 +10,17 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
 
+  // CORS & Multi-Host Header Support for multi-device cross-network connections
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Cache-Control, Pragma");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   // Disable aggressive caching on Vercel and server proxies for all API endpoints
   app.use("/api", (_req, res, next) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -159,6 +170,19 @@ async function startServer() {
     }
   } catch (_) {}
 
+  // Inisialisasi realtimeState secara authoritatif dari serverDatabaseCache agar tidak kosong saat baru start
+  if (serverDatabaseCache) {
+    if (Array.isArray(serverDatabaseCache.chatChannels) && serverDatabaseCache.chatChannels.length > 0 && realtimeState.chatChannels.length === 0) {
+      realtimeState.chatChannels = serverDatabaseCache.chatChannels;
+    }
+    if (Array.isArray(serverDatabaseCache.chatMessages) && serverDatabaseCache.chatMessages.length > 0 && realtimeState.chatMessages.length === 0) {
+      realtimeState.chatMessages = serverDatabaseCache.chatMessages;
+    }
+    if (Array.isArray(serverDatabaseCache.workSessions) && serverDatabaseCache.workSessions.length > 0 && realtimeState.workSessions.length === 0) {
+      realtimeState.workSessions = serverDatabaseCache.workSessions;
+    }
+  }
+
   // File penyimpanan permanen database chat mengambang (Grup & 1-on-1 Direct Chat)
   const chatStoragePath = path.join(process.cwd(), "chat_storage_database.json");
   try {
@@ -170,6 +194,22 @@ async function startServer() {
       if (savedChat && Array.isArray(savedChat.messages) && savedChat.messages.length > 0) {
         realtimeState.chatMessages = savedChat.messages;
       }
+    } else if (realtimeState.chatChannels.length > 0 || realtimeState.chatMessages.length > 0) {
+      // Buat file chat_storage_database.json pertama kali dari template
+      fs.writeFileSync(
+        chatStoragePath,
+        JSON.stringify(
+          {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            channels: realtimeState.chatChannels,
+            messages: realtimeState.chatMessages,
+          },
+          null,
+          2
+        ),
+        "utf-8"
+      );
     }
   } catch (err) {
     console.warn("Gagal memuat chat_storage_database.json:", err);
@@ -1607,6 +1647,7 @@ async function startServer() {
 
   // Server-Sent Events (SSE) Stream for instant real-time updates
   app.get("/api/realtime/stream", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform, no-store");
     res.setHeader("Connection", "keep-alive");
@@ -1616,6 +1657,13 @@ async function startServer() {
     sseClients.add(res);
 
     // Send initial authoritative state immediately upon connect
+    const now = Date.now();
+    for (const [key, p] of Object.entries(realtimeState.presences)) {
+      if (now - p.lastSeenMs > 45000) {
+        delete realtimeState.presences[key];
+      }
+    }
+
     const initPayload = JSON.stringify({
       type: "init",
       payload: {
@@ -1637,7 +1685,7 @@ async function startServer() {
         clearInterval(keepAlive);
         sseClients.delete(res);
       }
-    }, 20000);
+    }, 10000);
 
     req.on("close", () => {
       clearInterval(keepAlive);
@@ -1646,11 +1694,21 @@ async function startServer() {
   });
 
   app.get("/api/realtime/state", (_req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    const now = Date.now();
+    for (const [key, p] of Object.entries(realtimeState.presences)) {
+      if (now - p.lastSeenMs > 45000) {
+        delete realtimeState.presences[key];
+      }
+    }
     res.json({
+      ok: true,
       presences: Object.values(realtimeState.presences),
       workSessions: realtimeState.workSessions,
       chatChannels: realtimeState.chatChannels,
       chatMessages: realtimeState.chatMessages,
+      timestamp: Date.now(),
     });
   });
 

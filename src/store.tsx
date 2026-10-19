@@ -973,32 +973,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, []);
 
-  // Sinkronisasi live chat & online presence berkala (setiap 12 detik) dan saat tab kembali aktif (visibilitychange)
+  // Sinkronisasi live chat & online presence berkala (setiap 4 detik) dan saat tab kembali aktif (visibilitychange)
   useEffect(() => {
     if (!currentUser) return;
     const syncLiveChatAndPresence = async () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        try {
-          realtimeService.sendHeartbeat({
-            userId: currentUser.id,
-            userName: currentUser.fullName,
-            userRole: currentUser.role,
-            department: currentUser.department || 'Operasional',
-            activeTab
+      try {
+        realtimeService.sendHeartbeat({
+          userId: currentUser.id,
+          userName: currentUser.fullName,
+          userRole: currentUser.role,
+          department: currentUser.department || 'Operasional',
+          activeTab
+        });
+        realtimeService.pollNow();
+        const chatDb = await fetchChatDatabaseFromServer();
+        if (chatDb && (chatDb.messages.length > 0 || chatDb.channels.length > 0)) {
+          mergeAndApplyCloudRealtimeData({
+            ...dataStorage.getDatabase(),
+            chatChannels: chatDb.channels,
+            chatMessages: chatDb.messages
           });
-          const chatDb = await fetchChatDatabaseFromServer();
-          if (chatDb && (chatDb.messages.length > 0 || chatDb.channels.length > 0)) {
-            mergeAndApplyCloudRealtimeData({
-              ...dataStorage.getDatabase(),
-              chatChannels: chatDb.channels,
-              chatMessages: chatDb.messages
-            });
-          }
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
     };
 
-    const interval = setInterval(syncLiveChatAndPresence, 12000);
+    // Jalankan segera
+    syncLiveChatAndPresence();
+
+    const interval = setInterval(syncLiveChatAndPresence, 4000);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         syncLiveChatAndPresence();
@@ -1006,9 +1008,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', syncLiveChatAndPresence);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', syncLiveChatAndPresence);
     };
   }, [currentUser]);
 
@@ -1258,6 +1262,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
               }
             }
             return Array.from(msgMap.values());
+          });
+        }
+      } else if (event.type === 'state:sync' && event.payload) {
+        if (Array.isArray(event.payload.presences)) {
+          setOnlinePresences(realtimeService.getActivePresences());
+        }
+        if (Array.isArray(event.payload.workSessions) && event.payload.workSessions.length > 0) {
+          setWorkSessions(prev => {
+            const wsMap = new Map<string, WorkSession>();
+            for (const s of event.payload.workSessions) {
+              if (s && s.id) wsMap.set(s.id, s);
+            }
+            for (const s of prev) {
+              if (!s || !s.id) continue;
+              const existing = wsMap.get(s.id);
+              if (!existing) {
+                wsMap.set(s.id, s);
+              } else if (s.status === 'SELESAI' && existing.status !== 'SELESAI') {
+                wsMap.set(s.id, s);
+              } else if (existing.status === 'SELESAI' && s.status !== 'SELESAI') {
+                wsMap.set(s.id, existing);
+              } else if ((s.durationSeconds || 0) > (existing.durationSeconds || 0)) {
+                wsMap.set(s.id, { ...existing, ...s });
+              }
+            }
+            return Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+          });
+        }
+        if (Array.isArray(event.payload.chatChannels) && event.payload.chatChannels.length > 0) {
+          setChatChannels(prev => {
+            const chMap = new Map<string, ChatChannel>();
+            for (const ch of initialChatChannels) chMap.set(ch.id, { ...ch });
+            for (const ch of prev) {
+              if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+            }
+            for (const ch of event.payload.chatChannels) {
+              if (ch && ch.id) chMap.set(ch.id, { ...(chMap.get(ch.id) || {}), ...ch });
+            }
+            return Array.from(chMap.values());
+          });
+        }
+        if (Array.isArray(event.payload.chatMessages) && event.payload.chatMessages.length > 0) {
+          setChatMessages(prev => {
+            const msgMap = new Map<string, ChatMessage>();
+            for (const m of prev) {
+              if (m && m.id) msgMap.set(m.id, m);
+            }
+            let hasNew = false;
+            for (const m of event.payload.chatMessages) {
+              if (m && m.id && !msgMap.has(m.id)) {
+                msgMap.set(m.id, m);
+                hasNew = true;
+                if (me && m.senderId !== me.id && !m.readBy?.includes(me.id)) {
+                  if (chatSoundEnabledRef.current) {
+                    playNotificationSound();
+                  }
+                  if (!isChatOpenRef.current || activeChatChannelIdRef.current !== m.channelId) {
+                    setChatNotificationToast({
+                      message: m,
+                      channelName: m.channelType === 'DIRECT' ? m.senderName : 'Saluran Tim UPT',
+                      channelId: m.channelId
+                    });
+                  }
+                }
+              }
+            }
+            return hasNew ? Array.from(msgMap.values()) : prev;
           });
         }
       } else if (
@@ -1531,8 +1602,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeTab,
     });
     setOnlinePresences(realtimeService.getActivePresences());
+    realtimeService.pollNow();
 
-    // 3. Interval detak jantung setiap 8 detik untuk memperbarui durasi sesi aktif & status online lintas akun
+    // 3. Interval detak jantung setiap 4 detik untuk memperbarui durasi sesi aktif & status online lintas akun
     const hbInterval = setInterval(() => {
       const curr = currentUserRef.current;
       if (!curr) return;
@@ -1575,7 +1647,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
-    }, 8000);
+    }, 4000);
 
     return () => {
       clearInterval(hbInterval);

@@ -15,6 +15,7 @@ export interface OnlinePresenceInfo {
 
 export type RealtimeEventType =
   | 'init'
+  | 'state:sync'
   | 'presence:sync'
   | 'presence:heartbeat'
   | 'presence:leave'
@@ -43,6 +44,8 @@ class RealtimeService {
   private broadcastChannel: BroadcastChannel | null = null;
   private eventSource: EventSource | null = null;
   private reconnectTimer: any = null;
+  private pollingTimer: any = null;
+  private isPolling = false;
   private isInitialized = false;
   private presencesMap: Map<string, OnlinePresenceInfo> = new Map();
 
@@ -74,6 +77,21 @@ class RealtimeService {
 
     // 2. Server-Sent Events (SSE) Stream to Express Server (/api/realtime/stream)
     this.connectSSE();
+
+    // 3. Bulletproof Automatic HTTP Polling Fallback (setiap 2.5 detik)
+    // Memastikan koneksi multi-perangkat / beda laptop selalu sinkron 100% meskipun SSE terhalang proxy
+    this.startPollingLoop();
+
+    // 4. Polling seketika saat window kembali fokus / tab aktif
+    try {
+      window.addEventListener('focus', () => this.pollNow());
+      window.addEventListener('online', () => this.pollNow());
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.pollNow();
+        }
+      });
+    } catch (_) {}
   }
 
   private connectSSE() {
@@ -97,9 +115,76 @@ class RealtimeService {
         es.close();
         this.eventSource = null;
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = setTimeout(() => this.connectSSE(), 4000);
+        this.reconnectTimer = setTimeout(() => this.connectSSE(), 3000);
       };
     } catch (_) {}
+  }
+
+  private startPollingLoop() {
+    if (this.pollingTimer) clearInterval(this.pollingTimer);
+    // Jalankan poll pertama segera
+    this.pollNow();
+    this.pollingTimer = setInterval(() => {
+      this.pollState();
+    }, 2500);
+  }
+
+  public async pollState(): Promise<void> {
+    if (typeof window === 'undefined' || this.isPolling) return;
+    this.isPolling = true;
+
+    try {
+      const res = await fetch('/api/realtime/state', {
+        headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const now = Date.now();
+
+        if (Array.isArray(data.presences)) {
+          const newMap = new Map<string, OnlinePresenceInfo>();
+          data.presences.forEach((p: OnlinePresenceInfo) => {
+            if (p && p.userId) {
+              newMap.set(`${p.userId}___${p.clientId || 'srv'}`, {
+                ...p,
+                lastSeenMs: p.lastSeenMs || now,
+              });
+            }
+          });
+
+          // Pertahankan keberadaan diri sendiri jika baru saja mengirim heartbeat
+          for (const [key, val] of this.presencesMap.entries()) {
+            if (val.clientId === this.clientId && now - val.lastSeenMs < 30000) {
+              newMap.set(key, val);
+            }
+          }
+          this.presencesMap = newMap;
+
+          this.notifyListeners({
+            type: 'presence:sync',
+            payload: this.getActivePresences(),
+            senderClientId: 'server',
+            timestamp: now,
+          });
+        }
+
+        // Siarkan pembaruan state agregat (workSessions, chatMessages, chatChannels) ke seluruh store listener
+        this.notifyListeners({
+          type: 'state:sync',
+          payload: data,
+          senderClientId: 'server',
+          timestamp: now,
+        });
+      }
+    } catch (_) {
+      // Silence network glitches during polling
+    } finally {
+      this.isPolling = false;
+    }
+  }
+
+  public pollNow() {
+    this.pollState().catch(() => {});
   }
 
   private handleIncomingEvent(event: RealtimeEventPayload) {
@@ -120,14 +205,22 @@ class RealtimeService {
         });
       }
     } else if (event.type === 'presence:sync' && Array.isArray(event.payload)) {
+      const newMap = new Map<string, OnlinePresenceInfo>();
       event.payload.forEach((p: OnlinePresenceInfo) => {
         if (p && p.userId) {
-          this.presencesMap.set(`${p.userId}___${p.clientId || 'srv'}`, {
+          newMap.set(`${p.userId}___${p.clientId || 'srv'}`, {
             ...p,
             lastSeenMs: p.lastSeenMs || now,
           });
         }
       });
+      // Pertahankan status lokal jika baru
+      for (const [key, val] of this.presencesMap.entries()) {
+        if (val.clientId === this.clientId && now - val.lastSeenMs < 30000) {
+          newMap.set(key, val);
+        }
+      }
+      this.presencesMap = newMap;
     } else if (event.type === 'presence:heartbeat' && event.payload?.userId) {
       const p = event.payload as OnlinePresenceInfo;
       this.presencesMap.set(`${p.userId}___${p.clientId || event.senderClientId || 'peer'}`, {
@@ -152,12 +245,13 @@ class RealtimeService {
     const now = Date.now();
     const byUser = new Map<string, OnlinePresenceInfo>();
     for (const [key, p] of this.presencesMap.entries()) {
-      if (now - p.lastSeenMs > 50000) {
+      const lastSeen = p.lastSeenMs || 0;
+      if (now - lastSeen > 45000) {
         this.presencesMap.delete(key);
         continue;
       }
       const existing = byUser.get(p.userId);
-      if (!existing || p.lastSeenMs > existing.lastSeenMs) {
+      if (!existing || lastSeen > (existing.lastSeenMs || 0)) {
         byUser.set(p.userId, p);
       }
     }
@@ -211,7 +305,7 @@ class RealtimeService {
       this.broadcastChannel?.postMessage(eventObj);
     } catch (_) {}
 
-    // 3. Send to Express Server SSE Hub
+    // 3. Send to Express Server SSE & Realtime Hub
     try {
       fetch('/api/realtime/event', {
         method: 'POST',
@@ -221,6 +315,9 @@ class RealtimeService {
           payload,
           clientId: this.clientId,
         }),
+      }).then(() => {
+        // Trigger quick poll to get authoritative sync
+        setTimeout(() => this.pollNow(), 300);
       }).catch(() => {});
     } catch (_) {}
   }

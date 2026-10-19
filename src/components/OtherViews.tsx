@@ -4107,9 +4107,11 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       .forEach(s => {
         const matchedUser = users.find(u => u.id === s.userId || u.fullName === s.userName);
         const uid = s.userId || matchedUser?.id || s.userName;
-        const livePresence = onlinePresences.find(
-          p => p.userId === uid && (!p.lastSeen || nowMs - p.lastSeen < 60000)
-        );
+        const livePresence = onlinePresences.find(p => {
+          if (p.userId !== uid) return false;
+          const lastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
+          return !lastSeen || nowMs - lastSeen < 60000;
+        });
         const existing = byUser.get(uid);
         if (!existing || (s.loginTime || '') > (existing.loginTime || '')) {
           byUser.set(uid, {
@@ -4122,7 +4124,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             loginTime: s.loginTime,
             durationSeconds: s.durationSeconds,
             lastHeartbeat: s.lastHeartbeat || livePresence?.loginTime,
-            deviceInfo: s.deviceInfo || livePresence?.deviceInfo,
+            deviceInfo: s.deviceInfo || (livePresence as any)?.deviceInfo,
             isCurrentUser: Boolean(currentUser && (uid === currentUser.id || s.userName === currentUser.fullName)),
             hasLivePresence: Boolean(livePresence || (currentUser && uid === currentUser.id))
           });
@@ -4131,7 +4133,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
     // 2. Also include any account broadcasting live presence in real-time even if session record is still syncing
     onlinePresences.forEach(p => {
-      if (!p.userId || (p.lastSeen && nowMs - p.lastSeen > 60000)) return;
+      const pLastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
+      if (!p.userId || (pLastSeen && nowMs - pLastSeen > 60000)) return;
       if (!byUser.has(p.userId)) {
         const matchedUser = users.find(u => u.id === p.userId);
         const loginStr = p.loginTime || `${realToday} 08:00:00`;

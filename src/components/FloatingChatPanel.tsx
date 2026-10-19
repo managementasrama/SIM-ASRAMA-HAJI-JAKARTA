@@ -111,10 +111,12 @@ export function FloatingChatPanel() {
   const isUserOnline = (userId: string): boolean => {
     if (userId === currentUser.id) return true;
     const now = Date.now();
-    // 1. Check live real-time presence heartbeats
-    const hasLivePresence = onlinePresences.some(
-      p => p.userId === userId && (!p.lastSeen || now - p.lastSeen < 60000)
-    );
+    // 1. Check live real-time presence heartbeats across concurrent devices
+    const hasLivePresence = onlinePresences.some(p => {
+      if (p.userId !== userId) return false;
+      const lastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
+      return !lastSeen || (now - lastSeen < 60000);
+    });
     if (hasLivePresence) return true;
 
     // 2. Check active work sessions
