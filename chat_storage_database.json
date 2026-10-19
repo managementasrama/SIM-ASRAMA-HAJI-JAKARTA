@@ -1,7 +1,20 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-19T07:26:45.929Z",
+  "updatedAt": "2026-10-19T08:45:13.150Z",
   "channels": [
+    {
+      "id": "dm___u-admin___u-superadmin",
+      "type": "DIRECT",
+      "name": "Administrator Operasional",
+      "participantIds": [
+        "u-superadmin",
+        "u-admin"
+      ],
+      "lastMessage": "Halo admin dari superadmin",
+      "lastMessageTime": "08.45 WIB",
+      "lastSenderName": "Administrator Management",
+      "updatedAt": "2026-10-19T08:45:13.126Z"
+    },
     {
       "id": "channel-all-managers",
       "name": "Forum Koordinasi Terpadu UPT",
@@ -85,6 +98,24 @@
         "u-superadmin"
       ],
       "createdAt": "2026-10-19T07:26:45.908Z"
+    },
+    {
+      "id": "msg-1792399513127-krw5",
+      "channelId": "dm___u-admin___u-superadmin",
+      "channelType": "DIRECT",
+      "senderId": "u-superadmin",
+      "senderName": "Administrator Management",
+      "senderRole": "Super Admin",
+      "senderDepartment": "Operasional",
+      "message": "Halo admin dari superadmin",
+      "timestamp": "2026-10-19T08:45:13.126Z",
+      "timeFormatted": "08.45 WIB",
+      "priority": "NORMAL",
+      "isInstruction": false,
+      "readBy": [
+        "u-superadmin"
+      ],
+      "createdAt": "2026-10-19T08:45:13.126Z"
     }
   ]
 }
