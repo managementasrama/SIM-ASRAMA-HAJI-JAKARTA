@@ -3,6 +3,7 @@ import { useAppContext, isManagerRole, isSuperAdmin } from '../store';
 import { User, ChatChannel, ChatMessage } from '../types';
 import { getDirectChannelId, resolveDirectPartner } from '../chatData';
 import { useBodyScrollLock } from '../lib/scrollLock';
+import { realtimeService } from '../services/realtimeService';
 
 const QUICK_OPERATIONAL_TEMPLATES = [
   'Mohon laporan kesiapan kamar di gedung Anda.',
@@ -75,6 +76,63 @@ export function FloatingChatPanel() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Explicit real-time subscription for 2-way live communication filtered by current user's session ID and recipient ID
+  useEffect(() => {
+    if (!currentUser || !isChatOpen) return;
+
+    const currentSessionId = workSessions.find(
+      s => s.userId === currentUser.id && s.status === 'AKTIF' && !s.logoutTime
+    )?.id || `SESI-${currentUser.id}`;
+
+    let recipientId: string | undefined = undefined;
+    if (activeChatChannelId) {
+      const activeCh = chatChannels.find(c => c.id === activeChatChannelId);
+      if (activeCh && activeCh.type === 'DIRECT') {
+        const partner = resolveDirectPartner(activeCh, currentUser.id, users);
+        recipientId = partner?.id;
+      }
+    }
+
+    const handleRealtimeChats = (event: any) => {
+      if (!event || !event.type) return;
+      const isChatRelated =
+        event.type === 'chat:message' ||
+        event.type === 'chat:read' ||
+        event.type === 'chat:channel' ||
+        event.type === 'chat:clear' ||
+        event.type === 'database:sync' ||
+        event.type === 'init' ||
+        event.type === 'state:sync';
+
+      if (isChatRelated) {
+        const msg = event.payload?.message;
+        if (msg) {
+          const matches =
+            msg.senderId === currentUser.id ||
+            msg.channelId === activeChatChannelId ||
+            (recipientId && msg.senderId === recipientId);
+          if (matches || event.type === 'database:sync' || event.type === 'init') {
+            realtimeService.pollNow();
+          }
+        } else {
+          realtimeService.pollNow();
+        }
+      }
+    };
+
+    const unsubscribe = realtimeService.subscribe(handleRealtimeChats);
+    realtimeService.pollNow();
+
+    const liveInterval = setInterval(() => {
+      realtimeService.pollNow();
+    }, 2000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(liveInterval);
+    };
+  }, [currentUser, isChatOpen, activeChatChannelId, workSessions, chatChannels, users]);
 
   // Otomatis tutup chat saat klik di luar panel chat
   useEffect(() => {
