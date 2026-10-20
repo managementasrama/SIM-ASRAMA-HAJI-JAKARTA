@@ -93,8 +93,8 @@ async function startServer() {
   }, 15000);
 
   // =========================================================================
-  // GOOGLE SPREADSHEET DATABASE CONFIGURATION & REAL-TIME PROXY
-  // Menggantikan Supabase secara penuh dengan Google Spreadsheet sebagai basis data utama
+  // Google Spreadsheet Database Configuration & Real-Time Proxy
+  // Menggunakan Google Spreadsheet sebagai basis data utama aplikasi
   // =========================================================================
   const sheetsConfigFilePath = path.join(process.cwd(), "google_sheets_config.json");
   const envFilePath = path.join(process.cwd(), ".env");
@@ -1624,25 +1624,6 @@ async function startServer() {
         warning: `Tersimpan di server, tetapi gagal push ke Spreadsheet: ${err?.message}`,
       });
     }
-  });
-
-  // Backward-compatibility endpoints untuk legacy Supabase route agar tidak 404
-  app.get("/api/supabase-config", (_req, res) => {
-    res.json({
-      url: "https://docs.google.com/spreadsheets",
-      anonKey: "google-spreadsheet-mode",
-      isCustom: true,
-      mode: "google_spreadsheet",
-      sheetsConfig: activeSheetsConfig,
-    });
-  });
-
-  app.post("/api/supabase-config", (_req, res) => {
-    res.json({ ok: true, mode: "google_spreadsheet", sheetsConfig: activeSheetsConfig });
-  });
-
-  app.delete("/api/supabase-config", (_req, res) => {
-    res.json({ ok: true, mode: "google_spreadsheet" });
   });
 
   // Server-Sent Events (SSE) Stream for instant real-time updates
