@@ -208,6 +208,27 @@ export async function testSpreadsheetConnection(testUrl: string): Promise<{ succ
  * Contoh fungsi untuk mengambil data dari Google Sheet melalui Web App URL
  */
 export async function fetchFromGoogleSheet(sheetName: string): Promise<any[]> {
+  // Coba ambil melalui server proxy backend terlebih dahulu untuk menghindari pembatasan CORS browser pada Google Apps Script redirect
+  try {
+    const proxyRes = await fetch(`/api/sheets/database?sheet=${encodeURIComponent(sheetName)}`);
+    if (proxyRes.ok) {
+      const json = await proxyRes.json();
+      const d = json.data;
+      if (Array.isArray(d)) return d;
+      if (d && typeof d === 'object') {
+        const matchKey = Object.keys(d).find(
+          k => k.toLowerCase() === sheetName.toLowerCase() || k.replace(/_/g, '').toLowerCase() === sheetName.replace(/_/g, '').toLowerCase()
+        );
+        if (matchKey && Array.isArray(d[matchKey])) return d[matchKey];
+        if (Array.isArray(d.sheets)) {
+          // Jika mengembalikan seluruh struktur database, cari lembar spesifik
+          const targetSheetObj = d.sheets.find((s: any) => s.name && s.name.replace(/_/g, '').toLowerCase() === sheetName.replace(/_/g, '').toLowerCase());
+          if (targetSheetObj && Array.isArray(targetSheetObj.rows)) return targetSheetObj.rows;
+        }
+      }
+    }
+  } catch (_) {}
+
   const webAppUrl = 
     (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_SHEET_WEBAPP_URL) ||
     (typeof process !== 'undefined' && (process.env.VITE_SHEET_WEBAPP_URL || process.env.GOOGLE_SHEETS_WEBAPP_URL)) ||
@@ -215,12 +236,14 @@ export async function fetchFromGoogleSheet(sheetName: string): Promise<any[]> {
     'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
 
   if (!webAppUrl) {
-    console.error("VITE_SHEET_WEBAPP_URL belum diatur!");
     return [];
   }
   
   try {
-    const response = await fetch(`${webAppUrl}?sheet=${encodeURIComponent(sheetName)}`);
+    const response = await fetch(`${webAppUrl}?sheet=${encodeURIComponent(sheetName)}`, {
+      method: 'GET',
+      mode: 'cors'
+    });
     const result = await response.json();
     if (Array.isArray(result.data)) {
       return result.data;
@@ -238,22 +261,6 @@ export async function fetchFromGoogleSheet(sheetName: string): Promise<any[]> {
     }
     return result.data || [];
   } catch (error) {
-    console.error(`Gagal mengambil data dari sheet ${sheetName}:`, error);
-    // Coba via server proxy
-    try {
-      const proxyRes = await fetch(`/api/sheets/database?sheet=${encodeURIComponent(sheetName)}`);
-      if (proxyRes.ok) {
-        const json = await proxyRes.json();
-        const d = json.data;
-        if (Array.isArray(d)) return d;
-        if (d && typeof d === 'object') {
-          const matchKey = Object.keys(d).find(
-            k => k.toLowerCase() === sheetName.toLowerCase() || k.replace(/_/g, '').toLowerCase() === sheetName.replace(/_/g, '').toLowerCase()
-          );
-          if (matchKey && Array.isArray(d[matchKey])) return d[matchKey];
-        }
-      }
-    } catch (_) {}
     return [];
   }
 }
