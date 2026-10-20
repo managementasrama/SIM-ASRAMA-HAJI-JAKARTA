@@ -65,12 +65,12 @@ export function getSpreadsheetConfig(): SpreadsheetConfigInfo {
   }
 
   const defaultWebUrl = 'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
-  const defaultSheetDocUrl = 'https://docs.google.com/spreadsheets/d/1AsramaHajiEmbarkasiJakartaSIM/edit';
+  const defaultSheetDocUrl = 'https://docs.google.com/spreadsheets/d/15loY6F6CMmIJ5qZaafidY6AB0vvrEpsSsE_B0XXBqP4/edit?gid=0#gid=0';
 
   if (!webAppUrl) {
     webAppUrl = defaultWebUrl;
   }
-  if (!sheetDocUrl) {
+  if (!sheetDocUrl || sheetDocUrl.includes('1AsramaHajiEmbarkasiJakartaSIM')) {
     sheetDocUrl = defaultSheetDocUrl;
   }
 
@@ -81,7 +81,7 @@ export function getSpreadsheetConfig(): SpreadsheetConfigInfo {
   return {
     webAppUrl,
     sheetDocUrl,
-    sheetId: sheetId || '1AsramaHajiEmbarkasiJakartaSIM',
+    sheetId: sheetId && !sheetId.includes('1AsramaHajiEmbarkasiJakartaSIM') ? sheetId : '15loY6F6CMmIJ5qZaafidY6AB0vvrEpsSsE_B0XXBqP4',
     isConfigured: Boolean(webAppUrl),
     source
   };

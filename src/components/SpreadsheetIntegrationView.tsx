@@ -51,7 +51,7 @@ export function SpreadsheetIntegrationView() {
   } = useAppContext();
 
   const defaultWebAppUrl = 'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
-  const defaultSheetDocUrl = 'https://docs.google.com/spreadsheets/d/1AsramaHajiEmbarkasiJakartaSIM/edit';
+  const defaultSheetDocUrl = 'https://docs.google.com/spreadsheets/d/15loY6F6CMmIJ5qZaafidY6AB0vvrEpsSsE_B0XXBqP4/edit?gid=0#gid=0';
 
   const [scriptUrl, setScriptUrl] = useState(() => {
     try {
@@ -62,7 +62,9 @@ export function SpreadsheetIntegrationView() {
   });
   const [sheetDocUrl, setSheetDocUrl] = useState(() => {
     try {
-      return localStorage.getItem('CUSTOM_SHEET_DOC_URL') || defaultSheetDocUrl;
+      const saved = localStorage.getItem('CUSTOM_SHEET_DOC_URL');
+      if (saved && !saved.includes('1AsramaHajiEmbarkasiJakartaSIM')) return saved;
+      return defaultSheetDocUrl;
     } catch (_) {
       return defaultSheetDocUrl;
     }
@@ -122,9 +124,13 @@ export function SpreadsheetIntegrationView() {
         setScriptUrl(savedUrl);
         setIsConnected(true);
         setSyncStatus('Terkonfigurasi dengan URL Web App');
+      } else {
+        setScriptUrl(defaultWebAppUrl);
       }
-      if (savedDocUrl) {
+      if (savedDocUrl && !savedDocUrl.includes('1AsramaHajiEmbarkasiJakartaSIM')) {
         setSheetDocUrl(savedDocUrl);
+      } else {
+        setSheetDocUrl(defaultSheetDocUrl);
       }
       if (savedLastTime) {
         setLastSyncTime(savedLastTime);
@@ -136,11 +142,14 @@ export function SpreadsheetIntegrationView() {
       .then(res => res.json())
       .then(cfg => {
         if (cfg && cfg.webAppUrl) {
-          setScriptUrl(prev => prev || cfg.webAppUrl);
+          setScriptUrl(prev => prev || cfg.webAppUrl || defaultWebAppUrl);
           setIsConnected(true);
           setSyncStatus('Terkonfigurasi dengan Google Spreadsheet (Server)');
-          if (cfg.sheetId || cfg.sheetDocUrl) {
-            setSheetDocUrl(prev => prev || cfg.sheetId || cfg.sheetDocUrl);
+          if (cfg.sheetDocUrl || cfg.sheetId) {
+            const docUrl = cfg.sheetDocUrl || cfg.sheetId;
+            if (docUrl && !docUrl.includes('1AsramaHajiEmbarkasiJakartaSIM')) {
+              setSheetDocUrl(prev => (prev && !prev.includes('1AsramaHajiEmbarkasiJakartaSIM')) ? prev : docUrl);
+            }
           }
         }
       })
@@ -189,15 +198,22 @@ export function SpreadsheetIntegrationView() {
       localStorage.removeItem('CUSTOM_SHEET_WEBAPP_URL');
       localStorage.removeItem('CUSTOM_SHEET_DOC_URL');
       localStorage.removeItem('CUSTOM_SHEET_LAST_SYNC');
-      setScriptUrl('');
-      setSheetDocUrl('');
-      setIsConnected(false);
+      setScriptUrl(defaultWebAppUrl);
+      setSheetDocUrl(defaultSheetDocUrl);
+      setIsConnected(true);
       setFetchedData(null);
       setInspectionResult(null);
-      setSyncStatus('Konfigurasi telah direset');
+      setSyncStatus('Konfigurasi telah dikembalikan ke URL Default');
       setLastSyncTime(null);
-      addLog('CONFIG', 'Konfigurasi Spreadsheet dikosongkan.', true);
-      showToast('Konfigurasi integrasi Spreadsheet telah dihapus.', 'info');
+      addLog('CONFIG', 'Konfigurasi Spreadsheet dikembalikan ke URL default resmi.', true);
+      showToast('Konfigurasi integrasi Spreadsheet telah dikembalikan ke URL default.', 'info');
+
+      // Sinkronkan juga ke backend server
+      fetch('/api/sheets-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webAppUrl: defaultWebAppUrl, sheetId: defaultSheetDocUrl })
+      }).catch(() => {});
     } catch (_) {}
   };
 

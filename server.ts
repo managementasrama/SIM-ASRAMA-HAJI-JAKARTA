@@ -129,12 +129,13 @@ async function startServer() {
   }
 
   const defaultWebAppUrl = "https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec";
-  const defaultSheetDocUrl = "https://docs.google.com/spreadsheets/d/1AsramaHajiEmbarkasiJakartaSIM/edit";
+  const defaultSheetDocUrl = "https://docs.google.com/spreadsheets/d/15loY6F6CMmIJ5qZaafidY6AB0vvrEpsSsE_B0XXBqP4/edit?gid=0#gid=0";
 
   const envSheetsConfig = parseEnvForSheets();
   let activeSheetsConfig = {
     webAppUrl: envSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || process.env.VITE_SHEET_WEBAPP_URL || defaultWebAppUrl,
     sheetId: envSheetsConfig.sheetId || process.env.GOOGLE_SHEETS_ID || process.env.VITE_GOOGLE_SHEETS_ID || defaultSheetDocUrl,
+    sheetDocUrl: defaultSheetDocUrl,
     apiKey: envSheetsConfig.apiKey || process.env.GOOGLE_SHEETS_API_KEY || "",
     isConfigured: true,
     updatedAt: new Date().toISOString(),
@@ -145,9 +146,13 @@ async function startServer() {
       const rawCfg = fs.readFileSync(sheetsConfigFilePath, "utf-8");
       const parsed = JSON.parse(rawCfg);
       if (parsed) {
+        const rawSheetId = parsed.sheetId || activeSheetsConfig.sheetId;
+        const finalDocUrl = parsed.sheetDocUrl || rawSheetId || defaultSheetDocUrl;
+        const safeDocUrl = (finalDocUrl && !finalDocUrl.includes("1AsramaHajiEmbarkasiJakartaSIM")) ? finalDocUrl : defaultSheetDocUrl;
         activeSheetsConfig = {
           webAppUrl: parsed.webAppUrl || activeSheetsConfig.webAppUrl,
-          sheetId: parsed.sheetId || activeSheetsConfig.sheetId,
+          sheetId: safeDocUrl,
+          sheetDocUrl: safeDocUrl,
           apiKey: parsed.apiKey || activeSheetsConfig.apiKey,
           isConfigured: Boolean(parsed.webAppUrl || activeSheetsConfig.webAppUrl),
           updatedAt: parsed.updatedAt || new Date().toISOString(),
@@ -249,9 +254,11 @@ async function startServer() {
     const cleanSheetId = String(sheetId || "").trim();
     const cleanApiKey = String(apiKey || "").trim();
 
+    const cleanDocUrl = cleanSheetId || defaultSheetDocUrl;
     activeSheetsConfig = {
       webAppUrl: cleanUrl,
-      sheetId: cleanSheetId,
+      sheetId: cleanDocUrl,
+      sheetDocUrl: cleanDocUrl,
       apiKey: cleanApiKey,
       isConfigured: Boolean(cleanUrl),
       updatedAt: new Date().toISOString(),
