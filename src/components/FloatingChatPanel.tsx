@@ -4,6 +4,7 @@ import { User, ChatChannel, ChatMessage } from '../types';
 import { getDirectChannelId, resolveDirectPartner } from '../chatData';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { realtimeService } from '../services/realtimeService';
+import { parseLocalTimeString } from '../lib/utils';
 
 const QUICK_OPERATIONAL_TEMPLATES = [
   'Mohon laporan kesiapan kamar di gedung Anda.',
@@ -173,14 +174,23 @@ export function FloatingChatPanel() {
     const hasLivePresence = onlinePresences.some(p => {
       if (p.userId !== userId) return false;
       const lastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
-      return !lastSeen || (now - lastSeen < 120000);
+      return !lastSeen || (now - lastSeen < 180000);
     });
     if (hasLivePresence) return true;
 
     // 2. Check active work sessions
-    const hasActiveShift = workSessions.some(
-      s => s.userId === userId && s.status === 'AKTIF' && !s.logoutTime
-    );
+    const hasActiveShift = workSessions.some(s => {
+      if (s.userId !== userId || s.status !== 'AKTIF' || s.logoutTime) return false;
+      if (s.lastHeartbeat) {
+        const hb = new Date(s.lastHeartbeat).getTime();
+        if (!isNaN(hb)) return now - hb < 180000;
+      }
+      if (s.loginTime) {
+        const start = parseLocalTimeString(s.loginTime).getTime();
+        if (!isNaN(start)) return now - start < 4 * 3600 * 1000;
+      }
+      return true;
+    });
     if (hasActiveShift) return true;
 
     return false;

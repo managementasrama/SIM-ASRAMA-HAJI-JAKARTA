@@ -29,7 +29,10 @@ import { realtimeService, OnlinePresenceInfo } from './services/realtimeService'
 import { 
   validateDatabaseChecksumAgainstSpreadsheet, 
   computeDatasetChecksums, 
-  DatabaseChecksumReport
+  DatabaseChecksumReport,
+  pushChatMessageToSpreadsheet,
+  pushWorkSessionToSpreadsheet,
+  fetchLiveChatAndPresenceFromSpreadsheet
 } from './services/spreadsheetStorage';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
@@ -764,7 +767,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
           wsMap.set(s.id, { ...remoteS, ...s });
         }
       }
-      return Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+      const sortedSessions = Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
+
+      // Hitung online presences langsung dari sesi aktif yang terverifikasi
+      const now = Date.now();
+      const activePresences: OnlinePresenceInfo[] = [];
+      const seenUserIds = new Set<string>();
+
+      for (const s of sortedSessions) {
+        if (s && s.userId && s.status === 'AKTIF' && !s.logoutTime && !seenUserIds.has(s.userId)) {
+          let isRecent = true;
+          if (s.lastHeartbeat) {
+            const hb = new Date(s.lastHeartbeat).getTime();
+            if (!isNaN(hb) && now - hb > 180000) isRecent = false;
+          } else if (s.loginTime) {
+            const start = parseLocalTimeString(s.loginTime).getTime();
+            if (!isNaN(start) && now - start > 4 * 3600 * 1000) isRecent = false;
+          }
+          if (isRecent) {
+            seenUserIds.add(s.userId);
+            activePresences.push({
+              clientId: `session-${s.id}`,
+              userId: s.userId,
+              userName: s.userName,
+              userRole: s.userRole,
+              department: s.department,
+              assignedBuilding: s.assignedBuilding,
+              sessionId: s.id,
+              loginTime: s.loginTime,
+              lastSeenMs: s.lastHeartbeat ? new Date(s.lastHeartbeat).getTime() : now,
+            });
+          }
+        }
+      }
+
+      // Gabungkan dengan presences lokal dari realtimeService jika ada
+      realtimeService.getActivePresences().forEach(p => {
+        if (p && p.userId && !seenUserIds.has(p.userId)) {
+          seenUserIds.add(p.userId);
+          activePresences.push(p);
+        }
+      });
+
+      setOnlinePresences(activePresences);
+      return sortedSessions;
     });
 
     // 2. Merge ChatChannels
@@ -973,20 +1019,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, []);
 
-  // Sinkronisasi live chat & online presence berkala (setiap 4 detik) dan saat tab kembali aktif (visibilitychange)
+  const isSyncingLiveRef = useRef<boolean>(false);
+  const lastSpreadsheetHbRef = useRef<number>(0);
+
+  // Sinkronisasi live chat & online presence berkala dari Google Spreadsheet dan saat tab kembali aktif
   useEffect(() => {
     if (!currentUser) return;
+
     const syncLiveChatAndPresence = async () => {
+      const me = currentUserRef.current;
+      if (!me || isSyncingLiveRef.current) return;
+      isSyncingLiveRef.current = true;
+
       try {
+        // 1. Kirim presence lokal
         realtimeService.sendHeartbeat({
-          userId: currentUser.id,
-          userName: currentUser.fullName,
-          userRole: currentUser.role,
-          department: currentUser.department || 'Operasional',
+          userId: me.id,
+          userName: me.fullName,
+          userRole: me.role,
+          department: me.department || 'Operasional',
           activeTab
         });
         realtimeService.pollNow();
-        const chatDb = await fetchChatDatabaseFromServer();
+
+        // 2. Tarik pesan chat, saluran, dan sesi petugas terbaru langsung dari Google Spreadsheet
+        const liveData = await fetchLiveChatAndPresenceFromSpreadsheet();
+        if (liveData) {
+          const hasMessages = Array.isArray(liveData.messages) && liveData.messages.length > 0;
+          const hasSessions = Array.isArray(liveData.sessions) && liveData.sessions.length > 0;
+          const hasChannels = Array.isArray(liveData.channels) && liveData.channels.length > 0;
+
+          if (hasMessages || hasSessions || hasChannels) {
+            const currentDb = dataStorage.getDatabase();
+            mergeAndApplyCloudRealtimeData({
+              ...currentDb,
+              chatMessages: hasMessages ? liveData.messages : currentDb.chatMessages,
+              workSessions: hasSessions ? liveData.sessions : currentDb.workSessions,
+              chatChannels: hasChannels ? liveData.channels : currentDb.chatChannels,
+            });
+          }
+        }
+
+        // 3. Fallback server proxy lokal jika ada
+        const chatDb = await fetchChatDatabaseFromServer().catch(() => null);
         if (chatDb && (chatDb.messages.length > 0 || chatDb.channels.length > 0)) {
           mergeAndApplyCloudRealtimeData({
             ...dataStorage.getDatabase(),
@@ -994,13 +1069,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
             chatMessages: chatDb.messages
           });
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[SyncLive] Gagal polling live spreadsheet:', err);
+      } finally {
+        isSyncingLiveRef.current = false;
+      }
     };
 
     // Jalankan segera
     syncLiveChatAndPresence();
 
-    const interval = setInterval(syncLiveChatAndPresence, 4000);
+    // Polling setiap 3.5 detik jika chat terbuka atau 6 detik jika chat tertutup
+    const pollIntervalMs = isChatOpen ? 3500 : 6000;
+    const interval = setInterval(syncLiveChatAndPresence, pollIntervalMs);
+
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         syncLiveChatAndPresence();
@@ -1014,7 +1096,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', syncLiveChatAndPresence);
     };
-  }, [currentUser]);
+  }, [currentUser?.id, isChatOpen, activeChatChannelId]);
 
   const pullFromCentralDatabase = async () => {
     showToast('Menarik & menyamakan data dari Google Spreadsheet...', 'info');
@@ -1630,6 +1712,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             activeTab,
           });
           realtimeService.broadcastWorkSession(updatedTarget, false);
+
+          // Sinkronkan detak jantung online ke Google Spreadsheet setiap 15 detik
+          const nowMs = Date.now();
+          if (nowMs - lastSpreadsheetHbRef.current >= 15000) {
+            lastSpreadsheetHbRef.current = nowMs;
+            pushWorkSessionToSpreadsheet(updatedTarget).catch(() => {});
+          }
+
           setOnlinePresences(realtimeService.getActivePresences());
         }
         return next;
@@ -1840,6 +1930,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 2. Broadcast real-time to all active accounts (SSE + Broadcast + BroadcastChannel)
     realtimeService.broadcastChatMessage(newMsg, updatedChannel);
 
+    // 3. Simpan dan sinkronkan langsung ke Google Spreadsheet
+    pushChatMessageToSpreadsheet(newMsg, updatedChannel).catch(err => {
+      console.warn('Gagal push chat ke Google Spreadsheet:', err);
+    });
+
     if (isInstruction || priority === 'URGENT') {
       logAudit(
         isInstruction ? 'Instruksi Chat Resmi' : 'Chat Urgent',
@@ -2026,6 +2121,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setLoginTime(parsedStart);
       dataStorage.saveWorkSession(updatedExisting);
+      pushWorkSessionToSpreadsheet(updatedExisting).catch(() => {});
       setWorkSessions(prev => prev.map(s => (s.id === updatedExisting.id ? updatedExisting : s)));
       realtimeService.broadcastWorkSession(updatedExisting, false);
       realtimeService.sendHeartbeat({
@@ -2071,6 +2167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Simpan langsung ke dataStorage & Google Spreadsheet serta broadcast real-time agar seluruh akun lain langsung melihat petugas ini aktif
     dataStorage.saveWorkSession(newSession);
+    pushWorkSessionToSpreadsheet(newSession).catch(() => {});
     setWorkSessions(prev => {
       const sanitized = prev.map(s => {
         if (s.userId === user.id && s.status === 'AKTIF') {
@@ -2134,6 +2231,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             status: 'SELESAI' as const
           };
           dataStorage.saveWorkSession(finishedSession);
+          pushWorkSessionToSpreadsheet(finishedSession).catch(() => {});
           realtimeService.broadcastWorkSession(finishedSession, false);
           return finishedSession;
         }

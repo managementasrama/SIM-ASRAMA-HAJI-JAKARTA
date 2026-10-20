@@ -812,6 +812,36 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // AKSI D: SINKRONISASI PESAN CHAT SAJA (SYNC_CHAT / APPEND_CHAT_MESSAGE)
+    if (action === "SYNC_CHAT" || action === "APPEND_CHAT_MESSAGE") {
+      var cMessages = payload.chatMessages || payload.chat_messages;
+      if (Array.isArray(cMessages) && cMessages.length > 0) {
+        writeObjectsToSheet(ss, "chat_messages", cMessages, defaultSchema.chat_messages.headers);
+      }
+      var cChannels = payload.chatChannels || payload.chat_channels;
+      if (Array.isArray(cChannels) && cChannels.length > 0) {
+        writeObjectsToSheet(ss, "chat_channels", cChannels, defaultSchema.chat_channels.headers);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Pesan chat dan saluran berhasil disinkronkan ke Google Spreadsheet!",
+        updatedAt: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // AKSI E: SINKRONISASI SESI KERJA & DETAK JANTUNG PRESENSI ONLINE (SYNC_WORK_SESSIONS / UPDATE_PRESENCE)
+    if (action === "SYNC_WORK_SESSIONS" || action === "UPDATE_PRESENCE") {
+      var wSessions = payload.workSessions || payload.work_sessions;
+      if (Array.isArray(wSessions) && wSessions.length > 0) {
+        writeObjectsToSheet(ss, "work_sessions", wSessions, defaultSchema.work_sessions.headers);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Status online dan sesi kerja petugas berhasil diperbarui di Google Spreadsheet!",
+        updatedAt: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // AKSI C: SIMPAN / SINKRONISASI SELURUH DATA (SAVE_ALL)
     cleanConflictSheets(ss); // Bersihkan sheet konflik
 
@@ -835,52 +865,63 @@ function doPost(e) {
       }
     }
 
-    // 2. Tulis data ke masing-masing sheet dengan skema header lengkap terstandarisasi
-    var bldList = payload.buildings || [];
-    writeObjectsToSheet(ss, "buildings", Array.isArray(bldList) ? bldList : [], defaultSchema.buildings.headers);
-
-    var roomList = payload.rooms || [];
-    writeObjectsToSheet(ss, "rooms", Array.isArray(roomList) ? roomList : [], defaultSchema.rooms.headers);
-
-    var mRooms = payload.meetingRooms || payload.meeting_rooms || [];
-    writeObjectsToSheet(ss, "meeting_rooms", Array.isArray(mRooms) ? mRooms : [], defaultSchema.meeting_rooms.headers);
-
-    var rRates = payload.roomCapacityRates || payload.room_capacity_rates || [];
-    writeObjectsToSheet(ss, "room_capacity_rates", Array.isArray(rRates) ? rRates : [], defaultSchema.room_capacity_rates.headers);
-
-    var bMenus = payload.breakfastMenuItems || payload.breakfast_menu_items || [];
-    writeObjectsToSheet(ss, "breakfast_menu_items", Array.isArray(bMenus) ? bMenus : [], defaultSchema.breakfast_menu_items.headers);
-
-    var txList = payload.transactions || [];
-    writeObjectsToSheet(ss, "transactions", Array.isArray(txList) ? txList : [], defaultSchema.transactions.headers);
-
-    var userList = payload.users || [];
-    writeObjectsToSheet(ss, "users", Array.isArray(userList) ? userList : [], defaultSchema.users.headers);
-
-    var maintList = payload.maintenances || [];
-    writeObjectsToSheet(ss, "maintenances", Array.isArray(maintList) ? maintList : [], defaultSchema.maintenances.headers);
-
-    var qcs = payload.qcInspections || payload.qc_inspections || [];
-    writeObjectsToSheet(ss, "qc_inspections", Array.isArray(qcs) ? qcs : [], defaultSchema.qc_inspections.headers);
-
-    var bOrders = payload.breakfastOrders || payload.breakfast_orders || [];
-    writeObjectsToSheet(ss, "breakfast_orders", Array.isArray(bOrders) ? bOrders : [], defaultSchema.breakfast_orders.headers);
-
-    var wSessions = payload.workSessions || payload.work_sessions || [];
-    writeObjectsToSheet(ss, "work_sessions", Array.isArray(wSessions) ? wSessions : [], defaultSchema.work_sessions.headers);
-
-    var aSettings = payload.app_settings || payload.appSettings || [];
-    var arrSettings = Array.isArray(aSettings) ? aSettings : (aSettings ? [aSettings] : []);
-    writeObjectsToSheet(ss, "app_settings", arrSettings, defaultSchema.app_settings.headers);
-
-    var sysLogs = payload.auditLogs || payload.system_logs || [];
-    writeObjectsToSheet(ss, "system_logs", Array.isArray(sysLogs) ? sysLogs.slice(0, 100) : [], defaultSchema.system_logs.headers);
-
-    var cChannels = payload.chatChannels || payload.chat_channels || [];
-    writeObjectsToSheet(ss, "chat_channels", Array.isArray(cChannels) ? cChannels : [], defaultSchema.chat_channels.headers);
-
-    var cMessages = payload.chatMessages || payload.chat_messages || [];
-    writeObjectsToSheet(ss, "chat_messages", Array.isArray(cMessages) ? cMessages : [], defaultSchema.chat_messages.headers);
+    // 2. Tulis data ke masing-masing sheet secara aman (hanya jika tabel disertakan)
+    if (payload.buildings !== undefined) {
+      writeObjectsToSheet(ss, "buildings", Array.isArray(payload.buildings) ? payload.buildings : [], defaultSchema.buildings.headers);
+    }
+    if (payload.rooms !== undefined) {
+      writeObjectsToSheet(ss, "rooms", Array.isArray(payload.rooms) ? payload.rooms : [], defaultSchema.rooms.headers);
+    }
+    if (payload.meetingRooms !== undefined || payload.meeting_rooms !== undefined) {
+      var mRooms = payload.meetingRooms || payload.meeting_rooms || [];
+      writeObjectsToSheet(ss, "meeting_rooms", Array.isArray(mRooms) ? mRooms : [], defaultSchema.meeting_rooms.headers);
+    }
+    if (payload.roomCapacityRates !== undefined || payload.room_capacity_rates !== undefined) {
+      var rRates = payload.roomCapacityRates || payload.room_capacity_rates || [];
+      writeObjectsToSheet(ss, "room_capacity_rates", Array.isArray(rRates) ? rRates : [], defaultSchema.room_capacity_rates.headers);
+    }
+    if (payload.breakfastMenuItems !== undefined || payload.breakfast_menu_items !== undefined) {
+      var bMenus = payload.breakfastMenuItems || payload.breakfast_menu_items || [];
+      writeObjectsToSheet(ss, "breakfast_menu_items", Array.isArray(bMenus) ? bMenus : [], defaultSchema.breakfast_menu_items.headers);
+    }
+    if (payload.transactions !== undefined) {
+      writeObjectsToSheet(ss, "transactions", Array.isArray(payload.transactions) ? payload.transactions : [], defaultSchema.transactions.headers);
+    }
+    if (payload.users !== undefined) {
+      writeObjectsToSheet(ss, "users", Array.isArray(payload.users) ? payload.users : [], defaultSchema.users.headers);
+    }
+    if (payload.maintenances !== undefined) {
+      writeObjectsToSheet(ss, "maintenances", Array.isArray(payload.maintenances) ? payload.maintenances : [], defaultSchema.maintenances.headers);
+    }
+    if (payload.qcInspections !== undefined || payload.qc_inspections !== undefined) {
+      var qcs = payload.qcInspections || payload.qc_inspections || [];
+      writeObjectsToSheet(ss, "qc_inspections", Array.isArray(qcs) ? qcs : [], defaultSchema.qc_inspections.headers);
+    }
+    if (payload.breakfastOrders !== undefined || payload.breakfast_orders !== undefined) {
+      var bOrders = payload.breakfastOrders || payload.breakfast_orders || [];
+      writeObjectsToSheet(ss, "breakfast_orders", Array.isArray(bOrders) ? bOrders : [], defaultSchema.breakfast_orders.headers);
+    }
+    if (payload.workSessions !== undefined || payload.work_sessions !== undefined) {
+      var wSessions = payload.workSessions || payload.work_sessions || [];
+      writeObjectsToSheet(ss, "work_sessions", Array.isArray(wSessions) ? wSessions : [], defaultSchema.work_sessions.headers);
+    }
+    if (payload.app_settings !== undefined || payload.appSettings !== undefined) {
+      var aSettings = payload.app_settings || payload.appSettings || [];
+      var arrSettings = Array.isArray(aSettings) ? aSettings : (aSettings ? [aSettings] : []);
+      writeObjectsToSheet(ss, "app_settings", arrSettings, defaultSchema.app_settings.headers);
+    }
+    if (payload.auditLogs !== undefined || payload.system_logs !== undefined) {
+      var sysLogs = payload.auditLogs || payload.system_logs || [];
+      writeObjectsToSheet(ss, "system_logs", Array.isArray(sysLogs) ? sysLogs.slice(0, 100) : [], defaultSchema.system_logs.headers);
+    }
+    if (payload.chatChannels !== undefined || payload.chat_channels !== undefined) {
+      var cChannels = payload.chatChannels || payload.chat_channels || [];
+      writeObjectsToSheet(ss, "chat_channels", Array.isArray(cChannels) ? cChannels : [], defaultSchema.chat_channels.headers);
+    }
+    if (payload.chatMessages !== undefined || payload.chat_messages !== undefined) {
+      var cMessages = payload.chatMessages || payload.chat_messages || [];
+      writeObjectsToSheet(ss, "chat_messages", Array.isArray(cMessages) ? cMessages : [], defaultSchema.chat_messages.headers);
+    }
 
     // Bersihkan lembar default "Sheet1" jika ada lembar tabel lain
     try {

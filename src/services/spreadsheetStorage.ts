@@ -1,5 +1,5 @@
-import type { CompleteStorageDatabase } from './dataStorage';
-import type { Building, Room, MeetingRoom, Transaction, Maintenance, QcInspection, User } from '../types';
+import { dataStorage, type CompleteStorageDatabase } from './dataStorage';
+import type { Building, Room, MeetingRoom, Transaction, Maintenance, QcInspection, User, ChatChannel, ChatMessage, WorkSession } from '../types';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
 import { normalizeBuildingName, deduplicateRoomsByBuildingAndNumber, getRoomBuildingKey } from '../lib/utils';
 
@@ -1271,3 +1271,279 @@ export async function validateDatabaseChecksumAgainstSpreadsheet(localDataset: {
     };
   }
 }
+
+/**
+ * MENGAMBIL RIWAYAT PESAN CHAT SECARA REAL-TIME LANGSUNG DARI GOOGLE SPREADSHEET
+ */
+export async function fetchChatMessagesFromSpreadsheet(): Promise<ChatMessage[]> {
+  try {
+    const raw = await fetchFromGoogleSheet('chat_messages');
+    if (!Array.isArray(raw)) return [];
+    return raw.map((m: any) => ({
+      id: String(m.id || `msg-${Date.now()}`),
+      channelId: String(m.channelId || m.channel_id || ''),
+      channelType: (m.channelType || m.channel_type || (m.channelId?.startsWith('dm___') ? 'DIRECT' : 'GROUP')) as 'GROUP' | 'DIRECT',
+      senderId: String(m.senderId || m.sender_id || ''),
+      senderName: String(m.senderName || m.sender_name || 'Petugas'),
+      senderRole: String(m.senderRole || m.sender_role || 'Staf'),
+      senderDepartment: m.senderDepartment || m.sender_department || undefined,
+      message: String(m.message || ''),
+      timestamp: m.timestamp || m.created_at || new Date().toISOString(),
+      timeFormatted: m.timeFormatted || m.time_formatted || '00:00 WIB',
+      priority: (m.priority || 'NORMAL') as any,
+      isInstruction: Boolean(m.isInstruction ?? m.is_instruction ?? false),
+      readBy: Array.isArray(m.readBy || m.read_by) ? (m.readBy || m.read_by) : (typeof (m.readBy || m.read_by) === 'string' ? (m.readBy || m.read_by).split(',').map((s: string) => s.trim()).filter(Boolean) : []),
+      replyToId: m.replyToId || m.reply_to_id || undefined,
+      replyToSender: m.replyToSender || m.reply_to_sender || undefined,
+      replyToText: m.replyToText || m.reply_to_text || undefined
+    }));
+  } catch (err) {
+    console.warn('[SpreadsheetStorage] Gagal memuat chat_messages dari spreadsheet:', err);
+    return [];
+  }
+}
+
+/**
+ * MENGAMBIL REKAP SESI & STATUS ONLINE PETUGAS LANGSUNG DARI GOOGLE SPREADSHEET
+ */
+export async function fetchWorkSessionsFromSpreadsheet(): Promise<WorkSession[]> {
+  try {
+    const raw = await fetchFromGoogleSheet('work_sessions');
+    if (!Array.isArray(raw)) return [];
+    return raw.map((w: any) => ({
+      id: String(w.id || `ws-${Date.now()}`),
+      userId: String(w.userId || w.user_id || ''),
+      userName: w.userName || w.user_name || '',
+      userRole: w.userRole || w.user_role || '',
+      department: w.department || undefined,
+      assignedBuilding: w.assignedBuilding || w.assigned_building || undefined,
+      loginTime: w.loginTime || w.login_time || '',
+      logoutTime: w.logoutTime || w.logout_time || null,
+      durationSeconds: Number(w.durationSeconds || w.duration_seconds || 0),
+      durationFormatted: w.durationFormatted || w.duration_formatted || '',
+      status: (w.status || 'SELESAI') as 'AKTIF' | 'SELESAI',
+      lastHeartbeat: w.lastHeartbeat || w.last_heartbeat || undefined,
+      deviceInfo: w.deviceInfo || w.device_info || undefined,
+      notes: w.notes || undefined
+    }));
+  } catch (err) {
+    console.warn('[SpreadsheetStorage] Gagal memuat work_sessions dari spreadsheet:', err);
+    return [];
+  }
+}
+
+/**
+ * MENGAMBIL DAFTAR SALURAN CHAT DARI GOOGLE SPREADSHEET
+ */
+export async function fetchChatChannelsFromSpreadsheet(): Promise<ChatChannel[]> {
+  try {
+    const raw = await fetchFromGoogleSheet('chat_channels');
+    if (!Array.isArray(raw)) return [];
+    return raw.map((c: any) => ({
+      id: String(c.id || `ch-${Date.now()}`),
+      name: String(c.name || 'Saluran Chat'),
+      type: (c.type || (c.id?.startsWith('dm___') ? 'DIRECT' : 'GROUP')) as 'GROUP' | 'DIRECT',
+      scope: (c.scope || (c.id?.startsWith('dm___') ? 'DIRECT' : 'ALL_MANAGERS_GROUP')) as any,
+      department: c.department || undefined,
+      participantIds: Array.isArray(c.participantIds || c.participant_ids)
+        ? (c.participantIds || c.participant_ids)
+        : (typeof (c.participantIds || c.participant_ids) === 'string'
+            ? (() => {
+                try {
+                  const p = JSON.parse(c.participantIds || c.participant_ids);
+                  return Array.isArray(p) ? p : [];
+                } catch (_) {
+                  return (c.participantIds || c.participant_ids).split(',').map((s: string) => s.trim()).filter(Boolean);
+                }
+              })()
+            : []),
+      description: c.description || undefined,
+      icon: c.icon || undefined,
+      lastMessage: c.lastMessage || c.last_message || undefined,
+      lastMessageTime: c.lastMessageTime || c.last_message_time || undefined,
+      lastSenderName: c.lastSenderName || c.last_sender_name || undefined
+    }));
+  } catch (err) {
+    console.warn('[SpreadsheetStorage] Gagal memuat chat_channels dari spreadsheet:', err);
+    return [];
+  }
+}
+
+/**
+ * POLLING LIVE CHAT & STATUS PRESENSI PETUGAS SECARA PARALEL DARI GOOGLE SPREADSHEET
+ */
+export async function fetchLiveChatAndPresenceFromSpreadsheet(): Promise<{
+  messages: ChatMessage[];
+  sessions: WorkSession[];
+  channels: ChatChannel[];
+}> {
+  try {
+    const [messages, sessions, channels] = await Promise.all([
+      fetchChatMessagesFromSpreadsheet(),
+      fetchWorkSessionsFromSpreadsheet(),
+      fetchChatChannelsFromSpreadsheet()
+    ]);
+    return { messages, sessions, channels };
+  } catch (err) {
+    console.warn('[SpreadsheetStorage] Gagal polling live chat & sesi:', err);
+    return { messages: [], sessions: [], channels: [] };
+  }
+}
+
+/**
+ * SIMPAN / KIRIM PESAN CHAT LANGSUNG KE GOOGLE SPREADSHEET (DENGAN PENGGABUNGAN AMAN ID & DATA MASTER)
+ */
+export async function pushChatMessageToSpreadsheet(
+  newMsg: ChatMessage,
+  channel?: ChatChannel
+): Promise<{ success: boolean; error?: string }> {
+  const cfg = getSpreadsheetConfig();
+  const webAppUrl = cfg.webAppUrl;
+  if (!webAppUrl) return { success: false, error: 'URL Google Spreadsheet belum diatur' };
+
+  try {
+    // 1. Simpan di dataStorage lokal terlebih dahulu
+    dataStorage.saveChatMessage(newMsg, channel);
+
+    const fullDb = dataStorage.getDatabase();
+    const allMessages = fullDb.chatMessages || [];
+    const msgMap = new Map<string, any>();
+    allMessages.forEach(m => msgMap.set(m.id, m));
+    msgMap.set(newMsg.id, newMsg);
+    const mergedMessages = Array.from(msgMap.values());
+
+    const allChannels = fullDb.chatChannels || [];
+    const chMap = new Map<string, any>();
+    allChannels.forEach(c => chMap.set(c.id, c));
+    if (channel) chMap.set(channel.id, channel);
+    const mergedChannels = Array.from(chMap.values());
+
+    const sanitizeSettings = (s: any) => {
+      if (!s || typeof s !== 'object') return null;
+      const copy = { ...s };
+      if (typeof copy.appLogo === 'string' && (copy.appLogo.length > 20000 || copy.appLogo.startsWith('data:image/'))) {
+        copy.appLogo = 'OFFICIAL_LOGO';
+      }
+      return copy;
+    };
+
+    const payload = {
+      action: 'SYNC_CHAT',
+      timestamp: new Date().toISOString(),
+      buildings: fullDb.buildings || [],
+      rooms: fullDb.rooms || [],
+      meetingRooms: fullDb.meetingRooms || [],
+      meeting_rooms: fullDb.meetingRooms || [],
+      roomCapacityRates: fullDb.roomCapacityRates || [],
+      room_capacity_rates: fullDb.roomCapacityRates || [],
+      breakfastMenuItems: fullDb.breakfastMenuItems || [],
+      breakfast_menu_items: fullDb.breakfastMenuItems || [],
+      transactions: fullDb.transactions || [],
+      users: fullDb.users || [],
+      maintenances: fullDb.maintenances || [],
+      qcInspections: fullDb.qcInspections || [],
+      qc_inspections: fullDb.qcInspections || [],
+      breakfastOrders: fullDb.breakfastOrders || [],
+      breakfast_orders: fullDb.breakfastOrders || [],
+      workSessions: fullDb.workSessions || [],
+      work_sessions: fullDb.workSessions || [],
+      appSettings: sanitizeSettings(fullDb.appSettings),
+      app_settings: sanitizeSettings(fullDb.appSettings),
+      system_logs: (fullDb.auditLogs || []).slice(0, 100),
+      auditLogs: fullDb.auditLogs || [],
+      chatChannels: mergedChannels,
+      chat_channels: mergedChannels,
+      chatMessages: mergedMessages,
+      chat_messages: mergedMessages,
+    };
+
+    // 2. Kirim update ke Google Spreadsheet
+    const res = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      return { success: true };
+    }
+    return { success: false, error: `HTTP ${res.status}` };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Gagal mengirim chat ke Spreadsheet' };
+  }
+}
+
+/**
+ * SIMPAN / SINKRONKAN SESI KERJA & DETAK JANTUNG ONLINE KE GOOGLE SPREADSHEET
+ */
+export async function pushWorkSessionToSpreadsheet(
+  session: WorkSession
+): Promise<{ success: boolean; error?: string }> {
+  const cfg = getSpreadsheetConfig();
+  const webAppUrl = cfg.webAppUrl;
+  if (!webAppUrl) return { success: false, error: 'URL Google Spreadsheet belum diatur' };
+
+  try {
+    dataStorage.saveWorkSession(session);
+
+    const fullDb = dataStorage.getDatabase();
+    const allSessions = fullDb.workSessions || [];
+    const sessionMap = new Map<string, any>();
+    allSessions.forEach(s => sessionMap.set(s.id, s));
+    sessionMap.set(session.id, session);
+    const mergedSessions = Array.from(sessionMap.values());
+
+    const sanitizeSettings = (s: any) => {
+      if (!s || typeof s !== 'object') return null;
+      const copy = { ...s };
+      if (typeof copy.appLogo === 'string' && (copy.appLogo.length > 20000 || copy.appLogo.startsWith('data:image/'))) {
+        copy.appLogo = 'OFFICIAL_LOGO';
+      }
+      return copy;
+    };
+
+    const payload = {
+      action: 'SYNC_WORK_SESSIONS',
+      timestamp: new Date().toISOString(),
+      buildings: fullDb.buildings || [],
+      rooms: fullDb.rooms || [],
+      meetingRooms: fullDb.meetingRooms || [],
+      meeting_rooms: fullDb.meetingRooms || [],
+      roomCapacityRates: fullDb.roomCapacityRates || [],
+      room_capacity_rates: fullDb.roomCapacityRates || [],
+      breakfastMenuItems: fullDb.breakfastMenuItems || [],
+      breakfast_menu_items: fullDb.breakfastMenuItems || [],
+      transactions: fullDb.transactions || [],
+      users: fullDb.users || [],
+      maintenances: fullDb.maintenances || [],
+      qcInspections: fullDb.qcInspections || [],
+      qc_inspections: fullDb.qcInspections || [],
+      breakfastOrders: fullDb.breakfastOrders || [],
+      breakfast_orders: fullDb.breakfastOrders || [],
+      workSessions: mergedSessions,
+      work_sessions: mergedSessions,
+      appSettings: sanitizeSettings(fullDb.appSettings),
+      app_settings: sanitizeSettings(fullDb.appSettings),
+      system_logs: (fullDb.auditLogs || []).slice(0, 100),
+      auditLogs: fullDb.auditLogs || [],
+      chatChannels: fullDb.chatChannels || [],
+      chat_channels: fullDb.chatChannels || [],
+      chatMessages: fullDb.chatMessages || [],
+      chat_messages: fullDb.chatMessages || [],
+    };
+
+    const res = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      return { success: true };
+    }
+    return { success: false, error: `HTTP ${res.status}` };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Gagal mengirim sesi ke Spreadsheet' };
+  }
+}
+

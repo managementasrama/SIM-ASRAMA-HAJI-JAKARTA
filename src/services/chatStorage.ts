@@ -1,6 +1,7 @@
 import { ChatChannel, ChatMessage, ChatScope } from '../types';
 import { initialChatChannels } from '../chatData';
 import { dataStorage } from './dataStorage';
+import { pushChatMessageToSpreadsheet } from './spreadsheetStorage';
 
 /**
  * ============================================================================
@@ -225,6 +226,10 @@ export async function fetchChatDatabaseFromServer(): Promise<{ channels: ChatCha
       headers: { Accept: 'application/json' }
     });
     if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return null;
+      }
       const data = await res.json();
       if (data && data.ok) {
         // Sinkronkan antrean offline jika ada saat koneksi pulih
@@ -297,7 +302,12 @@ export async function persistChatMessage(
   // 1. Simpan di dataStorage lokal (IndexedDB / LocalStorage)
   dataStorage.saveChatMessage(message, channel);
 
-  // 2. Kirim ke backend server untuk persistensi permanen ke disk & broadcast SSE
+  // 2. Kirim langsung ke basis data Google Spreadsheet secara real-time
+  pushChatMessageToSpreadsheet(message, channel).catch(err => {
+    console.warn('[ChatStorage] Gagal push chat ke Google Spreadsheet:', err);
+  });
+
+  // 3. Kirim ke backend server proxy jika ada untuk broadcast SSE lokal
   try {
     const res = await fetch('/api/chat/messages', {
       method: 'POST',
@@ -311,7 +321,6 @@ export async function persistChatMessage(
       syncOfflineMessageQueue().catch(() => {});
     }
   } catch (err) {
-    console.warn('[ChatStorage] Gagal persistensi pesan ke server (masuk antrean offline):', err);
     queueOfflineMessage(message, channel);
   }
 

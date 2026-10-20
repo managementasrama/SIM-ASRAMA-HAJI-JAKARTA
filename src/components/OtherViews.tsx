@@ -4110,7 +4110,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
         const livePresence = onlinePresences.find(p => {
           if (p.userId !== uid) return false;
           const lastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
-          return !lastSeen || nowMs - lastSeen < 120000;
+          return !lastSeen || nowMs - lastSeen < 180000;
         });
         const existing = byUser.get(uid);
         if (!existing || (s.loginTime || '') > (existing.loginTime || '')) {
@@ -4134,7 +4134,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     // 2. Also include any account broadcasting live presence in real-time even if session record is still syncing
     onlinePresences.forEach(p => {
       const pLastSeen = p.lastSeenMs || (p as any).lastSeen || 0;
-      if (!p.userId || (pLastSeen && nowMs - pLastSeen > 120000)) return;
+      if (!p.userId || (pLastSeen && nowMs - pLastSeen > 180000)) return;
       if (!byUser.has(p.userId)) {
         const matchedUser = users.find(u => u.id === p.userId);
         const loginStr = p.loginTime || `${realToday} 08:00:00`;

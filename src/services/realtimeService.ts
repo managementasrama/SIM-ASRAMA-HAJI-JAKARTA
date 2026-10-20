@@ -138,6 +138,8 @@ class RealtimeService {
         headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
       });
       if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await res.json();
         const now = Date.now();
 
