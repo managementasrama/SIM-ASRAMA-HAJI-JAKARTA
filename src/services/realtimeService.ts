@@ -20,6 +20,7 @@ export type RealtimeEventType =
   | 'presence:heartbeat'
   | 'presence:leave'
   | 'session:upsert'
+  | 'session:superseded'
   | 'session:clear'
   | 'chat:message'
   | 'chat:read'

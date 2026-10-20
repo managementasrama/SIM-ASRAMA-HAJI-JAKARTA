@@ -393,6 +393,7 @@ export interface WorkSession {
   assignedBuilding?: string;
   lastHeartbeat?: string;
   deviceInfo?: string;
+  deviceId?: string;
 }
 
 export interface DailyWorkRecord {

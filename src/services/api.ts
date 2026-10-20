@@ -61,8 +61,7 @@ export async function fetchFromGoogleSheet(sheetName: string): Promise<any[]> {
 
     return result.data || [];
   } catch (error) {
-    console.error(`Gagal mengambil data dari sheet ${sheetName}:`, error);
-    // Fallback melalui server proxy jika direct CORS/browser dibatasi
+    console.warn(`[API] Tidak dapat memuat data sheet ${sheetName} secara langsung, beralih ke fallback:`, error);
     try {
       const fallbackRes = await fetch(`/api/sheets/database?sheet=${encodeURIComponent(sheetName)}`);
       if (fallbackRes.ok) {
