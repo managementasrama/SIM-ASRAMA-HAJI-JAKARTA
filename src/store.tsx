@@ -27,10 +27,10 @@ import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, ge
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings, CompleteStorageDatabase } from './services/dataStorage';
 import { realtimeService, OnlinePresenceInfo } from './services/realtimeService';
 import { 
-  validateDatabaseChecksumAgainstSupabase, 
+  validateDatabaseChecksumAgainstSpreadsheet, 
   computeDatasetChecksums, 
   DatabaseChecksumReport
-} from './lib/supabase';
+} from './services/spreadsheetStorage';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -185,7 +185,7 @@ interface AppContextType {
   appSettings: AppSettings;
   updateAppSettings: (newTitleOrUpdates?: string | Partial<AppSettings>, newLogo?: string) => void;
 
-  // Supabase Cloud Sync & Checksum Validation
+  // Spreadsheet Cloud Sync & Checksum Validation
   supabaseSyncState: {
     status: 'idle' | 'syncing' | 'connected' | 'error';
     lastSyncTime: string | null;
@@ -559,7 +559,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Supabase Cloud Sync State & Checksum Validation State
+  // Spreadsheet Cloud Sync State & Checksum Validation State
   const [supabaseSyncState, setSupabaseSyncState] = useState(dataStorage.getSupabaseSyncState());
   const [checksumReport, setChecksumReport] = useState<DatabaseChecksumReport>(() => {
     const initialSig = computeDatasetChecksums({
@@ -600,7 +600,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!silent) {
       setChecksumReport(prev => ({ ...prev, status: 'CHECKING', message: 'Memvalidasi sinkronisasi terhadap Database Pusat...' }));
     }
-    const report = await validateDatabaseChecksumAgainstSupabase(dataset);
+    const report = await validateDatabaseChecksumAgainstSpreadsheet(dataset);
     setChecksumReport(report);
     if (!silent) {
       if (report.status === 'SYNCED') {
@@ -880,7 +880,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
       } catch (err) {
-        console.warn('Gagal memuat database dari Supabase:', err);
+        console.warn('Gagal memuat database dari Spreadsheet:', err);
       } finally {
         isHydratedFromCloudRef.current = true;
       }
@@ -1158,7 +1158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAppSettings(db.appSettings || dataStorage.getAppSettings());
   };
 
-  // Kirim langsung setiap perubahan state ke Database Supabase (hanya setelah hidrasi awal selesai)
+  // Kirim langsung setiap perubahan state ke Google Spreadsheet (hanya setelah hidrasi awal selesai)
   useEffect(() => {
     if (!isHydratedFromCloudRef.current) return;
     dataStorage.saveDatabase({
@@ -1206,7 +1206,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { chatSoundEnabledRef.current = chatSoundEnabled; }, [chatSoundEnabled]);
   useEffect(() => { usersRef.current = users; }, [users]);
 
-  // Langganan Real-Time Engine (SSE + Supabase Broadcast/Presence + BroadcastChannel)
+  // Langganan Real-Time Engine (SSE + Broadcast/Presence + BroadcastChannel)
   useEffect(() => {
     const unsubscribe = realtimeService.subscribe((event) => {
       const me = currentUserRef.current;
@@ -1837,7 +1837,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setChatChannels(prev => prev.map(c => (c.id === channelId ? updatedChannel : c)));
     }
 
-    // 2. Broadcast real-time to all active accounts (SSE + Supabase Broadcast + BroadcastChannel)
+    // 2. Broadcast real-time to all active accounts (SSE + Broadcast + BroadcastChannel)
     realtimeService.broadcastChatMessage(newMsg, updatedChannel);
 
     if (isInstruction || priority === 'URGENT') {
@@ -2069,7 +2069,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notes: `Sesi login petugas (${user.role} - ${user.department || 'Operasional'})`
     };
 
-    // Simpan langsung ke dataStorage & Supabase serta broadcast real-time agar seluruh akun lain langsung melihat petugas ini aktif
+    // Simpan langsung ke dataStorage & Google Spreadsheet serta broadcast real-time agar seluruh akun lain langsung melihat petugas ini aktif
     dataStorage.saveWorkSession(newSession);
     setWorkSessions(prev => {
       const sanitized = prev.map(s => {
@@ -3977,7 +3977,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast(`Laporan QC tersimpan: ${inspection.roomNumber} TIDAK LAYAK. Diteruskan ke Manager Teknisi!`, "warning");
     }
 
-    // Persistensi permanen ke dataStorage & sinkronisasi Supabase Cloud
+    // Persistensi permanen ke dataStorage & sinkronisasi Google Spreadsheet
     try {
       const currentDb = dataStorage.getDatabase();
       let nextRooms = [...(currentDb.rooms || rooms)];

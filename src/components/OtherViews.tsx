@@ -6141,7 +6141,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           )}
         </div>
       ) : activeSubView === 'DATABASE_MGMT' ? (
-        /* Pusat Manajemen Basis Data (Supabase Cloud Real-Time) */
+        /* Pusat Manajemen Basis Data (Google Spreadsheet) */
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* Unified Central Database Banner & Real-Time Sync Control */}
           <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-emerald-500/30 relative overflow-hidden">

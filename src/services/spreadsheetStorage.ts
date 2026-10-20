@@ -1,6 +1,7 @@
 import type { CompleteStorageDatabase } from './dataStorage';
 import type { Building, Room, MeetingRoom, Transaction, Maintenance, QcInspection, User } from '../types';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
+import { normalizeBuildingName, deduplicateRoomsByBuildingAndNumber, getRoomBuildingKey } from '../lib/utils';
 
 export interface SpreadsheetConfigInfo {
   webAppUrl: string;
@@ -1029,4 +1030,244 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     chatMessages: normalizedChatMessages.length > 0 ? normalizedChatMessages : (Array.isArray(d.chatMessages) ? d.chatMessages : []),
     passwordResetRequests: Array.isArray(d.passwordResetRequests) ? d.passwordResetRequests : []
   };
+}
+
+export interface ModuleChecksumItem {
+  key: string;
+  label: string;
+  localCount: number;
+  remoteCount: number;
+  localHash: string;
+  remoteHash: string;
+  isMatch: boolean;
+}
+
+export interface DatabaseChecksumReport {
+  status: 'CHECKING' | 'SYNCED' | 'MISMATCH' | 'OFFLINE' | 'ERROR';
+  localChecksum: string;
+  remoteChecksum: string;
+  isMatch: boolean;
+  checkedAt: string;
+  modules: ModuleChecksumItem[];
+  mismatchedModules: string[];
+  message: string;
+}
+
+export function fnv1aHex(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
+
+export function computeDatasetChecksums(dataset: {
+  buildings?: Building[];
+  rooms?: Room[];
+  meetingRooms?: MeetingRoom[];
+  transactions?: Transaction[];
+  maintenances?: Maintenance[];
+}) {
+  const bldMap = new Map<string, string>();
+  (dataset.buildings || []).forEach(b => {
+    if (!b || !b.name) return;
+    const normName = normalizeBuildingName(b.name);
+    if (!normName || normName === 'Ruang Pertemuan' || normName === 'Ruang Pertemuan / Aula' || normName === 'Gedung Serbaguna (SG)') return;
+    bldMap.set(normName.toLowerCase(), `${normName}|${Number(b.floors || 1)}`);
+  });
+  const bldSorted = Array.from(bldMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const buildingsHash = fnv1aHex(bldSorted.join(';;'));
+
+  const mrMap = new Map<string, string>();
+  (dataset.meetingRooms || []).forEach(m => {
+    if (!m || !m.id) return;
+    mrMap.set(m.id, `${m.id}|${(m.name || '').trim().toLowerCase()}|${Number(m.dailyRate || 0)}|${Number(m.sessionRate || 0)}`);
+  });
+  const mrSorted = Array.from(mrMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const meetingRoomsHash = fnv1aHex(mrSorted.join(';;'));
+
+  const txList = dataset.transactions || [];
+  const txMap = new Map<string, string>();
+  txList.forEach(t => {
+    if (!t || !t.id) return;
+    const isCancelled = t.status === 'DIBATALKAN' ? 'CANCELLED' : (t.status === 'SELESAI' ? 'DONE' : 'ACTIVE');
+    txMap.set(
+      t.id,
+      `${t.id}|${(t.roomNumber || '').trim().toUpperCase()}|${t.startDate || ''}|${Number(t.duration || 1)}|${t.paymentStatus || 'BELUM_LUNAS'}|${Number(t.paidAmount || 0)}|${isCancelled}`
+    );
+  });
+  const txSorted = Array.from(txMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const transactionsHash = fnv1aHex(txSorted.join(';;'));
+
+  const maintList = dataset.maintenances || [];
+  const maintMap = new Map<string, string>();
+  maintList.forEach(m => {
+    if (!m || !m.id) return;
+    maintMap.set(m.id, `${m.id}|${(m.roomNumber || '').trim().toUpperCase()}|${m.status || 'PROSES'}`);
+  });
+  const maintSorted = Array.from(maintMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const maintenancesHash = fnv1aHex(maintSorted.join(';;'));
+
+  const roomMap = new Map<string, string>();
+  const cleanRooms = deduplicateRoomsByBuildingAndNumber(dataset.rooms || [], dataset.meetingRooms);
+  cleanRooms.forEach(r => {
+    if (!r || !r.id) return;
+    const matchingActiveTxs = txList.filter(t =>
+      (t.roomId === r.id || (t.roomNumber === r.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(r.building))) || t.id === r.activeTxId) &&
+      t.status !== 'DIBATALKAN' &&
+      t.status !== 'SELESAI'
+    );
+    const terisiTx = matchingActiveTxs.find(t => t.status === 'TERISI');
+    const bookedTx = matchingActiveTxs.find(t => t.status === 'BOOKED');
+    const activeMaint = maintList.find(m =>
+      (m.id === r.activeMaintId || m.roomId === r.id || (m.roomNumber === r.roomNumber && (!m.building || normalizeBuildingName(m.building) === normalizeBuildingName(r.building)))) &&
+      m.status !== 'SELESAI'
+    );
+
+    let effectiveStatus = r.status || 'KOSONG';
+    if (activeMaint) {
+      effectiveStatus = 'MAINTENANCE';
+    } else if (terisiTx) {
+      effectiveStatus = 'TERISI';
+    } else if (bookedTx) {
+      if (effectiveStatus !== 'MAINTENANCE') effectiveStatus = 'BOOKED';
+    } else if (effectiveStatus === 'TERISI' || effectiveStatus === 'BOOKED' || effectiveStatus === 'MAINTENANCE') {
+      effectiveStatus = 'KOSONG';
+    }
+
+    const bldKey = getRoomBuildingKey(r, dataset.meetingRooms);
+    roomMap.set(
+      r.id,
+      `${r.id}|${(r.roomNumber || '').trim().toUpperCase()}|${bldKey.toLowerCase()}|${effectiveStatus}|${Number(r.pricePerNight || 0)}`
+    );
+  });
+  const roomSorted = Array.from(roomMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
+  const roomsHash = fnv1aHex(roomSorted.join(';;'));
+
+  const masterChecksum = `CHK-${fnv1aHex(`${buildingsHash}:${meetingRoomsHash}:${roomsHash}:${transactionsHash}:${maintenancesHash}`)}`;
+
+  return {
+    masterChecksum,
+    buildings: { count: bldSorted.length, hash: buildingsHash },
+    meetingRooms: { count: mrSorted.length, hash: meetingRoomsHash },
+    rooms: { count: roomSorted.length, hash: roomsHash },
+    transactions: { count: txSorted.length, hash: transactionsHash },
+    maintenances: { count: maintSorted.length, hash: maintenancesHash }
+  };
+}
+
+export async function validateDatabaseChecksumAgainstSpreadsheet(localDataset: {
+  buildings?: Building[];
+  rooms?: Room[];
+  meetingRooms?: MeetingRoom[];
+  transactions?: Transaction[];
+  maintenances?: Maintenance[];
+}): Promise<DatabaseChecksumReport> {
+  const localSig = computeDatasetChecksums(localDataset);
+  const nowStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  try {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        status: 'OFFLINE',
+        localChecksum: localSig.masterChecksum,
+        remoteChecksum: 'OFFLINE',
+        isMatch: false,
+        checkedAt: nowStr,
+        modules: [],
+        mismatchedModules: [],
+        message: 'Perangkat sedang offline. Menggunakan cache lokal.'
+      };
+    }
+
+    const remoteDb = await fetchFullDatabaseFromSpreadsheet();
+    if (!remoteDb) {
+      return {
+        status: 'ERROR',
+        localChecksum: localSig.masterChecksum,
+        remoteChecksum: 'UNAVAILABLE',
+        isMatch: false,
+        checkedAt: nowStr,
+        modules: [],
+        mismatchedModules: [],
+        message: 'Tidak dapat mengambil metadata checksum dari Google Spreadsheet.'
+      };
+    }
+
+    const remoteSig = computeDatasetChecksums(remoteDb);
+
+    const modules: ModuleChecksumItem[] = [
+      {
+        key: 'buildings',
+        label: 'Gedung Asrama',
+        localCount: localSig.buildings.count,
+        remoteCount: remoteSig.buildings.count,
+        localHash: localSig.buildings.hash,
+        remoteHash: remoteSig.buildings.hash,
+        isMatch: localSig.buildings.hash === remoteSig.buildings.hash
+      },
+      {
+        key: 'rooms',
+        label: 'Kamar & Unit Fasilitas',
+        localCount: localSig.rooms.count,
+        remoteCount: remoteSig.rooms.count,
+        localHash: localSig.rooms.hash,
+        remoteHash: remoteSig.rooms.hash,
+        isMatch: localSig.rooms.hash === remoteSig.rooms.hash
+      },
+      {
+        key: 'meetingRooms',
+        label: 'Ruang Pertemuan / Aula',
+        localCount: localSig.meetingRooms.count,
+        remoteCount: remoteSig.meetingRooms.count,
+        localHash: localSig.meetingRooms.hash,
+        remoteHash: remoteSig.meetingRooms.hash,
+        isMatch: localSig.meetingRooms.hash === remoteSig.meetingRooms.hash
+      },
+      {
+        key: 'transactions',
+        label: 'Transaksi & Reservasi',
+        localCount: localSig.transactions.count,
+        remoteCount: remoteSig.transactions.count,
+        localHash: localSig.transactions.hash,
+        remoteHash: remoteSig.transactions.hash,
+        isMatch: localSig.transactions.hash === remoteSig.transactions.hash
+      },
+      {
+        key: 'maintenances',
+        label: 'Tiket Perawatan',
+        localCount: localSig.maintenances.count,
+        remoteCount: remoteSig.maintenances.count,
+        localHash: localSig.maintenances.hash,
+        remoteHash: remoteSig.maintenances.hash,
+        isMatch: localSig.maintenances.hash === remoteSig.maintenances.hash
+      }
+    ];
+
+    const mismatchedModules = modules.filter(m => !m.isMatch).map(m => m.label);
+    const isMatch = localSig.masterChecksum === remoteSig.masterChecksum && mismatchedModules.length === 0;
+
+    return {
+      status: isMatch ? 'SYNCED' : 'MISMATCH',
+      localChecksum: localSig.masterChecksum,
+      remoteChecksum: remoteSig.masterChecksum,
+      isMatch,
+      checkedAt: nowStr,
+      modules,
+      mismatchedModules,
+      message: isMatch ? 'Sinkronisasi database dengan Google Spreadsheet sempurna & valid.' : `Perbedaan terdeteksi pada modul: ${mismatchedModules.join(', ')}`
+    };
+  } catch (err: any) {
+    return {
+      status: 'ERROR',
+      localChecksum: localSig.masterChecksum,
+      remoteChecksum: 'ERROR',
+      isMatch: false,
+      checkedAt: nowStr,
+      modules: [],
+      mismatchedModules: [],
+      message: `Gagal memvalidasi checksum dengan Google Spreadsheet: ${err?.message || err}`
+    };
+  }
 }
