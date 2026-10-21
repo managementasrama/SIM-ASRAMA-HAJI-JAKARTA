@@ -1554,3 +1554,47 @@ export async function pushWorkSessionToSpreadsheet(
   }
 }
 
+/**
+ * Eksekusi batch operasi membaca dan menulis Google Spreadsheet dalam satu HTTP roundtrip
+ */
+export async function batchSpreadsheetOperations(operations: Array<{ action: 'READ' | 'WRITE'; sheet: string; data?: any[] }>): Promise<{ success: boolean; results?: any[]; error?: string }> {
+  const cfg = getSpreadsheetConfig();
+  if (!cfg.webAppUrl) {
+    return { success: false, error: 'URL Web App Google Apps Script belum dikonfigurasi' };
+  }
+
+  try {
+    const res = await fetch('/api/sheets/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        webAppUrl: cfg.webAppUrl,
+        operations,
+      }),
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      return { success: true, results: json.results };
+    }
+
+    const directRes = await fetch(cfg.webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'BATCH_OPERATIONS',
+        operations,
+      }),
+    });
+
+    if (directRes.ok) {
+      const json = await directRes.json();
+      return { success: true, results: json.results };
+    }
+
+    return { success: false, error: `HTTP Error ${res.status}` };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Gagal mengeksekusi batch operations' };
+  }
+}
+

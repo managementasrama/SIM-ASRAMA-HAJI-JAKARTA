@@ -1633,6 +1633,56 @@ async function startServer() {
     }
   });
 
+  // 5. Endpoint BATCH OPERATIONS UNTUK SPREADSHEET (POST)
+  app.post("/api/sheets/batch", async (req, res) => {
+    const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+    const operations = req.body?.operations;
+
+    if (!Array.isArray(operations) || operations.length === 0) {
+      return res.status(400).json({ ok: false, error: "Daftar operasi batch (operations) tidak valid atau kosong" });
+    }
+
+    if (!targetUrl) {
+      return res.status(400).json({ ok: false, error: "URL Web App Google Apps Script belum dikonfigurasi." });
+    }
+
+    try {
+      const batchPayload = {
+        action: "BATCH_OPERATIONS",
+        timestamp: new Date().toISOString(),
+        operations,
+        spreadsheetId: activeSheetsConfig.sheetId || undefined,
+      };
+
+      const resp = await fetchGoogleAppsScript(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(batchPayload),
+      });
+
+      const text = await resp.text().catch(() => "");
+      let jsonRes: any = null;
+      try {
+        jsonRes = JSON.parse(text);
+      } catch (_) {
+        jsonRes = { status: resp.ok ? "success" : "error", raw: text };
+      }
+
+      res.json({
+        ok: resp.ok,
+        status: resp.ok ? "success" : "error",
+        results: jsonRes?.results || jsonRes,
+        executedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.warn("Gagal mengeksekusi batch operations ke Google Spreadsheet:", err?.message || err);
+      res.status(500).json({
+        ok: false,
+        error: err?.message || "Kesalahan koneksi saat mengeksekusi batch operations",
+      });
+    }
+  });
+
   // Server-Sent Events (SSE) Stream for instant real-time updates
   app.get("/api/realtime/stream", (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");

@@ -858,6 +858,41 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // AKSI F: BATCH OPERATIONS (MENGGABUNGKAN MULTI READ/WRITE DALAM 1 EKSEKUSI)
+    if (action === "BATCH_OPERATIONS" || action === "BATCH_OPS") {
+      var ops = payload.operations || [];
+      var results = [];
+      var defSch = getDefaultSchema();
+      for (var b = 0; b < ops.length; b++) {
+        var op = ops[b];
+        var opAction = (op.action || op.type || "READ").toUpperCase();
+        var opSheet = op.sheet || op.table || "";
+        var opData = op.data || op.items || [];
+        try {
+          if (opAction === "READ" || opAction === "GET") {
+            var readData = readSheetAsObjects(ss, opSheet);
+            results.push({ success: true, action: opAction, sheet: opSheet, data: readData });
+          } else if (opAction === "WRITE" || opAction === "SAVE" || opAction === "APPEND") {
+            var targetH = defSch[opSheet] ? defSch[opSheet].headers : [];
+            if (targetH.length === 0 && opData.length > 0 && typeof opData[0] === "object") {
+              targetH = Object.keys(opData[0]);
+            }
+            writeObjectsToSheet(ss, opSheet, Array.isArray(opData) ? opData : [opData], targetH);
+            results.push({ success: true, action: opAction, sheet: opSheet, count: Array.isArray(opData) ? opData.length : 1 });
+          } else {
+            results.push({ success: false, action: opAction, error: "Aksi tidak dikenal" });
+          }
+        } catch (opErr) {
+          results.push({ success: false, action: opAction, sheet: opSheet, error: opErr.toString() });
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        results: results,
+        executedAt: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // AKSI C: SIMPAN / SINKRONISASI SELURUH DATA (SAVE_ALL)
     cleanConflictSheets(ss); // Bersihkan sheet konflik
 
