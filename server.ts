@@ -753,12 +753,12 @@ async function startServer() {
     chatSyncTimeout = setTimeout(async () => {
       try {
         const payload = {
-          action: "SYNC_CHAT",
+          action: "BATCH_OPERATIONS",
           timestamp: new Date().toISOString(),
-          chatChannels: realtimeState.chatChannels,
-          chat_channels: realtimeState.chatChannels,
-          chatMessages: realtimeState.chatMessages,
-          chat_messages: realtimeState.chatMessages,
+          operations: [
+            { action: "WRITE", sheet: "chat_channels", data: realtimeState.chatChannels },
+            { action: "WRITE", sheet: "chat_messages", data: realtimeState.chatMessages },
+          ],
           spreadsheetId: activeSheetsConfig.sheetId || undefined,
         };
         fetchGoogleAppsScript(targetUrl, {
@@ -778,10 +778,11 @@ async function startServer() {
     sessionSyncTimeout = setTimeout(async () => {
       try {
         const payload = {
-          action: "SYNC_WORK_SESSIONS",
+          action: "BATCH_OPERATIONS",
           timestamp: new Date().toISOString(),
-          workSessions: realtimeState.workSessions,
-          work_sessions: realtimeState.workSessions,
+          operations: [
+            { action: "WRITE", sheet: "work_sessions", data: realtimeState.workSessions },
+          ],
           spreadsheetId: activeSheetsConfig.sheetId || undefined,
         };
         fetchGoogleAppsScript(targetUrl, {
@@ -1579,16 +1580,49 @@ async function startServer() {
 
     try {
       const formattedData = formatDatabaseForSpreadsheet(payload);
-      const formattedPayload = {
-        action: "SAVE_ALL",
+
+      // Bangun daftar operasi BATCH_OPERATIONS untuk eksekusi handal dan cepat di Google Apps Script
+      const operations: Array<{ action: string; sheet: string; data: any[] }> = [];
+      const tableMap: Record<string, string> = {
+        buildings: "buildings",
+        rooms: "rooms",
+        meeting_rooms: "meeting_rooms",
+        room_capacity_rates: "room_capacity_rates",
+        breakfast_menu_items: "breakfast_menu_items",
+        transactions: "transactions",
+        users: "users",
+        maintenances: "maintenances",
+        qc_inspections: "qc_inspections",
+        breakfast_orders: "breakfast_orders",
+        work_sessions: "work_sessions",
+        app_settings: "app_settings",
+        system_logs: "system_logs",
+        chat_channels: "chat_channels",
+        chat_messages: "chat_messages",
+      };
+
+      for (const [key, sheetName] of Object.entries(tableMap)) {
+        if (formattedData[key] !== undefined || formattedData[sheetName] !== undefined) {
+          const tableData = formattedData[sheetName] !== undefined ? formattedData[sheetName] : formattedData[key];
+          operations.push({
+            action: "WRITE",
+            sheet: sheetName,
+            data: Array.isArray(tableData) ? tableData : (tableData ? [tableData] : []),
+          });
+        }
+      }
+
+      const batchPayload = {
+        action: "BATCH_OPERATIONS",
         timestamp: new Date().toISOString(),
-        ...formattedData,
+        operations,
+        spreadsheetId: activeSheetsConfig.sheetId || undefined,
       };
 
       const isExplicitSync = req.query?.sync === "true";
       if (!isExplicitSync) {
-        // NON-BLOCKING: Jadwalkan push ke Google Spreadsheet di antrean latar belakang
-        queueSpreadsheetPush(targetUrl, formattedPayload);
+        // NON-BLOCKING: Jadwalkan push ke Google Spreadsheet via BATCH_OPERATIONS di antrean latar belakang
+        queueSpreadsheetPush(targetUrl, batchPayload);
 
         return res.json({
           ok: true,
@@ -1603,7 +1637,7 @@ async function startServer() {
       const sheetRes = await fetchGoogleAppsScript(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(formattedPayload),
+        body: JSON.stringify(batchPayload),
       });
 
       const text = await sheetRes.text().catch(() => "");
@@ -1644,6 +1678,25 @@ async function startServer() {
 
     if (!targetUrl) {
       return res.status(400).json({ ok: false, error: "URL Web App Google Apps Script belum dikonfigurasi." });
+    }
+
+    // Perbarui serverDatabaseCache untuk setiap operasi WRITE agar memori server langsung sinkron
+    if (serverDatabaseCache && typeof serverDatabaseCache === "object") {
+      let cacheUpdated = false;
+      for (const op of operations) {
+        if ((op.action === "WRITE" || op.action === "SAVE") && op.sheet && Array.isArray(op.data)) {
+          const sheetKey = String(op.sheet);
+          const camelKey = sheetKey.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+          serverDatabaseCache[sheetKey] = op.data;
+          serverDatabaseCache[camelKey] = op.data;
+          cacheUpdated = true;
+        }
+      }
+      if (cacheUpdated) {
+        try {
+          fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
+        } catch (_) {}
+      }
     }
 
     try {
