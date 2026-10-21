@@ -893,6 +893,36 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // AKSI G: UPSERT SATU ATAU BANYAK REKAMAN KE SHEET SECARA AMAN (TIDAK MENGHAPUS DATA LAIN)
+    if (action === "UPSERT_RECORD" || action === "UPSERT_RECORDS" || action === "UPSERT") {
+      var targetSheetName = payload.sheet || payload.table;
+      var records = payload.records || (payload.record ? [payload.record] : (payload.data ? (Array.isArray(payload.data) ? payload.data : [payload.data]) : []));
+      var defSch = getDefaultSchema();
+      var targetH = defSch[targetSheetName] ? defSch[targetSheetName].headers : (records.length > 0 ? Object.keys(records[0]) : []);
+      var upsertCount = upsertObjectsToSheet(ss, targetSheetName, records, targetH);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        action: "UPSERT",
+        sheet: targetSheetName,
+        count: upsertCount,
+        updatedAt: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // AKSI H: HAPUS SATU REKAMAN BERDASARKAN ID
+    if (action === "DELETE_RECORD" || action === "DELETE") {
+      var delSheetName = payload.sheet || payload.table;
+      var delId = payload.id || (payload.record ? payload.record.id : null);
+      var deleted = deleteObjectFromSheet(ss, delSheetName, delId);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        action: "DELETE",
+        sheet: delSheetName,
+        deleted: deleted,
+        updatedAt: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // AKSI C: SIMPAN / SINKRONISASI SELURUH DATA (SAVE_ALL)
     cleanConflictSheets(ss); // Bersihkan sheet konflik
 
@@ -1370,22 +1400,58 @@ function readSheetAsObjects(ss, sheetName) {
 }
 
 // HELPER MENULIS ARRAY OF OBJECTS KE SHEET (Toleran field CamelCase & snake_case)
-function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
+function writeObjectsToSheet(ss, sheetName, items, defaultHeaders, forceReplaceAll) {
   var sheet = getSheetCaseInsensitive(ss, sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
-  } else {
-    sheet.clearContents();
   }
 
   var headers = defaultHeaders || ((items && items.length > 0) ? Object.keys(items[0]) : []);
   if (!headers || headers.length === 0) return;
 
+  // Proteksi cerdas: jika bukan forceReplaceAll dan sheet sudah berisi baris data,
+  // gabungkan berdasarkan ID agar data yang baru ditambahkan pengguna lain tidak pernah terhapus!
+  var finalItems = items || [];
+  if (!forceReplaceAll && sheet.getLastRow() > 1) {
+    try {
+      var existingRows = readSheetAsObjects(ss, sheetName);
+      if (existingRows && existingRows.length > 0) {
+        if (!items || items.length === 0) {
+          // Klien mengirim array kosong, JANGAN HAPUS data yang sudah ada di sheet!
+          return;
+        }
+        var idMap = {};
+        for (var e = 0; e < existingRows.length; e++) {
+          var ex = existingRows[e];
+          if (ex && ex.id) idMap[String(ex.id).trim()] = ex;
+        }
+        for (var n = 0; n < items.length; n++) {
+          var newItem = items[n];
+          if (newItem && newItem.id) {
+            var key = String(newItem.id).trim();
+            var targetObj = idMap[key] || {};
+            for (var prop in newItem) {
+              targetObj[prop] = newItem[prop];
+            }
+            idMap[key] = targetObj;
+          }
+        }
+        var mergedArr = [];
+        for (var k in idMap) {
+          mergedArr.push(idMap[k]);
+        }
+        finalItems = mergedArr;
+      }
+    } catch (_) {}
+  }
+
+  sheet.clearContents();
+
   var output = [headers];
 
-  if (items && Array.isArray(items) && items.length > 0) {
-    for (var i = 0; i < items.length; i++) {
-      var item = items[i];
+  if (finalItems && Array.isArray(finalItems) && finalItems.length > 0) {
+    for (var i = 0; i < finalItems.length; i++) {
+      var item = finalItems[i];
       var row = [];
       for (var j = 0; j < headers.length; j++) {
         var hName = headers[j];
@@ -1442,6 +1508,126 @@ function writeObjectsToSheet(ss, sheetName, items, defaultHeaders) {
   try {
     sheet.autoResizeColumns(1, headers.length);
   } catch (_) {}
+}
+
+// HELPER UPSERT REKAMAN BERDASARKAN ID KE SHEET (INSERT JIKA BARU, UPDATE JIKA SUDAH ADA - NON-DESTRUCTIVE)
+function upsertObjectsToSheet(ss, sheetName, items, defaultHeaders) {
+  if (!items || !Array.isArray(items) || items.length === 0) return 0;
+  var sheet = getSheetCaseInsensitive(ss, sheetName);
+  var defSch = getDefaultSchema();
+  var headers = defaultHeaders || (defSch[sheetName] ? defSch[sheetName].headers : []);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    ensureSheetDimensions(sheet, 1, headers.length);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    var hr = sheet.getRange(1, 1, 1, headers.length);
+    hr.setFontWeight("bold");
+    hr.setFontColor("#ffffff");
+    hr.setBackground("#059669");
+    sheet.setFrozenRows(1);
+  }
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = Math.max(sheet.getLastColumn(), headers.length);
+  if (lastCol === 0) return 0;
+
+  var currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var idColIndex = 1;
+  for (var h = 0; h < currentHeaders.length; h++) {
+    var hStr = String(currentHeaders[h]).toLowerCase().trim();
+    if (hStr === "id" || hStr === "user_id" || hStr === "room_id" || hStr === "username") {
+      idColIndex = h + 1;
+      break;
+    }
+  }
+
+  var existingIds = [];
+  if (lastRow > 1) {
+    var idValues = sheet.getRange(2, idColIndex, lastRow - 1, 1).getValues();
+    for (var r = 0; r < idValues.length; r++) {
+      existingIds.push(String(idValues[r][0]).trim());
+    }
+  }
+
+  var updatedCount = 0;
+  for (var j = 0; j < items.length; j++) {
+    var item = items[j];
+    if (!item) continue;
+    var itemId = String(item.id || item.username || "").trim();
+
+    var rowValues = [];
+    for (var c = 0; c < currentHeaders.length; c++) {
+      var hName = String(currentHeaders[c]).trim();
+      var camelName = hName.replace(/_([a-z])/g, function(g) { return g[1].toUpperCase(); });
+      var snakeName = hName.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
+
+      var val = item[hName] !== undefined ? item[hName] : (item[camelName] !== undefined ? item[camelName] : item[snakeName]);
+
+      if (val === undefined || val === null) {
+        if (hName === "full_name" || camelName === "fullName") val = item.name || item.fullName || item.full_name;
+        else if (hName === "assigned_building" || camelName === "assignedBuilding") val = item.building || item.assignedBuilding;
+        else if (hName === "room_number" || camelName === "roomNumber") val = item.no_kamar || item.nomor_kamar;
+        else if (hName === "price_per_night" || camelName === "pricePerNight") val = item.tarif || item.harga;
+        else if (hName === "capacity_pax" || camelName === "capacityPax") val = item.capacityNumber || item.capacity_number || item.capacity;
+      }
+
+      if (val === undefined || val === null) {
+        val = "";
+      } else if (Array.isArray(val)) {
+        if (val.length > 0 && typeof val[0] === "object") {
+          val = JSON.stringify(val);
+        } else {
+          val = val.join(", ");
+        }
+      } else if (typeof val === "object" && !(val instanceof Date)) {
+        val = JSON.stringify(val);
+      }
+      rowValues.push(val);
+    }
+
+    var matchIndex = itemId ? existingIds.indexOf(itemId) : -1;
+    if (matchIndex !== -1) {
+      // Baris sudah ada -> Update tepat baris tersebut tanpa menghapus baris lainnya
+      var targetRow = matchIndex + 2;
+      sheet.getRange(targetRow, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      // Baris baru -> Tambahkan di baris paling bawah
+      sheet.appendRow(rowValues);
+      if (itemId) existingIds.push(itemId);
+    }
+    updatedCount++;
+  }
+  return updatedCount;
+}
+
+// HELPER HAPUS BARIS BERDASARKAN ID DARI SHEET (DIRECT ROW DELETE)
+function deleteObjectFromSheet(ss, sheetName, recordId) {
+  if (!recordId) return false;
+  var sheet = getSheetCaseInsensitive(ss, sheetName);
+  if (!sheet || sheet.getLastRow() <= 1) return false;
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+  var idColIndex = 1;
+  for (var h = 0; h < headers.length; h++) {
+    var hStr = String(headers[h]).toLowerCase().trim();
+    if (hStr === "id" || hStr === "user_id" || hStr === "room_id" || hStr === "username") {
+      idColIndex = h + 1;
+      break;
+    }
+  }
+
+  var idValues = sheet.getRange(2, idColIndex, lastRow - 1, 1).getValues();
+  for (var r = idValues.length - 1; r >= 0; r--) {
+    var cellId = String(idValues[r][0]).trim();
+    if (cellId === String(recordId).trim()) {
+      sheet.deleteRow(r + 2);
+      return true;
+    }
+  }
+  return false;
 }`;
 
   const handleCopyScript = () => {

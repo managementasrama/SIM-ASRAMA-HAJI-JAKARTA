@@ -39,6 +39,8 @@ import {
   updateBuildingInSpreadsheetDirect, 
   deleteBuildingInSpreadsheetDirect, 
   getSpreadsheetConfig,
+  upsertRecordToSpreadsheet,
+  deleteRecordFromSpreadsheet,
   type SpreadsheetSyncState
 } from './spreadsheetStorage';
 import { realtimeService } from './realtimeService';
@@ -775,7 +777,9 @@ export class DataStorageService {
       updatedUsers = [userWithTime, ...db.users];
     }
 
-    this.saveDatabase({ ...db, users: updatedUsers });
+    this.saveDatabase({ ...db, users: updatedUsers }, { skipCloudSync: true });
+    // Kirim upsert langsung agar data akun baru tidak pernah hilang dari spreadsheet
+    upsertRecordToSpreadsheet('users', userWithTime).catch(() => {});
     return userWithTime;
   }
 
@@ -788,7 +792,8 @@ export class DataStorageService {
     const newUsers = [...db.users];
     newUsers[idx] = updatedUser;
 
-    this.saveDatabase({ ...db, users: newUsers });
+    this.saveDatabase({ ...db, users: newUsers }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('users', updatedUser).catch(() => {});
     return updatedUser;
   }
 
@@ -804,7 +809,8 @@ export class DataStorageService {
     const newUsers = [...db.users];
     newUsers[idx] = updatedUser;
 
-    this.saveDatabase({ ...db, users: newUsers });
+    this.saveDatabase({ ...db, users: newUsers }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('users', updatedUser).catch(() => {});
     return updatedUser;
   }
 
@@ -815,7 +821,8 @@ export class DataStorageService {
 
     if (newUsers.length === initialLen) return false;
 
-    this.saveDatabase({ ...db, users: newUsers });
+    this.saveDatabase({ ...db, users: newUsers }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('users', userId).catch(() => {});
     return true;
   }
 
@@ -1187,8 +1194,9 @@ export class DataStorageService {
       qcInspections, 
       users,
       meetingRooms
-    });
+    }, { skipCloudSync: true });
     updateBuildingInSpreadsheetDirect(buildingWithId, previousBuildingName).catch(() => {});
+    upsertRecordToSpreadsheet('buildings', buildingWithId).catch(() => {});
     return buildingWithId;
   }
 
@@ -1236,8 +1244,9 @@ export class DataStorageService {
       buildings: updatedBuildings, 
       rooms: updatedRooms, 
       meetingRooms: updatedMeetingRooms 
-    });
+    }, { skipCloudSync: true });
     deleteBuildingInSpreadsheetDirect(buildingId, bld.name).catch(() => {});
+    deleteRecordFromSpreadsheet('buildings', buildingId).catch(() => {});
     return { 
       success: true, 
       message: `Gedung '${bld.name}' ${associatedRooms.length > 0 ? `beserta ${associatedRooms.length} unit kamar di dalamnya` : ''} berhasil dihapus dari database.` 
@@ -1278,7 +1287,8 @@ export class DataStorageService {
     // Pastikan rooms tidak terkontaminasi oleh fasilitas Ruang Pertemuan / Aula yang memiliki sheet tersendiri (meeting_rooms)
     const rooms = (db.rooms || []).filter(r => r.id !== mrWithId.id && r.roomNumber !== mrWithId.name);
 
-    this.saveDatabase({ ...db, meetingRooms: updated, rooms });
+    this.saveDatabase({ ...db, meetingRooms: updated, rooms }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('meeting_rooms', mrWithId).catch(() => {});
     return mrWithId;
   }
 
@@ -1311,7 +1321,8 @@ export class DataStorageService {
       return b;
     });
 
-    this.saveDatabase({ ...db, meetingRooms: updatedMR, rooms: updatedRooms, buildings });
+    this.saveDatabase({ ...db, meetingRooms: updatedMR, rooms: updatedRooms, buildings }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('meeting_rooms', meetingRoomId).catch(() => {});
     return { success: true, message: `Ruang Pertemuan '${mr.name}' berhasil dihapus dari database.` };
   }
 
@@ -1437,9 +1448,10 @@ export class DataStorageService {
       buildings, 
       transactions, 
       maintenances, 
-      qcInspections,
+      qcInspections, 
       meetingRooms
-    });
+    }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('rooms', roomWithId).catch(() => {});
     return roomWithId;
   }
 
@@ -1480,7 +1492,8 @@ export class DataStorageService {
       !(m.name.toLowerCase() === room.roomNumber.toLowerCase() && m.building.toLowerCase() === room.building.toLowerCase())
     );
 
-    this.saveDatabase({ ...db, rooms: updatedRooms, buildings, meetingRooms: updatedMeetingRooms });
+    this.saveDatabase({ ...db, rooms: updatedRooms, buildings, meetingRooms: updatedMeetingRooms }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('rooms', roomId).catch(() => {});
     return { success: true, message: `Kamar ${room.roomNumber} (${room.building}) berhasil dihapus.` };
   }
 
@@ -1531,7 +1544,8 @@ export class DataStorageService {
 
     const updatedRates = [...remainingRates, rateWithId];
 
-    this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
+    this.saveDatabase({ ...db, roomCapacityRates: updatedRates }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('room_capacity_rates', rateWithId).catch(() => {});
     return rateWithId;
   }
 
@@ -1544,7 +1558,8 @@ export class DataStorageService {
     }
 
     const updatedRates = rates.filter(r => r.id !== rateId);
-    this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
+    this.saveDatabase({ ...db, roomCapacityRates: updatedRates }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('room_capacity_rates', rateId).catch(() => {});
     return { success: true, message: `Konfigurasi '${item.roomType} - ${item.bedType}' berhasil dihapus dari database.` };
   }
 
@@ -1616,14 +1631,15 @@ export class DataStorageService {
       updatedTxs = [txWithTime, ...db.transactions];
     }
 
-    this.saveDatabase({ ...db, transactions: updatedTxs });
+    this.saveDatabase({ ...db, transactions: updatedTxs }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('transactions', txWithTime).catch(() => {});
     return txWithTime;
   }
 
   public saveTransactions(txs: Transaction[]): void {
     const db = this.getDatabase();
     const withTime = txs.map(t => ({ ...t, updatedAt: t.updatedAt || new Date().toISOString() }));
-    this.saveDatabase({ ...db, transactions: withTime });
+    this.saveDatabase({ ...db, transactions: withTime }, { skipCloudSync: true });
   }
 
   public deleteTransaction(txId: string): { success: boolean; message: string } {
@@ -1655,7 +1671,8 @@ export class DataStorageService {
     // Hapus juga pesanan sarapan terkait jika ada
     const updatedOrders = (db.breakfastOrders || []).filter(o => o.transactionId !== txId && o.id !== `BO-TX-${txId}`);
 
-    this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
+    this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('transactions', txId).catch(() => {});
     return { success: true, message: `Transaksi '${targetTx.guestName}' (${txId}) berhasil dihapus secara permanen.` };
   }
 
@@ -1708,14 +1725,16 @@ export class DataStorageService {
       updated = [mWithTime, ...db.maintenances];
     }
 
-    this.saveDatabase({ ...db, maintenances: updated });
+    this.saveDatabase({ ...db, maintenances: updated }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('maintenances', mWithTime).catch(() => {});
     return mWithTime;
   }
 
   public deleteMaintenance(maintId: string): boolean {
     const db = this.getDatabase();
     const updated = (db.maintenances || []).filter(m => m.id !== maintId);
-    this.saveDatabase({ ...db, maintenances: updated });
+    this.saveDatabase({ ...db, maintenances: updated }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('maintenances', maintId).catch(() => {});
     return true;
   }
 
@@ -1788,14 +1807,15 @@ export class DataStorageService {
       updated = [sessionWithId, ...db.workSessions];
     }
 
-    this.saveDatabase({ ...db, workSessions: updated });
+    this.saveDatabase({ ...db, workSessions: updated }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('work_sessions', sessionWithId).catch(() => {});
     return sessionWithId;
   }
 
   public clearWorkSessions(): void {
     const db = this.getDatabase();
     this.cache = { ...db, workSessions: [] };
-    this.saveDatabase({ ...db, workSessions: [] });
+    this.saveDatabase({ ...db, workSessions: [] }, { skipCloudSync: true });
   }
 
   // ==========================================
@@ -1822,14 +1842,16 @@ export class DataStorageService {
       updated = [qcWithTime, ...db.qcInspections];
     }
 
-    this.saveDatabase({ ...db, qcInspections: updated });
+    this.saveDatabase({ ...db, qcInspections: updated }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('qc_inspections', qcWithTime).catch(() => {});
     return qcWithTime;
   }
 
   public deleteQcInspection(qcId: string): boolean {
     const db = this.getDatabase();
     const updated = (db.qcInspections || []).filter(q => q.id !== qcId);
-    this.saveDatabase({ ...db, qcInspections: updated });
+    this.saveDatabase({ ...db, qcInspections: updated }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('qc_inspections', qcId).catch(() => {});
     return true;
   }
 
@@ -2095,7 +2117,8 @@ export class DataStorageService {
     } else {
       updated = [...items, itemWithTime];
     }
-    this.saveDatabase({ ...db, breakfastMenuItems: updated });
+    this.saveDatabase({ ...db, breakfastMenuItems: updated }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('breakfast_menu_items', itemWithTime).catch(() => {});
     return itemWithTime;
   }
 
@@ -2103,7 +2126,8 @@ export class DataStorageService {
     const db = this.getDatabase();
     const items = db.breakfastMenuItems || [];
     const filtered = items.filter(m => m.id !== itemId);
-    this.saveDatabase({ ...db, breakfastMenuItems: filtered });
+    this.saveDatabase({ ...db, breakfastMenuItems: filtered }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('breakfast_menu_items', itemId).catch(() => {});
     return true;
   }
 
@@ -2127,7 +2151,8 @@ export class DataStorageService {
     } else {
       updated = [orderWithTime, ...orders];
     }
-    this.saveDatabase({ ...db, breakfastOrders: updated });
+    this.saveDatabase({ ...db, breakfastOrders: updated }, { skipCloudSync: true });
+    upsertRecordToSpreadsheet('breakfast_orders', orderWithTime).catch(() => {});
     return orderWithTime;
   }
 
@@ -2164,7 +2189,8 @@ export class DataStorageService {
       ...db, 
       breakfastOrders: filtered,
       transactions: txUpdated ? updatedTxs : db.transactions
-    });
+    }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('breakfast_orders', orderId).catch(() => {});
     return true;
   }
 
@@ -2193,7 +2219,8 @@ export class DataStorageService {
         ...db, 
         breakfastOrders: updated,
         transactions: txUpdated ? updatedTxs : db.transactions
-      });
+      }, { skipCloudSync: true });
+      upsertRecordToSpreadsheet('breakfast_orders', updated[idx]).catch(() => {});
       return true;
     } else {
       const cleanTxId = orderId.replace('BO-TX-', '').split('-')[0];
@@ -2225,7 +2252,8 @@ export class DataStorageService {
           ...db, 
           breakfastOrders: [newOrder, ...orders.filter(o => o.id !== orderId)],
           transactions: updatedTxs
-        });
+        }, { skipCloudSync: true });
+        upsertRecordToSpreadsheet('breakfast_orders', newOrder).catch(() => {});
         return true;
       }
     }

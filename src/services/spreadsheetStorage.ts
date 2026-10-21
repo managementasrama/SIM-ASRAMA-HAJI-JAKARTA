@@ -265,6 +265,12 @@ export async function fetchFromGoogleSheet(sheetName: string): Promise<any[]> {
   }
 }
 
+export function isVercelOrStaticDeploy(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname.toLowerCase();
+  return host.includes('vercel.app') || host.includes('.now.sh') || host.includes('pages.dev') || host.includes('netlify.app');
+}
+
 /**
  * BACA SELURUH DATABASE DARI GOOGLE SPREADSHEET (VIA DIRECT WEB APP ATAU SERVER PROXY)
  * Berfungsi sebagai Single Source of Truth utama
@@ -276,27 +282,32 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
     cfg.webAppUrl ||
     'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
 
-  // 1. Utamakan pembacaan instan (< 10ms) dari endpoint backend proxy /api/sheets/database
-  try {
-    const proxyRes = await fetch('/api/sheets/database', {
-      method: 'GET',
-      headers: { Accept: 'application/json' }
-    });
+  // 1. Coba melalui backend Express server proxy jika bukan di hosting statis Vercel
+  if (!isVercelOrStaticDeploy()) {
+    try {
+      const proxyRes = await fetch('/api/sheets/database', {
+        method: 'GET',
+        headers: { Accept: 'application/json' }
+      });
 
-    if (proxyRes.ok) {
-      const json = await proxyRes.json();
-      if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
-        const d = json.data;
-        if (d && typeof d === 'object') {
-          const normalized = normalizeSpreadsheetPayload(d);
-          if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
-            return normalized;
+      if (proxyRes.ok) {
+        const ct = proxyRes.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const json = await proxyRes.json();
+          if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
+            const d = json.data;
+            if (d && typeof d === 'object') {
+              const normalized = normalizeSpreadsheetPayload(d);
+              if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
+                return normalized;
+              }
+            }
           }
         }
       }
+    } catch (e) {
+      console.warn('Proxy /api/sheets/database tidak merespons, beralih ke direct Web App:', e);
     }
-  } catch (e) {
-    console.warn('Proxy /api/sheets/database tidak merespons, mencoba akses direct Web App:', e);
   }
 
   // 2. Fallback direct fetch ke Web App Apps Script jika server proxy offline/preview
@@ -390,24 +401,29 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     app_settings: safeAppSettings,
   };
 
-  // 1. Kirim melalui backend server proxy
-  try {
-    const proxyRes = await fetch('/api/sheets/database', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...formattedPayload,
-        webAppUrl: cfg.webAppUrl || '',
-      })
-    });
+  // 1. Kirim melalui backend server proxy jika ada
+  if (!isVercelOrStaticDeploy()) {
+    try {
+      const proxyRes = await fetch('/api/sheets/database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formattedPayload,
+          webAppUrl: cfg.webAppUrl || '',
+        })
+      });
 
-    if (proxyRes.ok) {
-      const resJson = await proxyRes.json().catch(() => null);
-      if (resJson && resJson.status === 'success') {
-        return { success: true };
+      if (proxyRes.ok) {
+        const ct = proxyRes.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const resJson = await proxyRes.json().catch(() => null);
+          if (resJson && resJson.status === 'success') {
+            return { success: true };
+          }
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   // 2. Fallback: kirim langsung ke Web App Apps Script
   if (cfg.webAppUrl) {
@@ -1437,27 +1453,6 @@ export async function pushChatMessageToSpreadsheet(
     const payload = {
       action: 'SYNC_CHAT',
       timestamp: new Date().toISOString(),
-      buildings: fullDb.buildings || [],
-      rooms: fullDb.rooms || [],
-      meetingRooms: fullDb.meetingRooms || [],
-      meeting_rooms: fullDb.meetingRooms || [],
-      roomCapacityRates: fullDb.roomCapacityRates || [],
-      room_capacity_rates: fullDb.roomCapacityRates || [],
-      breakfastMenuItems: fullDb.breakfastMenuItems || [],
-      breakfast_menu_items: fullDb.breakfastMenuItems || [],
-      transactions: fullDb.transactions || [],
-      users: fullDb.users || [],
-      maintenances: fullDb.maintenances || [],
-      qcInspections: fullDb.qcInspections || [],
-      qc_inspections: fullDb.qcInspections || [],
-      breakfastOrders: fullDb.breakfastOrders || [],
-      breakfast_orders: fullDb.breakfastOrders || [],
-      workSessions: fullDb.workSessions || [],
-      work_sessions: fullDb.workSessions || [],
-      appSettings: sanitizeSettings(fullDb.appSettings),
-      app_settings: sanitizeSettings(fullDb.appSettings),
-      system_logs: (fullDb.auditLogs || []).slice(0, 100),
-      auditLogs: fullDb.auditLogs || [],
       chatChannels: mergedChannels,
       chat_channels: mergedChannels,
       chatMessages: mergedMessages,
@@ -1482,6 +1477,7 @@ export async function pushChatMessageToSpreadsheet(
 
 /**
  * SIMPAN / SINKRONKAN SESI KERJA & DETAK JANTUNG ONLINE KE GOOGLE SPREADSHEET
+ * HANYA memperbarui tabel work_sessions tanpa menyentuh tabel data lain
  */
 export async function pushWorkSessionToSpreadsheet(
   session: WorkSession
@@ -1500,43 +1496,11 @@ export async function pushWorkSessionToSpreadsheet(
     sessionMap.set(session.id, session);
     const mergedSessions = Array.from(sessionMap.values());
 
-    const sanitizeSettings = (s: any) => {
-      if (!s || typeof s !== 'object') return null;
-      const copy = { ...s };
-      if (typeof copy.appLogo === 'string' && (copy.appLogo.length > 20000 || copy.appLogo.startsWith('data:image/'))) {
-        copy.appLogo = 'OFFICIAL_LOGO';
-      }
-      return copy;
-    };
-
     const payload = {
       action: 'SYNC_WORK_SESSIONS',
       timestamp: new Date().toISOString(),
-      buildings: fullDb.buildings || [],
-      rooms: fullDb.rooms || [],
-      meetingRooms: fullDb.meetingRooms || [],
-      meeting_rooms: fullDb.meetingRooms || [],
-      roomCapacityRates: fullDb.roomCapacityRates || [],
-      room_capacity_rates: fullDb.roomCapacityRates || [],
-      breakfastMenuItems: fullDb.breakfastMenuItems || [],
-      breakfast_menu_items: fullDb.breakfastMenuItems || [],
-      transactions: fullDb.transactions || [],
-      users: fullDb.users || [],
-      maintenances: fullDb.maintenances || [],
-      qcInspections: fullDb.qcInspections || [],
-      qc_inspections: fullDb.qcInspections || [],
-      breakfastOrders: fullDb.breakfastOrders || [],
-      breakfast_orders: fullDb.breakfastOrders || [],
       workSessions: mergedSessions,
       work_sessions: mergedSessions,
-      appSettings: sanitizeSettings(fullDb.appSettings),
-      app_settings: sanitizeSettings(fullDb.appSettings),
-      system_logs: (fullDb.auditLogs || []).slice(0, 100),
-      auditLogs: fullDb.auditLogs || [],
-      chatChannels: fullDb.chatChannels || [],
-      chat_channels: fullDb.chatChannels || [],
-      chatMessages: fullDb.chatMessages || [],
-      chat_messages: fullDb.chatMessages || [],
     };
 
     const res = await fetch(webAppUrl, {
@@ -1551,6 +1515,104 @@ export async function pushWorkSessionToSpreadsheet(
     return { success: false, error: `HTTP ${res.status}` };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Gagal mengirim sesi ke Spreadsheet' };
+  }
+}
+
+/**
+ * UPSERT SATU REKAMAN (INSERT JIKA BARU, UPDATE JIKA SUDAH ADA) KE SPREADSHEET
+ * Tidak pernah menghapus data lain di lembar kerja yang sama
+ */
+export async function upsertRecordToSpreadsheet(
+  sheetName: string,
+  record: any
+): Promise<{ success: boolean; error?: string }> {
+  const cfg = getSpreadsheetConfig();
+  const webAppUrl = cfg.webAppUrl;
+  if (!webAppUrl) return { success: true };
+
+  const payload = {
+    action: 'UPSERT_RECORD',
+    sheet: sheetName,
+    table: sheetName,
+    record,
+    data: [record],
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    if (!isVercelOrStaticDeploy()) {
+      try {
+        const proxyRes = await fetch('/api/sheets/upsert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, webAppUrl })
+        });
+        if (proxyRes.ok) {
+          const ct = proxyRes.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const j = await proxyRes.json();
+            if (j.status === 'success') return { success: true };
+          }
+        }
+      } catch (_) {}
+    }
+
+    const res = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return { success: res.ok };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+/**
+ * HAPUS SATU REKAMAN BERDASARKAN ID DARI LEMBAR KERJA TERTENTU DI SPREADSHEET
+ */
+export async function deleteRecordFromSpreadsheet(
+  sheetName: string,
+  recordId: string
+): Promise<{ success: boolean; error?: string }> {
+  const cfg = getSpreadsheetConfig();
+  const webAppUrl = cfg.webAppUrl;
+  if (!webAppUrl) return { success: true };
+
+  const payload = {
+    action: 'DELETE_RECORD',
+    sheet: sheetName,
+    table: sheetName,
+    id: recordId,
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    if (!isVercelOrStaticDeploy()) {
+      try {
+        const proxyRes = await fetch('/api/sheets/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, webAppUrl })
+        });
+        if (proxyRes.ok) {
+          const ct = proxyRes.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const j = await proxyRes.json();
+            if (j.status === 'success') return { success: true };
+          }
+        }
+      } catch (_) {}
+    }
+
+    const res = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return { success: res.ok };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
   }
 }
 
