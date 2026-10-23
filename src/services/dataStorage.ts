@@ -473,33 +473,7 @@ export class DataStorageService {
       return r;
     });
 
-    // Pangkas kamar kosong surplus jika gedung penginapan memiliki konfigurasi totalRooms yang lebih kecil
-    // Ini secara permanen mencegah kamar lama (misal 50 unit) dari Google Sheets / cache menimpa konfigurasi pengguna (misal 5 unit)
-    mergedBuildings.forEach(b => {
-      if (b.category === 'PENGINAPAN' || !b.category) {
-        const targetRoomsCount = Number(b.totalRooms);
-        if (targetRoomsCount > 0) {
-          const bldRooms = finalMergedRooms.filter(r =>
-            isRoomMatchingBuilding(r, b, mergedMeetingRooms) ||
-            getRoomBuildingKey(r, mergedMeetingRooms).toLowerCase() === b.name.toLowerCase() ||
-            (r.building && r.building.toLowerCase() === b.name.toLowerCase())
-          );
-          if (bldRooms.length > targetRoomsCount) {
-            const surplus = bldRooms.length - targetRoomsCount;
-            // Hanya hapus kamar yang berstatus KOSONG dan tidak memiliki transaksi atau pemeliharaan aktif
-            const deletableRooms = bldRooms
-              .filter(r => r.status === 'KOSONG' && !r.activeTxId && !r.activeMaintId)
-              .sort((a, b) => b.roomNumber.localeCompare(a.roomNumber, undefined, { numeric: true }));
-            const toRemove = new Set(deletableRooms.slice(0, surplus).map(r => r.id));
-            if (toRemove.size > 0) {
-              finalMergedRooms = finalMergedRooms.filter(r => !toRemove.has(r.id));
-            }
-          }
-        }
-      }
-    });
-
-    // Selaraskan totalRooms pada gedung dengan jumlah kamar riil hasil deduplikasi
+    // Selaraskan totalRooms pada gedung dengan jumlah kamar riil hasil deduplikasi (memastikan seluruh kamar dari cloud/spreadsheet seperti 195 unit dimuat utuh)
     mergedBuildings = mergedBuildings.map(b => {
       if (b.category === 'SERBAGUNA' || b.category === 'RUANG_PERTEMUAN') {
         return { ...b, totalRooms: 0 };
@@ -509,7 +483,10 @@ export class DataStorageService {
         getRoomBuildingKey(r, mergedMeetingRooms).toLowerCase() === b.name.toLowerCase() ||
         (r.building && r.building.toLowerCase() === b.name.toLowerCase())
       ).length;
-      return { ...b, totalRooms: (b.totalRooms && b.totalRooms > 0) ? b.totalRooms : (actualCount > 0 ? actualCount : 0) };
+      return { 
+        ...b, 
+        totalRooms: Math.max(Number(b.totalRooms || 0), actualCount) 
+      };
     });
 
     // 9. Room Capacity Rates (Katalog Tipe Kamar & Tarif Kapasitas)

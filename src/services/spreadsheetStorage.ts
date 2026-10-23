@@ -1416,11 +1416,14 @@ export async function fetchLiveChatAndPresenceFromSpreadsheet(): Promise<{
   channels: ChatChannel[];
 }> {
   try {
-    const [messages, sessions, channels] = await Promise.all([
+    const [messagesRes, sessionsRes, channelsRes] = await Promise.allSettled([
       fetchChatMessagesFromSpreadsheet(),
       fetchWorkSessionsFromSpreadsheet(),
       fetchChatChannelsFromSpreadsheet()
     ]);
+    const messages = messagesRes.status === 'fulfilled' ? messagesRes.value : [];
+    const sessions = sessionsRes.status === 'fulfilled' ? sessionsRes.value : [];
+    const channels = channelsRes.status === 'fulfilled' ? channelsRes.value : [];
     return { messages, sessions, channels };
   } catch (err) {
     console.warn('[SpreadsheetStorage] Gagal polling live chat & sesi:', err);

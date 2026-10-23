@@ -2114,51 +2114,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const loginTimeStr = getRealLocalDateTimeStr(now);
     const nowMs = now.getTime();
 
-    // Periksa apakah pengguna ini sudah memiliki sesi AKTIF yang belum ditutup
-    const existingActive = workSessions.find(
-      s => s.userId === user.id && s.status === 'AKTIF' && !s.logoutTime
-    );
-
-    if (existingActive) {
-      // Lanjutkan sesi aktif yang sudah ada tanpa membuat duplikat sesi baru
-      setActiveSessionId(existingActive.id);
-      const parsedStart = parseLocalTimeString(existingActive.loginTime).getTime();
-      const diffSec = Math.max(1, Math.floor((nowMs - parsedStart) / 1000));
-      const updatedExisting: WorkSession = {
-        ...existingActive,
-        userName: user.fullName,
-        userRole: user.role,
-        department: user.department || 'Operasional',
-        assignedBuilding: user.assignedBuilding || 'Semua Gedung',
-        durationSeconds: diffSec,
-        durationFormatted: `${formatHMS(diffSec)} (Sedang Berjalan)`,
-        lastHeartbeat: now.toISOString(),
-      };
-      setLoginTime(parsedStart);
-      dataStorage.saveWorkSession(updatedExisting);
-      pushWorkSessionToSpreadsheet(updatedExisting).catch(() => {});
-      setWorkSessions(prev => prev.map(s => (s.id === updatedExisting.id ? updatedExisting : s)));
-      realtimeService.broadcastWorkSession(updatedExisting, false);
-      realtimeService.sendHeartbeat({
-        userId: user.id,
-        userName: user.fullName,
-        userRole: user.role,
-        department: user.department || 'Operasional',
-        assignedBuilding: user.assignedBuilding || 'Semua Gedung',
-        sessionId: updatedExisting.id,
-        loginTime: updatedExisting.loginTime,
-        activeTab: 'dashboard',
-      });
-      logAudit(
-        "Login System", 
-        `Petugas ${user.fullName} (${user.role}) melanjutkan sesi kerja aktif (${existingActive.id})`
-      );
-      showToast(`Melanjutkan sesi aktif, ${user.fullName} (${user.role})!`, "success");
-      setActiveTab('dashboard');
-      pullFromCentralDatabase();
-      return;
-    }
-
     setLoginTime(nowMs);
 
     const newSessionId = `SESI-${Date.now().toString().slice(-4)}-${user.id.slice(-2).toUpperCase()}`;
@@ -2177,10 +2132,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       department: user.department || 'Operasional',
       assignedBuilding: user.assignedBuilding || 'Semua Gedung',
       lastHeartbeat: now.toISOString(),
-      notes: `Sesi login petugas (${user.role} - ${user.department || 'Operasional'})`
+      notes: `Sesi login perangkat terbaru (${user.role} - ${user.department || 'Operasional'})`
     };
 
-    // Simpan langsung ke dataStorage & Google Spreadsheet serta broadcast real-time agar seluruh akun lain langsung melihat petugas ini aktif
+    // Simpan langsung ke dataStorage & Google Spreadsheet serta broadcast real-time agar perangkat lain otomatis offline
     dataStorage.saveWorkSession(newSession);
     pushWorkSessionToSpreadsheet(newSession).catch(() => {});
     setWorkSessions(prev => {
@@ -2188,13 +2143,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (s.userId === user.id && s.status === 'AKTIF') {
           const sTime = parseLocalTimeString(s.loginTime).getTime();
           const sDur = Math.max(1, Math.floor((nowMs - sTime) / 1000));
-          return {
+          const finishedSession: WorkSession = {
             ...s,
             status: 'SELESAI' as const,
             logoutTime: loginTimeStr,
             durationSeconds: sDur,
             durationFormatted: formatHMS(sDur)
           };
+          dataStorage.saveWorkSession(finishedSession);
+          pushWorkSessionToSpreadsheet(finishedSession).catch(() => {});
+          realtimeService.broadcastWorkSession(finishedSession, false);
+          return finishedSession;
         }
         return s;
       });
@@ -2214,10 +2173,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     logAudit(
       "Login System", 
-      `Petugas ${user.fullName} (${user.role}) masuk bertugas pada ${loginTimeStr}`
+      `Petugas ${user.fullName} (${user.role}) masuk bertugas pada ${loginTimeStr} (Perangkat Terbaru)`
     );
 
-    showToast(`Selamat datang, ${user.fullName} (${user.role})!`, "success");
+    showToast(`Selamat datang, ${user.fullName} (${user.role})! Sesi aktif di perangkat lain dialihkan ke perangkat ini.`, "success");
 
     setActiveTab('dashboard');
     pullFromCentralDatabase();
