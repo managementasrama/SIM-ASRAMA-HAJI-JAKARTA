@@ -1301,7 +1301,11 @@ export async function validateDatabaseChecksumAgainstSpreadsheet(localDataset: {
 export async function fetchChatMessagesFromSpreadsheet(): Promise<ChatMessage[]> {
   try {
     const raw = await fetchFromGoogleSheet('chat_messages');
-    if (!Array.isArray(raw)) return [];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      const local = dataStorage.getChatMessages();
+      if (Array.isArray(local) && local.length > 0) return local;
+      return [];
+    }
     return raw.map((m: any) => ({
       id: String(m.id || `msg-${Date.now()}`),
       channelId: String(m.channelId || m.channel_id || ''),
@@ -1321,7 +1325,8 @@ export async function fetchChatMessagesFromSpreadsheet(): Promise<ChatMessage[]>
       replyToText: m.replyToText || m.reply_to_text || undefined
     }));
   } catch (err) {
-    console.warn('[SpreadsheetStorage] Gagal memuat chat_messages dari spreadsheet:', err);
+    const local = dataStorage.getChatMessages();
+    if (Array.isArray(local) && local.length > 0) return local;
     return [];
   }
 }
@@ -1332,7 +1337,11 @@ export async function fetchChatMessagesFromSpreadsheet(): Promise<ChatMessage[]>
 export async function fetchWorkSessionsFromSpreadsheet(): Promise<WorkSession[]> {
   try {
     const raw = await fetchFromGoogleSheet('work_sessions');
-    if (!Array.isArray(raw)) return [];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      const local = dataStorage.getWorkSessions();
+      if (Array.isArray(local) && local.length > 0) return local;
+      return [];
+    }
     return raw.map((w: any) => ({
       id: String(w.id || `ws-${Date.now()}`),
       userId: String(w.userId || w.user_id || ''),
@@ -1350,7 +1359,8 @@ export async function fetchWorkSessionsFromSpreadsheet(): Promise<WorkSession[]>
       notes: w.notes || undefined
     }));
   } catch (err) {
-    console.warn('[SpreadsheetStorage] Gagal memuat work_sessions dari spreadsheet:', err);
+    const local = dataStorage.getWorkSessions();
+    if (Array.isArray(local) && local.length > 0) return local;
     return [];
   }
 }
@@ -1361,7 +1371,11 @@ export async function fetchWorkSessionsFromSpreadsheet(): Promise<WorkSession[]>
 export async function fetchChatChannelsFromSpreadsheet(): Promise<ChatChannel[]> {
   try {
     const raw = await fetchFromGoogleSheet('chat_channels');
-    if (!Array.isArray(raw)) return [];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      const local = dataStorage.getChatChannels();
+      if (Array.isArray(local) && local.length > 0) return local;
+      return [];
+    }
     return raw.map((c: any) => ({
       id: String(c.id || `ch-${Date.now()}`),
       name: String(c.name || 'Saluran Chat'),
@@ -1387,7 +1401,8 @@ export async function fetchChatChannelsFromSpreadsheet(): Promise<ChatChannel[]>
       lastSenderName: c.lastSenderName || c.last_sender_name || undefined
     }));
   } catch (err) {
-    console.warn('[SpreadsheetStorage] Gagal memuat chat_channels dari spreadsheet:', err);
+    const local = dataStorage.getChatChannels();
+    if (Array.isArray(local) && local.length > 0) return local;
     return [];
   }
 }

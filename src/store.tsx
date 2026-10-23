@@ -562,6 +562,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Enforce 1 active session per account across devices (Single device login enforcement)
+  useEffect(() => {
+    if (!currentUser || !activeSessionId) return;
+    const interval = setInterval(() => {
+      const newerActive = workSessions.find(
+        s => s.userId === currentUser.id && s.status === 'AKTIF' && s.id !== activeSessionId
+      );
+      if (newerActive) {
+        showToast("Akun ini telah masuk di perangkat baru. Sesi di perangkat ini otomatis offline.", "warning");
+        logout();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser, activeSessionId, workSessions]);
+
   // Spreadsheet Cloud Sync State & Checksum Validation State
   const [supabaseSyncState, setSupabaseSyncState] = useState(dataStorage.getSupabaseSyncState());
   const [checksumReport, setChecksumReport] = useState<DatabaseChecksumReport>(() => {
