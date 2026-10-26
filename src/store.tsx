@@ -279,6 +279,12 @@ interface AppContextType {
 
   addQcInspection: (inspection: QcInspection) => void;
   deleteQcInspection: (qcId: string) => boolean | Promise<boolean>;
+
+  // Cleaning Logs & Petugas Gedung Database
+  cleaningLogs: CleaningLog[];
+  addCleaningLog: (log: CleaningLog) => void;
+  updateCleaningLogStatus: (logId: string, status: CleaningLog['status']) => void;
+  deleteCleaningLog: (logId: string) => void;
   
   // Breakfast Orders & Menu Catalog Database Management
   breakfastMenuItems: BreakfastMenuItem[];
@@ -425,6 +431,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => dataStorage.getAuditLogs());
   const [workSessions, setWorkSessions] = useState<WorkSession[]>(() => dataStorage.getWorkSessions());
   const [qcInspections, setQcInspections] = useState<QcInspection[]>(() => dataStorage.getQcInspections());
+  const [cleaningLogs, setCleaningLogs] = useState<CleaningLog[]>(() => dataStorage.getCleaningLogs());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
     try {
       return sessionStorage.getItem('sim_haji_active_session_id') || null;
@@ -5033,6 +5040,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast("Riwayat arsip notifikasi email teknisi berhasil dibersihkan.", "info");
   };
 
+  const addCleaningLog = (log: CleaningLog) => {
+    const saved = dataStorage.saveCleaningLog(log);
+    setCleaningLogs(dataStorage.getCleaningLogs());
+    logAudit('Laporan Pembersihan Gedung', `Petugas ${saved.petugasName} mengirim laporan pembersihan untuk ${saved.building} ${saved.roomNumber}.`);
+  };
+
+  const updateCleaningLogStatus = (logId: string, status: CleaningLog['status']) => {
+    const db = dataStorage.getDatabase();
+    const logs = db.cleaningLogs || [];
+    const updated = logs.map(l => l.id === logId ? { ...l, status } : l);
+    dataStorage.saveDatabase({ ...db, cleaningLogs: updated });
+    setCleaningLogs(updated);
+  };
+
+  const deleteCleaningLog = (logId: string) => {
+    dataStorage.deleteCleaningLog(logId);
+    setCleaningLogs(dataStorage.getCleaningLogs());
+  };
+
   // Modal scroll lock on body (mencegah scroll latar belakang saat modal terbuka)
   const isAnyModalOpen = Object.values(modalState).some((m: any) => Boolean(m?.isOpen));
   useBodyScrollLock(isAnyModalOpen);
@@ -5040,6 +5066,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider value={{
       currentUser, users, rooms, transactions, maintenances, auditLogs, workSessions, qcInspections, activeSessionId, onlinePresences, activeTab, toasts, modalState,
+      cleaningLogs, addCleaningLog, updateCleaningLogStatus, deleteCleaningLog,
       storageNamespace, switchStorageNamespace, isNetworkOnline, isDarkMode, toggleDarkMode, updateCurrentAccount, appSettings, updateAppSettings,
       buildings, meetingRooms, addBuilding, updateBuilding, deleteBuilding, addMeetingRoom, updateMeetingRoom, deleteMeetingRoom, addRoom, updateRoom, deleteRoom,
       roomCapacityRates, addRoomCapacityRate, updateRoomCapacityRate, deleteRoomCapacityRate, resetRoomCapacityRates, applyRateToAllRooms,
@@ -5051,7 +5078,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       markChannelAsRead, dismissChatNotification, simulateIncomingChatMessage,
       clearChatHistory, addChatChannel, deleteChatChannel,
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
-      login, logout, clearWorkSessions, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
+      login, logout, clearWorkSessions, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase

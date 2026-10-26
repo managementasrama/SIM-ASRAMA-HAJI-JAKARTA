@@ -59,6 +59,12 @@ export function Header() {
       roles: ['Super Admin', 'Admin', 'Manager QC', 'Quality Control', 'Manager Resepsionis', 'Manager'] 
     },
     { 
+      id: 'buildingStaff', 
+      label: 'Petugas Gedung', 
+      icon: 'fa-broom', 
+      roles: ['Super Admin', 'Admin', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager QC', 'Quality Control', 'Manager'] 
+    },
+    { 
       id: 'laporanMaintenance', 
       label: 'Laporan Perawatan', 
       icon: 'fa-screwdriver-wrench', 

@@ -6,6 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { RoomsView } from './components/RoomsView';
 import { ReportsView, MaintenanceReportsView, AuditLogView, BreakfastOrdersView } from './components/OtherViews';
 import { QualityControlView } from './components/QualityControlView';
+import { BuildingStaffView } from './components/BuildingStaffView';
 import { UserManagementView } from './components/UserManagementView';
 import { SpreadsheetIntegrationView } from './components/SpreadsheetIntegrationView';
 import { Modals } from './components/Modals';
@@ -88,6 +89,10 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
   qualityControl: {
     title: 'Quality Control (QC)',
     roles: ['Super Admin', 'Admin', 'Manager QC', 'Quality Control', 'Manager Resepsionis', 'Manager']
+  },
+  buildingStaff: {
+    title: 'Petugas Gedung & Housekeeping SOP',
+    roles: ['Super Admin', 'Admin', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager QC', 'Quality Control', 'Manager']
   },
   laporanKamar: {
     title: 'Laporan Kamar, Pemesanan & Kwitansi',
@@ -182,6 +187,7 @@ function MainApp() {
             {resolvedTab === 'dashboard' && <Dashboard />}
             {resolvedTab === 'gedung' && <RoomsView />}
             {resolvedTab === 'qualityControl' && <QualityControlView />}
+            {resolvedTab === 'buildingStaff' && <BuildingStaffView />}
             {resolvedTab === 'laporanKamar' && <ReportsView />}
             {resolvedTab === 'laporanMaintenance' && <MaintenanceReportsView />}
             {resolvedTab === 'pesananSarapan' && <BreakfastOrdersView />}
