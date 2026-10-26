@@ -293,6 +293,7 @@ export function UserManagementView() {
         if (roleFilter === 'FINANCE_GROUP' && !isKeuanganRole(user.role, user.department)) return false;
         if (roleFilter === 'QC_GROUP' && !rStr.includes('QC') && !rStr.includes('Quality')) return false;
         if (roleFilter === 'TEK_GROUP' && !rStr.includes('Teknisi')) return false;
+        if (roleFilter === 'STAFF_GROUP' && !rStr.includes('Petugas Gedung')) return false;
         if (roleFilter === 'KOP_GROUP' && !rStr.includes('Koperasi')) return false;
       }
 
@@ -338,6 +339,12 @@ export function UserManagementView() {
     }
     if (role === 'Quality Control') {
       return { bg: 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-900 dark:text-cyan-200 border-cyan-200 dark:border-cyan-600', icon: 'fa-magnifying-glass-check', label: 'Staf QC' };
+    }
+    if (role === 'Manager Petugas Gedung') {
+      return { bg: 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-600', icon: 'fa-broom', label: 'Manager Petugas Gedung' };
+    }
+    if (role === 'Petugas Gedung') {
+      return { bg: 'bg-teal-50 dark:bg-teal-950/60 text-teal-900 dark:text-teal-200 border-teal-200 dark:border-teal-600', icon: 'fa-broom', label: 'Petugas Gedung' };
     }
     if (role === 'Manager Teknisi') {
       return { bg: 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-600', icon: 'fa-wrench', label: 'Manager Fasilitas' };
@@ -888,6 +895,10 @@ export function UserManagementView() {
                     <option value="Manager Teknisi">Manager Teknisi</option>
                     <option value="Teknisi">Teknisi</option>
                   </optgroup>
+                  <optgroup label="Divisi Petugas Gedung & Housekeeping">
+                    <option value="Manager Petugas Gedung">Manager Petugas Gedung</option>
+                    <option value="Petugas Gedung">Petugas Gedung (Housekeeping)</option>
+                  </optgroup>
                   <optgroup label="Divisi Koperasi & Konsumsi">
                     <option value="Manager Koperasi">Manager Koperasi</option>
                     <option value="Petugas Koperasi">Petugas Koperasi</option>
@@ -907,6 +918,7 @@ export function UserManagementView() {
                   <option value="Keuangan & Perbendaharaan">Keuangan & Perbendaharaan</option>
                   <option value="Pelayanan & Resepsionis">Pelayanan & Resepsionis</option>
                   <option value="Pengawasan Mutu & QC">Pengawasan Mutu & QC</option>
+                  <option value="Petugas Gedung & Housekeeping">Petugas Gedung & Housekeeping</option>
                   <option value="Pemeliharaan Fasilitas & Teknisi">Pemeliharaan Fasilitas & Teknisi</option>
                   <option value="Koperasi, Dapur & Konsumsi">Koperasi, Dapur & Konsumsi</option>
                 </select>
@@ -1088,6 +1100,7 @@ export function UserManagementView() {
               { id: 'RECEP_GROUP', label: 'Resepsionis' },
               { id: 'FINANCE_GROUP', label: 'Keuangan' },
               { id: 'QC_GROUP', label: 'Quality Control' },
+              { id: 'STAFF_GROUP', label: 'Petugas Gedung' },
               { id: 'TEK_GROUP', label: 'Teknisi' },
               { id: 'KOP_GROUP', label: 'Koperasi' }
             ].map(f => (

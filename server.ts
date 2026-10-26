@@ -1153,6 +1153,7 @@ async function startServer() {
     const maintenancesList = normalizeItemsList(Array.isArray(data?.maintenances) ? data.maintenances : []);
     const qcInspectionsList = normalizeItemsList(Array.isArray(data?.qcInspections) ? data.qcInspections : (Array.isArray(data?.qc_inspections) ? data.qc_inspections : []));
     const workSessionsList = normalizeItemsList(Array.isArray(data?.workSessions) ? data.workSessions : (Array.isArray(data?.work_sessions) ? data.work_sessions : []));
+    const cleaningLogsList = normalizeItemsList(Array.isArray(data?.cleaningLogs) ? data.cleaningLogs : (Array.isArray(data?.cleaning_logs) ? data.cleaning_logs : []));
     const auditLogsList = normalizeItemsList(Array.isArray(data?.auditLogs) ? data.auditLogs : (Array.isArray(data?.system_logs) ? data.system_logs : []));
     const chatChannelsList = normalizeItemsList(Array.isArray(data?.chatChannels) ? data.chatChannels : (Array.isArray(data?.chat_channels) ? data.chat_channels : (realtimeState.chatChannels || [])));
     const chatMessagesList = normalizeItemsList(Array.isArray(data?.chatMessages) ? data.chatMessages : (Array.isArray(data?.chat_messages) ? data.chat_messages : (realtimeState.chatMessages || [])));
@@ -1173,6 +1174,8 @@ async function startServer() {
       maintenances: maintenancesList,
       qcInspections: qcInspectionsList,
       qc_inspections: qcInspectionsList,
+      cleaningLogs: cleaningLogsList,
+      cleaning_logs: cleaningLogsList,
       workSessions: workSessionsList,
       work_sessions: workSessionsList,
       auditLogs: auditLogsList,
@@ -1617,6 +1620,7 @@ async function startServer() {
         maintenances: "maintenances",
         qc_inspections: "qc_inspections",
         breakfast_orders: "breakfast_orders",
+        cleaning_logs: "cleaning_logs",
         work_sessions: "work_sessions",
         app_settings: "app_settings",
         system_logs: "system_logs",

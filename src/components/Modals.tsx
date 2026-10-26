@@ -746,6 +746,14 @@ export function Modals() {
       setUSupervisorId('u11');
       setUDepartment('Koperasi, Dapur & Konsumsi');
       setUAssigned('Dapur & Distribusi Sarapan');
+    } else if (newRole === 'Manager Petugas Gedung') {
+      setUSupervisorId('u1');
+      setUDepartment('Petugas Gedung & Housekeeping');
+      setUAssigned('Semua Gedung');
+    } else if (newRole === 'Petugas Gedung') {
+      const topStaff = users.find(u => u.role === 'Manager Petugas Gedung');
+      setUSupervisorId(topStaff ? topStaff.id : 'u1');
+      setUDepartment('Petugas Gedung & Housekeeping');
     }
   };
 
@@ -3502,6 +3510,10 @@ export function Modals() {
                           <optgroup label="Divisi Pemeliharaan (Teknisi Gedung)">
                             <option value="Manager Teknisi">Manager Teknisi</option>
                             <option value="Teknisi">Teknisi Gedung (Staff)</option>
+                          </optgroup>
+                          <optgroup label="Divisi Petugas Gedung & Housekeeping">
+                            <option value="Manager Petugas Gedung">Manager Petugas Gedung</option>
+                            <option value="Petugas Gedung">Petugas Gedung (Housekeeping)</option>
                           </optgroup>
                           <optgroup label="Divisi Koperasi & Konsumsi (Dapur)">
                             <option value="Manager Koperasi">Manager Koperasi</option>

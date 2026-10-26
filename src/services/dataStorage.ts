@@ -1739,14 +1739,17 @@ export class DataStorageService {
       updatedAt: new Date().toISOString()
     };
     const updated = [withTime, ...logs.filter(l => l.id !== withTime.id)];
-    this.saveDatabase({ ...db, cleaningLogs: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, cleaningLogs: updated });
+    // Kirim upsert langsung agar laporan pembersihan & bukti foto petugas gedung langsung tersimpan di spreadsheet
+    upsertRecordToSpreadsheet('cleaning_logs', withTime).catch(() => {});
     return withTime;
   }
 
   public deleteCleaningLog(logId: string): boolean {
     const db = this.getDatabase();
     const updated = (db.cleaningLogs || []).filter(l => l.id !== logId);
-    this.saveDatabase({ ...db, cleaningLogs: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, cleaningLogs: updated });
+    deleteRecordFromSpreadsheet('cleaning_logs', logId).catch(() => {});
     return true;
   }
 

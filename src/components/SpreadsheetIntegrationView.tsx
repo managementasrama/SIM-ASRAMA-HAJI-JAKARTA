@@ -680,7 +680,7 @@ function onOpen() {
   try {
     var ui = SpreadsheetApp.getUi();
     ui.createMenu("🕌 SIM Asrama Haji")
-      .addItem("⚡ Buat Semua 13 Sheet & Header Otomatis", "menuAutoProvisionAllSheets")
+      .addItem("⚡ Buat Semua 16 Sheet & Header Otomatis", "menuAutoProvisionAllSheets")
       .addItem("⬆️ Isi Data Master Awal (Seed Data)", "menuProvisionWithSeedData")
       .addSeparator()
       .addItem("🧹 Bersihkan Sheet Konflik Otomatis", "menuCleanConflictSheets")
@@ -698,7 +698,7 @@ function menuAutoProvisionAllSheets() {
 function menuProvisionWithSeedData() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var rep = autoProvisionAllSheets(ss, getDefaultSchema(), true, getDefaultSeedData());
-  SpreadsheetApp.getUi().alert("✅ Berhasil! Seluruh 13 lembar kerja dan data master awal asrama haji telah dimuat ke Google Spreadsheet.");
+  SpreadsheetApp.getUi().alert("✅ Berhasil! Seluruh 16 lembar kerja dan data master awal asrama haji telah dimuat ke Google Spreadsheet.");
 }
 
 function menuCleanConflictSheets() {
@@ -759,6 +759,7 @@ function doGet(e) {
         maintenances: safeRead("maintenances"),
         qc_inspections: safeRead("qc_inspections"),
         breakfast_orders: safeRead("breakfast_orders"),
+        cleaning_logs: safeRead("cleaning_logs"),
         work_sessions: safeRead("work_sessions"),
         app_settings: safeRead("app_settings"),
         system_logs: safeRead("system_logs"),
@@ -1280,6 +1281,12 @@ function getDefaultSchema() {
       sheetName: "breakfast_orders",
       headers: [
         "id", "room_number", "building", "guest_name", "phone", "kloter", "transaction_id", "menu_id", "menu_name", "portions", "days", "start_date", "order_date", "delivery_time", "status", "price_per_portion", "total_price", "dietary_restriction", "notes", "cancel_reason", "cancelled_at", "created_at", "updated_at"
+      ]
+    },
+    cleaning_logs: {
+      sheetName: "cleaning_logs",
+      headers: [
+        "id", "room_id", "meeting_room_id", "building", "room_number", "petugas_id", "petugas_name", "timestamp", "photo_url", "notes", "status", "created_at", "updated_at"
       ]
     },
     work_sessions: {
@@ -2413,6 +2420,18 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
             </button>
             <button
               type="button"
+              onClick={() => setActivePreviewTab('CLEANING_LOGS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'CLEANING_LOGS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-broom"></i>
+              <span>Petugas Gedung ({fetchedData.cleaning_logs?.length || 0})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActivePreviewTab('WORK_SESSIONS')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
                 activePreviewTab === 'WORK_SESSIONS' 
@@ -2793,6 +2812,79 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
                   {(!fetchedData.breakfast_orders || fetchedData.breakfast_orders.length === 0) && (
                     <tr>
                       <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris pesanan makan di sheet 'breakfast_orders'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'CLEANING_LOGS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Petugas Gedung</th>
+                    <th className="p-2">Gedung / Unit</th>
+                    <th className="p-2">Waktu Pembersihan</th>
+                    <th className="p-2">Bukti Foto Real</th>
+                    <th className="p-2">Catatan Pekerjaan</th>
+                    <th className="p-2">Status QC</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.cleaning_logs || []).map((c: any, i: number) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-6 h-6 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center text-[10px] font-bold">
+                            <i className="fa-solid fa-broom"></i>
+                          </div>
+                          <span>{c.petugas_name || c.petugasName || 'Petugas Gedung'}</span>
+                        </div>
+                      </td>
+                      <td className="p-2 font-bold text-teal-700 dark:text-teal-400">
+                        {c.building} - {c.room_number || c.roomNumber}
+                      </td>
+                      <td className="p-2 font-mono text-[11px] text-slate-500">
+                        {c.timestamp || c.created_at || c.createdAt || '-'}
+                      </td>
+                      <td className="p-2">
+                        {c.photo_url || c.photoUrl ? (
+                          <div className="flex items-center space-x-1.5">
+                            <img
+                              src={c.photo_url || c.photoUrl}
+                              alt="Bukti Pembersihan"
+                              className="w-8 h-8 rounded-md object-cover border border-slate-200 shadow-2xs"
+                            />
+                            <span className="text-[10px] text-emerald-600 font-bold flex items-center space-x-1">
+                              <i className="fa-solid fa-check-circle"></i>
+                              <span>Ber-watermark</span>
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">Tanpa Foto</span>
+                        )}
+                      </td>
+                      <td className="p-2 text-xs text-slate-600 dark:text-slate-300 max-w-xs truncate">
+                        {c.notes || '-'}
+                      </td>
+                      <td className="p-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          (c.status || '').includes('LOLOS') 
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : (c.status || '').includes('TOLAK')
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                        }`}>
+                          {c.status || 'MENUNGGU_QC'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.cleaning_logs || fetchedData.cleaning_logs.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">
+                        Tidak ada baris laporan pembersihan di sheet 'cleaning_logs'.
+                      </td>
                     </tr>
                   )}
                 </tbody>

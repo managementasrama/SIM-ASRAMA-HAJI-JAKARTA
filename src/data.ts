@@ -299,6 +299,30 @@ export const initialUsers: User[] = [
         assignedBuilding: 'Semua Gedung', 
         phone: '081233334444', 
         status: 'Aktif' 
+    },
+    { 
+        id: 'u-petugas-gedung', 
+        username: 'petugas.gedung', 
+        fullName: 'Bambang Irawan (Petugas Gedung)', 
+        role: 'Petugas Gedung', 
+        password: '12345',
+        department: 'Petugas Gedung & Housekeeping',
+        supervisorId: 'u-admin',
+        assignedBuilding: 'Semua Gedung', 
+        phone: '081255556666', 
+        status: 'Aktif' 
+    },
+    { 
+        id: 'u-mgr-gedung', 
+        username: 'manager.gedung', 
+        fullName: 'H. Suryadi (Manager Petugas Gedung)', 
+        role: 'Manager Petugas Gedung', 
+        password: '12345',
+        department: 'Petugas Gedung & Housekeeping',
+        supervisorId: 'u-superadmin',
+        assignedBuilding: 'Semua Gedung', 
+        phone: '081277778888', 
+        status: 'Aktif' 
     }
 ];
 
