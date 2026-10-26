@@ -13,7 +13,8 @@ import {
   Building,
   MeetingRoom,
   PasswordResetRequest,
-  RoomCapacityRate
+  RoomCapacityRate,
+  CleaningLog
 } from '../types';
 import { 
   initialUsers, 
@@ -95,6 +96,7 @@ export interface CompleteStorageDatabase {
   breakfastOrders: BreakfastOrder[];
   roomCapacityRates: RoomCapacityRate[];
   passwordResetRequests?: PasswordResetRequest[];
+  cleaningLogs: CleaningLog[];
 }
 
 function getMinistryPngLogo(): string {
@@ -138,7 +140,8 @@ export function generateInitialDatabase(onlyAdmin: boolean = false): CompleteSto
     breakfastMenuItems: [...initialBreakfastMenuItems],
     breakfastOrders: [],
     roomCapacityRates: [...initialRoomCapacityRates],
-    passwordResetRequests: []
+    passwordResetRequests: [],
+    cleaningLogs: []
   };
 }
 
@@ -511,6 +514,9 @@ export class DataStorageService {
       mergedAppSettings.appLogo = OFFICIAL_APP_LOGO;
     }
 
+    // 11. Cleaning Logs
+    const mergedCleaningLogs = mergeEntityList(local.cleaningLogs || [], cloud.cleaningLogs || [], _preferCloud);
+
     return {
       schemaVersion: 4,
       appName: local.appName || cloud.appName || 'SIM Asrama Haji Jakarta',
@@ -530,7 +536,8 @@ export class DataStorageService {
       breakfastMenuItems: mergedMenuItems.length > 0 ? mergedMenuItems : (local.breakfastMenuItems || cloud.breakfastMenuItems || []),
       breakfastOrders: mergedBreakfastOrders,
       roomCapacityRates: mergedRates.length > 0 ? deduplicateRoomCapacityRates(mergedRates) : (local.roomCapacityRates || cloud.roomCapacityRates || []),
-      passwordResetRequests: local.passwordResetRequests || cloud.passwordResetRequests || []
+      passwordResetRequests: local.passwordResetRequests || cloud.passwordResetRequests || [],
+      cleaningLogs: mergedCleaningLogs
     };
   }
 
@@ -1712,6 +1719,34 @@ export class DataStorageService {
     const updated = (db.maintenances || []).filter(m => m.id !== maintId);
     this.saveDatabase({ ...db, maintenances: updated }, { skipCloudSync: true });
     deleteRecordFromSpreadsheet('maintenances', maintId).catch(() => {});
+    return true;
+  }
+
+  // ==========================================
+  // PETUGAS GEDUNG & CLEANING LOGS
+  // ==========================================
+  public getCleaningLogs(): CleaningLog[] {
+    return this.getDatabase().cleaningLogs || [];
+  }
+
+  public saveCleaningLog(log: CleaningLog): CleaningLog {
+    const db = this.getDatabase();
+    const logs = db.cleaningLogs || [];
+    const withTime: CleaningLog = {
+      ...log,
+      id: log.id && log.id.trim() !== '' ? log.id.trim() : getNextSequentialId(logs, 'clean-'),
+      timestamp: log.timestamp || new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' }),
+      updatedAt: new Date().toISOString()
+    };
+    const updated = [withTime, ...logs.filter(l => l.id !== withTime.id)];
+    this.saveDatabase({ ...db, cleaningLogs: updated }, { skipCloudSync: true });
+    return withTime;
+  }
+
+  public deleteCleaningLog(logId: string): boolean {
+    const db = this.getDatabase();
+    const updated = (db.cleaningLogs || []).filter(l => l.id !== logId);
+    this.saveDatabase({ ...db, cleaningLogs: updated }, { skipCloudSync: true });
     return true;
   }
 

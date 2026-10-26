@@ -18,7 +18,8 @@ import {
   EmailNotificationItem,
   RoomCapacityRate,
   UserPermissions,
-  RoomTransferRecord
+  RoomTransferRecord,
+  CleaningLog
 } from './types';
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages, getDirectChannelId, resolveDirectPartner, isUserParticipantInChannel } from './chatData';
@@ -90,6 +91,10 @@ export function isQcRole(role?: string): boolean {
 }
 export function isKoperasiRole(role?: string): boolean {
   return role === 'Petugas Koperasi' || role === 'Manager Koperasi' || role === 'Koperasi' || isSuperAdmin(role);
+}
+export function isPetugasGedungRole(role?: string): boolean {
+  const str = String(role || '');
+  return str === 'Petugas Gedung' || str === 'Manager Petugas Gedung' || isSuperAdmin(role);
 }
 export function isKeuanganRole(role?: any, department?: any): boolean {
   if (!role && !department) return false;
