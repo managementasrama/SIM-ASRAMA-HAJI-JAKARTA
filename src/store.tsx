@@ -3046,6 +3046,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const transferRoom = (transactionId: string, targetRoomId: string, transferNotes?: string) => {
+    if (!isRecepRole(currentUser?.role)) {
+      showToast("Akses Ditolak: Hanya staf Resepsionis yang berwenang memindahkan kamar!", "error");
+      return;
+    }
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) {
+      showToast("Transaksi tidak ditemukan.", "error");
+      return;
+    }
+
+    const sourceRoom = rooms.find(r => r.id === tx.roomId || (r.roomNumber === tx.roomNumber && r.building === tx.building));
+    const targetRoom = rooms.find(r => r.id === targetRoomId);
+
+    if (!targetRoom) {
+      showToast("Kamar tujuan tidak ditemukan.", "error");
+      return;
+    }
+
+    if (targetRoom.status !== 'KOSONG') {
+      showToast("Kamar tujuan tidak kosong atau sedang terisi/dalam perawatan.", "warning");
+      return;
+    }
+
+    const nowStr = new Date().toISOString();
+    const updatedTx: Transaction = {
+      ...tx,
+      roomId: targetRoom.id,
+      roomNumber: targetRoom.roomNumber,
+      building: targetRoom.building,
+      notes: transferNotes ? `${tx.notes || ''} [Pindah Kamar dari ${sourceRoom ? sourceRoom.roomNumber : tx.roomNumber} ke ${targetRoom.roomNumber}: ${transferNotes}]` : `${tx.notes || ''} [Pindah Kamar ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}]`,
+      updatedAt: nowStr
+    };
+
+    setTransactions(prev => {
+      const next = prev.map(t => t.id === tx.id ? updatedTx : t);
+      dataStorage.saveTransactions(next);
+      return next;
+    });
+
+    setRooms(prev => {
+      const updatedRooms = prev.map(r => {
+        if (sourceRoom && r.id === sourceRoom.id) {
+          return {
+            ...r,
+            status: 'KOSONG' as const,
+            qcStatus: 'PERLU_INSPEKSI' as const,
+            activeTxId: null
+          };
+        }
+        if (r.id === targetRoom.id) {
+          return {
+            ...r,
+            status: 'TERISI' as const,
+            activeTxId: tx.id
+          };
+        }
+        return r;
+      });
+      dataStorage.saveRooms(updatedRooms);
+      return updatedRooms;
+    });
+
+    logAudit("PINDAH_KAMAR", `Memindahkan tamu ${tx.guestName} dari ${sourceRoom ? sourceRoom.building + ' Kamar ' + sourceRoom.roomNumber : tx.roomNumber} ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}.`);
+    showToast(`Berhasil memindahkan tamu ${tx.guestName} ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}! Kamar asal kini berstatus Perlu Inspeksi.`, "success");
+  };
+
   const cancelBooking = (roomIdOrTxId: string, txId?: string, reason?: string) => {
     if (!isRecepRole(currentUser?.role)) {
       showToast("Akses Ditolak: Hanya staf Resepsionis yang berwenang membatalkan booking!", "error");

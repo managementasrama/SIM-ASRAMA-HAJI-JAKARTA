@@ -551,6 +551,21 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                         </button>
                       )}
 
+                      {!isAula && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            openModal('modalRoomTransfer', { transaction: tx, room });
+                          }}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs shadow-xs flex items-center space-x-1.5 transition cursor-pointer"
+                          title="Pindahkan tamu ke kamar atau gedung lain"
+                        >
+                          <i className="fa-solid fa-right-left"></i>
+                          <span>Pindah Kamar</span>
+                        </button>
+                      )}
+
                       {!isAula ? (
                         <button
                           type="button"

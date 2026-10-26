@@ -8,6 +8,7 @@ import { InvoiceModal } from './InvoiceModal';
 import { KwitansiModal } from './KwitansiModal';
 import { ExtendModal } from './ExtendModal';
 import { RoomDetailModal } from './RoomDetailModal';
+import { RoomTransferModal } from './RoomTransferModal';
 import { GroupRegistrationModal } from './GroupRegistrationModal';
 import { AgendaListModal } from './AgendaListModal';
 import { AccountProfileModal } from './AccountProfileModal';
