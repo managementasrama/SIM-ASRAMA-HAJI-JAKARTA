@@ -387,6 +387,7 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     auditLogs: Array.isArray(db.auditLogs) ? db.auditLogs : [],
     chatChannels: Array.isArray(db.chatChannels) ? db.chatChannels : [],
     chatMessages: Array.isArray(db.chatMessages) ? db.chatMessages : [],
+    cleaningLogs: Array.isArray(db.cleaningLogs) ? db.cleaningLogs : [],
     appSettings: safeAppSettings,
     // Alias snake_case untuk kompatibilitas penuh dengan skrip Google Spreadsheet
     meeting_rooms: Array.isArray(db.meetingRooms) ? db.meetingRooms : [],
@@ -394,6 +395,7 @@ export async function syncFullDatabaseToSpreadsheet(db: CompleteStorageDatabase)
     breakfast_menu_items: Array.isArray(db.breakfastMenuItems) ? db.breakfastMenuItems : [],
     breakfast_orders: Array.isArray(db.breakfastOrders) ? db.breakfastOrders : [],
     qc_inspections: Array.isArray(db.qcInspections) ? db.qcInspections : [],
+    cleaning_logs: Array.isArray(db.cleaningLogs) ? db.cleaningLogs : [],
     work_sessions: Array.isArray(db.workSessions) ? db.workSessions : [],
     system_logs: Array.isArray(db.auditLogs) ? db.auditLogs : [],
     chat_channels: Array.isArray(db.chatChannels) ? db.chatChannels : [],
@@ -1032,6 +1034,23 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     replyToText: m.replyToText || m.reply_to_text || undefined,
   }));
 
+  // 16. Normalisasi Laporan Pembersihan & Foto Bukti Petugas Gedung
+  const rawCleaning = Array.isArray(d.cleaningLogs) ? d.cleaningLogs : (Array.isArray(d.cleaning_logs) ? d.cleaning_logs : []);
+  const normalizedCleaning = rawCleaning.map((c: any) => ({
+    id: String(c.id || `clean-${Date.now()}`),
+    roomId: c.roomId || c.room_id || undefined,
+    meetingRoomId: c.meetingRoomId || c.meeting_room_id || undefined,
+    building: c.building || c.gedung || '',
+    roomNumber: String(c.roomNumber || c.room_number || ''),
+    petugasId: String(c.petugasId || c.petugas_id || ''),
+    petugasName: c.petugasName || c.petugas_name || 'Petugas Gedung',
+    timestamp: c.timestamp || new Date().toISOString(),
+    photoUrl: c.photoUrl || c.photo_url || '',
+    notes: c.notes || c.catatan || '',
+    status: c.status || 'MENUNGGU_QC',
+    updatedAt: c.updatedAt || c.updated_at || undefined,
+  }));
+
   return {
     schemaVersion: 4,
     appName: d.appName || 'SIM-Akomodasi UPT Asrama Haji Jakarta',
@@ -1051,7 +1070,8 @@ export function normalizeSpreadsheetPayload(d: any): CompleteStorageDatabase {
     auditLogs: normalizedAudit,
     chatChannels: normalizedChatChannels.length > 0 ? normalizedChatChannels : (Array.isArray(d.chatChannels) ? d.chatChannels : []),
     chatMessages: normalizedChatMessages.length > 0 ? normalizedChatMessages : (Array.isArray(d.chatMessages) ? d.chatMessages : []),
-    passwordResetRequests: Array.isArray(d.passwordResetRequests) ? d.passwordResetRequests : []
+    passwordResetRequests: Array.isArray(d.passwordResetRequests) ? d.passwordResetRequests : [],
+    cleaningLogs: normalizedCleaning
   };
 }
 

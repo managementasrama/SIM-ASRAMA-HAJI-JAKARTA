@@ -608,6 +608,27 @@ async function startServer() {
       ],
       description: "Pesanan sarapan kamar, catering prasmanan aula, porsi harian, dan status pengantaran dapur",
     },
+    cleaning_logs: {
+      sheetName: "cleaning_logs",
+      label: "Laporan Pembersihan & Foto Bukti Petugas Gedung",
+      category: "Operasional & Transaksi",
+      headers: [
+        "id",
+        "room_id",
+        "meeting_room_id",
+        "building",
+        "room_number",
+        "petugas_id",
+        "petugas_name",
+        "timestamp",
+        "photo_url",
+        "notes",
+        "status",
+        "created_at",
+        "updated_at",
+      ],
+      description: "Arsip pembersihan sterilisasi ruangan/aula, bukti foto real kamera/folder ber-watermark waktu, nama petugas, dan status QC",
+    },
     work_sessions: {
       sheetName: "work_sessions",
       label: "Sesi Jam Kerja Petugas",
@@ -829,6 +850,8 @@ async function startServer() {
       if (normExpected === "createdat" && (normFound === "createdtime" || normFound === "tanggalbuat")) return true;
       if (normExpected === "updatedat" && (normFound === "updatedtime" || normFound === "tanggalubah")) return true;
       if (normExpected === "startdate" && (normFound === "orderdate" || normFound === "tanggal")) return true;
+      if (normExpected === "petugasname" && (normFound === "petugas" || normFound === "namapetugas")) return true;
+      if (normExpected === "photourl" && (normFound === "foto" || normFound === "buktifoto" || normFound === "gambar" || normFound === "fotourl")) return true;
       return false;
     });
   }

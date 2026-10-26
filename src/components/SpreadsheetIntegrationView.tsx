@@ -85,7 +85,7 @@ export function SpreadsheetIntegrationView() {
   // Status Inspeksi Skema Lembar Kerja
   const [inspectionResult, setInspectionResult] = useState<InspectionResponse | null>(null);
 
-  // Data hasil baca dari Spreadsheet (Semua 13 Tabel)
+  // Data hasil baca dari Spreadsheet (Semua 16 Tabel Lengkap)
   const [fetchedData, setFetchedData] = useState<{
     buildings?: any[];
     rooms?: any[];
@@ -97,6 +97,7 @@ export function SpreadsheetIntegrationView() {
     maintenances?: any[];
     qc_inspections?: any[];
     breakfast_orders?: any[];
+    cleaning_logs?: any[];
     work_sessions?: any[];
     system_logs?: any[];
     app_settings?: any[];
@@ -104,7 +105,7 @@ export function SpreadsheetIntegrationView() {
   } | null>(null);
   
   const [activePreviewTab, setActivePreviewTab] = useState<
-    'BUILDINGS' | 'ROOMS' | 'ROOM_RATES' | 'MEETING_ROOMS' | 'BREAKFAST_MENUS' | 'TRANSACTIONS' | 'USERS' | 'QC' | 'MAINTENANCES' | 'ORDERS' | 'WORK_SESSIONS' | 'RAW'
+    'BUILDINGS' | 'ROOMS' | 'ROOM_RATES' | 'MEETING_ROOMS' | 'BREAKFAST_MENUS' | 'TRANSACTIONS' | 'USERS' | 'QC' | 'MAINTENANCES' | 'ORDERS' | 'CLEANING_LOGS' | 'WORK_SESSIONS' | 'RAW'
   >('ROOM_RATES');
   const [activeGuideTab, setActiveGuideTab] = useState<'AUTO' | 'STEP1' | 'STEP2' | 'STEP3' | 'SCRIPT'>('AUTO');
   const [copiedScript, setCopiedScript] = useState(false);
@@ -519,6 +520,7 @@ export function SpreadsheetIntegrationView() {
       let normalizedMaintenances: any[] = [];
       let normalizedQc: any[] = [];
       let normalizedOrders: any[] = [];
+      let normalizedCleaning: any[] = [];
       let normalizedWorkSessions: any[] = [];
       let normalizedLogs: any[] = [];
       let normalizedSettings: any[] = [];
@@ -535,6 +537,7 @@ export function SpreadsheetIntegrationView() {
         if (Array.isArray(d.maintenances)) normalizedMaintenances = d.maintenances;
         if (Array.isArray(d.qc_inspections || d.qcInspections)) normalizedQc = d.qc_inspections || d.qcInspections;
         if (Array.isArray(d.breakfast_orders || d.breakfastOrders)) normalizedOrders = d.breakfast_orders || d.breakfastOrders;
+        if (Array.isArray(d.cleaning_logs || d.cleaningLogs)) normalizedCleaning = d.cleaning_logs || d.cleaningLogs;
         if (Array.isArray(d.work_sessions || d.workSessions)) normalizedWorkSessions = d.work_sessions || d.workSessions;
         if (Array.isArray(d.system_logs || d.auditLogs)) normalizedLogs = d.system_logs || d.auditLogs;
         if (Array.isArray(d.app_settings || d.appSettings)) normalizedSettings = d.app_settings || d.appSettings;
@@ -551,6 +554,7 @@ export function SpreadsheetIntegrationView() {
         maintenances: normalizedMaintenances,
         qc_inspections: normalizedQc,
         breakfast_orders: normalizedOrders,
+        cleaning_logs: normalizedCleaning,
         work_sessions: normalizedWorkSessions,
         system_logs: normalizedLogs,
         app_settings: normalizedSettings,
@@ -558,7 +562,7 @@ export function SpreadsheetIntegrationView() {
       });
 
       setIsConnected(true);
-      const summaryMsg = `Berhasil membaca: ${normalizedBuildings.length} Gedung, ${normalizedRooms.length} Kamar, ${normalizedRoomRates.length} Katalog Tipe Kamar, ${normalizedMeetingRooms.length} Aula, ${normalizedTransactions.length} Transaksi, ${normalizedUsers.length} Petugas`;
+      const summaryMsg = `Berhasil membaca: ${normalizedBuildings.length} Gedung, ${normalizedRooms.length} Kamar, ${normalizedRoomRates.length} Katalog Tipe Kamar, ${normalizedMeetingRooms.length} Aula, ${normalizedTransactions.length} Transaksi, ${normalizedCleaning.length} Log Petugas Gedung, ${normalizedUsers.length} Petugas`;
       setSyncStatus(summaryMsg);
       addLog('FETCH', summaryMsg, true);
       showToast('Koneksi berhasil! Seluruh data dari Google Spreadsheet berhasil terbaca.', 'success');
@@ -603,6 +607,7 @@ export function SpreadsheetIntegrationView() {
         maintenances: (normalizedFromSheet.maintenances && normalizedFromSheet.maintenances.length > 0) ? normalizedFromSheet.maintenances : currentDb.maintenances,
         qcInspections: (normalizedFromSheet.qcInspections && normalizedFromSheet.qcInspections.length > 0) ? normalizedFromSheet.qcInspections : currentDb.qcInspections,
         breakfastOrders: (normalizedFromSheet.breakfastOrders && normalizedFromSheet.breakfastOrders.length > 0) ? normalizedFromSheet.breakfastOrders : currentDb.breakfastOrders,
+        cleaningLogs: (normalizedFromSheet.cleaningLogs && normalizedFromSheet.cleaningLogs.length > 0) ? normalizedFromSheet.cleaningLogs : currentDb.cleaningLogs,
         workSessions: (normalizedFromSheet.workSessions && normalizedFromSheet.workSessions.length > 0) ? normalizedFromSheet.workSessions : currentDb.workSessions,
         auditLogs: (normalizedFromSheet.auditLogs && normalizedFromSheet.auditLogs.length > 0) ? normalizedFromSheet.auditLogs : currentDb.auditLogs,
         appSettings: normalizedFromSheet.appSettings || currentDb.appSettings,
