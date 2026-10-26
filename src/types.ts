@@ -128,7 +128,7 @@ export interface Room {
   bedType?: string; // 'Double Bed' | '2 Single Bed' | ... | '8 Single Bed'
   capacity: string; // e.g. "4 Orang" or "4 Bed"
   capacityNumber?: number; // e.g. 2, 3, 4, 5, 6, 7, 8
-  status: "KOSONG" | "TERISI" | "BOOKED" | "MAINTENANCE";
+  status: "READY" | "KOSONG" | "TERISI" | "BOOKED" | "MAINTENANCE" | "CLOSED" | "TIDAK_READY";
   qcStatus?: "LOLOS_QC" | "PERLU_INSPEKSI" | "PERLU_PERBAIKAN" | "MENUNGGU_QC";
   lastQcDate?: string;
   lastQcBy?: string;

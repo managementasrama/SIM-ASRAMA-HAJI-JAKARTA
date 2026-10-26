@@ -71,7 +71,7 @@ function getBuildingColorClass(bName: string, category?: string): { bg: string; 
 export function RoomsView() {
   const { 
     rooms, transactions, maintenances, openModal, finishMaintenance, currentUser, setActiveTab,
-    buildings = [], meetingRooms = [], deleteBuilding, deleteMeetingRoom, deleteRoom, showToast,
+    buildings = [], meetingRooms = [], deleteBuilding, deleteMeetingRoom, deleteRoom, updateRoom, showToast,
     selectedBuilding, setSelectedBuilding, triggerBackgroundSync,
     roomCapacityRates = [], addRoomCapacityRate, updateRoomCapacityRate, deleteRoomCapacityRate, resetRoomCapacityRates, applyRateToAllRooms
   } = useAppContext();
@@ -331,7 +331,7 @@ export function RoomsView() {
       const matchingRooms = targetBreakdownRooms.filter(r => normalizeRoomTypeKey(r.type) === cfg.type);
       const jumlah = matchingRooms.length;
       const terpakai = matchingRooms.filter(r => r.status === 'TERISI' || r.status === 'BOOKED').length;
-      const sisa = matchingRooms.filter(r => r.status === 'KOSONG').length;
+      const sisa = matchingRooms.filter(r => r.status === 'READY' || r.status === 'KOSONG').length;
       return {
         ...cfg,
         jumlah,
@@ -361,7 +361,15 @@ export function RoomsView() {
         }
       }
 
-      if (sFilter !== 'ALL' && r.status !== sFilter) return false;
+      if (sFilter !== 'ALL') {
+        if (sFilter === 'READY' || sFilter === 'KOSONG') {
+          if (r.status !== 'READY' && r.status !== 'KOSONG') return false;
+        } else if (sFilter === 'CLOSED' || sFilter === 'TIDAK_READY') {
+          if (r.status !== 'CLOSED' && r.status !== 'TIDAK_READY') return false;
+        } else if (r.status !== sFilter) {
+          return false;
+        }
+      }
       if (roomTypeFilter !== 'ALL') {
         if (roomTypeFilter === 'Ruang Pertemuan / Aula') return false;
         const matchesExact = r.type === roomTypeFilter;
@@ -579,10 +587,16 @@ export function RoomsView() {
     const floorNum = room.floor || extractFloorFromRoomNumber(room.roomNumber) || 1;
 
     switch(room.status) {
+        case 'READY':
         case 'KOSONG': {
           const bookedTxs = transactions.filter(t => t.roomId === room.id && t.status === 'BOOKED');
-          borderClass = 'border-slate-200 bg-white hover:border-hajj-500';
-          statusBadge = <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">Kosong</span>;
+          borderClass = 'border-slate-200 bg-white hover:border-emerald-500';
+          statusBadge = (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span>Ready</span>
+            </span>
+          );
           
           if (isRecep) {
             const isNeedQc = !room.qcStatus || room.qcStatus !== 'LOLOS_QC';
@@ -608,14 +622,30 @@ export function RoomsView() {
                       : (bookedTxs.length > 0 ? `Cek In (${bookedTxs.length} Booking)` : 'Cek In')}
                   </span>
                 </button>
-                <button 
-                  onClick={() => openModal('modalCheckin', { roomId: room.id, actionType: 'BOOKING', initialDate: realTomorrowStr })} 
-                  className="w-full py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs border border-blue-200 flex items-center justify-center space-x-1.5 transition cursor-pointer"
-                  title={isNeedQc ? "Booking kamar ini (Status: Perlu Cek QC)" : "Booking untuk tanggal besok / mendatang"}
-                >
-                  <i className="fa-solid fa-calendar-plus text-blue-600"></i>
-                  <span>{isNeedQc ? 'Booking (Perlu Cek QC)' : 'Booking Tgl Lain'}</span>
-                </button>
+                <div className="grid grid-cols-2 gap-1">
+                  <button 
+                    onClick={() => openModal('modalCheckin', { roomId: room.id, actionType: 'BOOKING', initialDate: realTomorrowStr })} 
+                    className="py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs border border-blue-200 flex items-center justify-center space-x-1 transition cursor-pointer"
+                    title={isNeedQc ? "Booking kamar ini (Status: Perlu Cek QC)" : "Booking untuk tanggal besok / mendatang"}
+                  >
+                    <i className="fa-solid fa-calendar-plus text-blue-600 text-[10px]"></i>
+                    <span>Tgl Lain</span>
+                  </button>
+                  {canManageRooms && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateRoom({ ...room, status: 'CLOSED' });
+                        showToast(`Kamar ${room.roomNumber} dialihkan ke status Closed (Tidak Ready).`, 'info');
+                      }}
+                      className="py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs border border-slate-200 flex items-center justify-center space-x-1 transition cursor-pointer"
+                      title="Tutup kamar sementara (Set Closed / Tidak Ready)"
+                    >
+                      <i className="fa-solid fa-lock text-[10px] text-slate-500"></i>
+                      <span>Closed</span>
+                    </button>
+                  )}
+                </div>
               </div>
             );
           } else if (isQc) {
@@ -649,12 +679,54 @@ export function RoomsView() {
           } else if (isKoperasi) {
             btnAction = (
               <div className="w-full py-2 bg-slate-50 border border-slate-200 rounded-lg text-center text-[10px] text-slate-500 font-medium">
-                <i className="fa-solid fa-bed text-slate-400 mr-1"></i> Kamar Kosong (Tanpa Tamu)
+                <i className="fa-solid fa-bed text-slate-400 mr-1"></i> Kamar Ready (Tanpa Tamu)
               </div>
             );
           } else {
             btnAction = (
-              <div className="w-full text-center text-[10px] text-slate-400 py-1 font-medium">Kamar Kosong</div>
+              <div className="w-full text-center text-[10px] text-emerald-700 py-1 font-semibold">Kamar Ready</div>
+            );
+          }
+          break;
+        }
+
+        case 'CLOSED':
+        case 'TIDAK_READY': {
+          borderClass = 'border-slate-300 bg-slate-100/90';
+          statusBadge = (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-white flex items-center space-x-1 shadow-2xs">
+              <i className="fa-solid fa-lock text-[9px] text-amber-300"></i>
+              <span>Closed</span>
+            </span>
+          );
+          if (isRecep || isSuperAdm) {
+            btnAction = (
+              <div className="space-y-1.5">
+                <div className="text-[10px] text-slate-600 text-center font-medium bg-slate-200/80 py-1 px-2 rounded-lg border border-slate-300/80">
+                  <i className="fa-solid fa-lock text-[9px] mr-1 text-slate-500"></i>
+                  Ditutup Sementara (Closed)
+                </div>
+                {canManageRooms && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      updateRoom({ ...room, status: 'READY' });
+                      showToast(`Kamar ${room.roomNumber} berhasil diaktifkan kembali menjadi Ready!`, 'success');
+                    }}
+                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-xs flex items-center justify-center space-x-1.5 transition cursor-pointer"
+                    title="Buka kembali kamar menjadi status Ready"
+                  >
+                    <i className="fa-solid fa-lock-open text-[10px]"></i>
+                    <span>Set Jadi Ready</span>
+                  </button>
+                )}
+              </div>
+            );
+          } else {
+            btnAction = (
+              <div className="w-full text-center text-[10px] text-slate-500 py-1.5 font-medium bg-slate-200/60 rounded">
+                Tidak Ready (Closed)
+              </div>
             );
           }
           break;
@@ -1426,7 +1498,8 @@ export function RoomsView() {
         const terisiKamar = kamarRooms.filter(r => r.status === 'TERISI').length;
         const bookedKamar = kamarRooms.filter(r => r.status === 'BOOKED').length;
         const maintKamar = kamarRooms.filter(r => r.status === 'MAINTENANCE').length;
-        const kosongKamar = kamarRooms.filter(r => r.status === 'KOSONG').length;
+        const kosongKamar = kamarRooms.filter(r => r.status === 'KOSONG' || r.status === 'READY').length;
+        const closedKamar = kamarRooms.filter(r => r.status === 'CLOSED' || r.status === 'TIDAK_READY').length;
         const occupancyPercent = totalKamar > 0 ? Math.round((terisiKamar / totalKamar) * 100) : 0;
 
         const aulaRooms = rooms.filter(r => r.building === 'Ruang Pertemuan' || isMeetingFacility(r.building) || r.type?.toLowerCase().includes('pertemuan') || r.type?.toLowerCase().includes('aula'));
@@ -1472,7 +1545,7 @@ export function RoomsView() {
                   </div>
                 </div>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between">
-                  <span className="truncate">{kosongKamar} Kamar Tersedia</span>
+                  <span className="truncate">{kosongKamar} Kamar Ready {closedKamar > 0 ? `(${closedKamar} Closed)` : ''}</span>
                   <i className="fa-solid fa-arrow-right text-[8px] sm:text-[9px] text-slate-400 dark:text-slate-500 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition ml-1 shrink-0"></i>
                 </span>
               </div>
@@ -1997,17 +2070,17 @@ export function RoomsView() {
 
                   <button
                     type="button"
-                    onClick={() => setSFilter('KOSONG')}
+                    onClick={() => setSFilter('READY')}
                     className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
-                      sFilter === 'KOSONG'
+                      sFilter === 'READY' || sFilter === 'KOSONG'
                         ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
                         : 'bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>Kosong</span>
+                    <span>Ready</span>
                     <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
-                      {rooms.filter(r => r.status === 'KOSONG').length}
+                      {rooms.filter(r => r.status === 'READY' || r.status === 'KOSONG').length}
                     </span>
                   </button>
 
@@ -2056,6 +2129,22 @@ export function RoomsView() {
                     <span>Maintenance</span>
                     <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
                       {rooms.filter(r => r.status === 'MAINTENANCE').length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSFilter('CLOSED')}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 border ${
+                      sFilter === 'CLOSED' || sFilter === 'TIDAK_READY'
+                        ? 'bg-slate-700 text-white border-slate-700 shadow-2xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-700/50 dark:text-slate-300 dark:border-slate-600'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                    <span>Closed (Tidak Ready)</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current tabular-nums">
+                      {rooms.filter(r => r.status === 'CLOSED' || r.status === 'TIDAK_READY').length}
                     </span>
                   </button>
                 </div>

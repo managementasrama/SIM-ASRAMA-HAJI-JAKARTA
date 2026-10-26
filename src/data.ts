@@ -655,7 +655,7 @@ export function getCleanRooms(): Room[] {
                 capacityNumber: rPax,
                 pricePerNight: price,
                 facilities: facilities,
-                status: "KOSONG",
+                status: "READY",
                 qcStatus: "LOLOS_QC",
                 lastQcDate: undefined,
                 lastQcBy: undefined,

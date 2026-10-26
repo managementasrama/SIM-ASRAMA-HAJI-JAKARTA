@@ -25,6 +25,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
     checkoutRoom, 
     activateCheckin, 
     cancelBooking,
+    updateRoom,
     showToast 
   } = useAppContext();
 
@@ -161,9 +162,13 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                   room.status === 'TERISI' ? 'bg-emerald-500 text-white' :
                   room.status === 'BOOKED' ? 'bg-blue-500 text-white' :
                   room.status === 'MAINTENANCE' ? 'bg-red-500 text-white' :
-                  'bg-white/20 text-white'
+                  (room.status === 'CLOSED' || room.status === 'TIDAK_READY') ? 'bg-slate-700 text-white' :
+                  'bg-emerald-600 text-white'
                 }`}>
-                  {isAula && room.status === 'TERISI' ? 'SEDANG DIGUNAKAN' : room.status}
+                  {isAula && room.status === 'TERISI' ? 'SEDANG DIGUNAKAN' : 
+                   (room.status === 'KOSONG' || room.status === 'READY') ? 'READY' :
+                   (room.status === 'CLOSED' || room.status === 'TIDAK_READY') ? 'CLOSED (TIDAK READY)' :
+                   room.status}
                 </span>
               </div>
               <p className="text-[10px] sm:text-xs text-hajj-200 mt-0.5 truncate">
@@ -323,53 +328,90 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
             {terisiTxs.length === 0 ? (
               <div className="p-5 bg-white rounded-xl border border-dashed border-slate-300 text-center text-xs text-slate-500 space-y-3">
-                <i className={isAula ? "fa-solid fa-calendar-xmark text-slate-300 text-2xl mb-1 block" : "fa-solid fa-bed text-slate-300 text-2xl mb-1 block"}></i>
+                <i className={isAula ? "fa-solid fa-calendar-xmark text-slate-300 text-2xl mb-1 block" : (room.status === 'CLOSED' || room.status === 'TIDAK_READY') ? "fa-solid fa-lock text-slate-400 text-2xl mb-1 block" : "fa-solid fa-bed text-slate-300 text-2xl mb-1 block"}></i>
                 <div>
                   <p className="font-semibold text-slate-700">
                     {isAula 
                       ? 'Tidak ada acara yang sedang berlangsung di ruang pertemuan ini.' 
-                      : 'Kamar ini sedang kosong / tidak ada tamu yang sedang menginap.'}
+                      : (room.status === 'CLOSED' || room.status === 'TIDAK_READY')
+                      ? 'Kamar ini saat ini berstatus CLOSED (Tidak Ready / Ditutup Sementara).'
+                      : 'Kamar ini saat ini berstatus READY (Siap Huni) / tidak ada tamu yang menginap.'}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Fasilitas siap untuk digunakan atau dijadwalkan pemesanan.
+                    {(room.status === 'CLOSED' || room.status === 'TIDAK_READY')
+                      ? 'Kamar sedang di-hold dan tidak dapat di-check-in sebelum diubah kembali menjadi Ready.'
+                      : 'Fasilitas siap untuk digunakan atau dijadwalkan pemesanan.'}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      openModal('modalCheckin', {
-                        roomId: room.id,
-                        actionType: 'CHECKIN',
-                        initialDate: todayStr,
-                        initialDuration: isAula ? 8 : 1,
-                        returnToRoomId: room.id
-                      });
-                    }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <i className="fa-solid fa-door-open"></i>
-                    <span>{isAula ? 'Check-In Acara Sekarang' : 'Check-In Tamu Sekarang'}</span>
-                  </button>
+                  {room.status !== 'CLOSED' && room.status !== 'TIDAK_READY' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          openModal('modalCheckin', {
+                            roomId: room.id,
+                            actionType: 'CHECKIN',
+                            initialDate: todayStr,
+                            initialDuration: isAula ? 8 : 1,
+                            returnToRoomId: room.id
+                          });
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                      >
+                        <i className="fa-solid fa-door-open"></i>
+                        <span>{isAula ? 'Check-In Acara Sekarang' : 'Check-In Tamu Sekarang'}</span>
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      openModal('modalCheckin', {
-                        roomId: room.id,
-                        actionType: 'BOOKING',
-                        initialDate: isAula ? todayStr : tomorrowStr,
-                        initialDuration: isAula ? 8 : 1,
-                        returnToRoomId: room.id
-                      });
-                    }}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    <i className="fa-solid fa-calendar-plus"></i>
-                    <span>Booking Tgl Lain</span>
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          openModal('modalCheckin', {
+                            roomId: room.id,
+                            actionType: 'BOOKING',
+                            initialDate: isAula ? todayStr : tomorrowStr,
+                            initialDuration: isAula ? 8 : 1,
+                            returnToRoomId: room.id
+                          });
+                        }}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                      >
+                        <i className="fa-solid fa-calendar-plus"></i>
+                        <span>Booking Tgl Lain</span>
+                      </button>
+                    </>
+                  )}
+
+                  {canManageRooms && (room.status === 'CLOSED' || room.status === 'TIDAK_READY') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateRoom({ ...room, status: 'READY' });
+                        showToast(`Kamar ${room.roomNumber} berhasil diaktifkan menjadi Ready!`, 'success');
+                      }}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      <i className="fa-solid fa-lock-open"></i>
+                      <span>Aktifkan Menjadi Ready</span>
+                    </button>
+                  )}
+
+                  {canManageRooms && (room.status === 'READY' || room.status === 'KOSONG') && !isAula && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateRoom({ ...room, status: 'CLOSED' });
+                        showToast(`Kamar ${room.roomNumber} ditutup sementara (Closed / Tidak Ready).`, 'info');
+                      }}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs border border-slate-200 transition flex items-center space-x-1.5 cursor-pointer"
+                      title="Set status menjadi Closed / Tidak Ready"
+                    >
+                      <i className="fa-solid fa-lock text-slate-500"></i>
+                      <span>Set Closed (Hold)</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (

@@ -348,7 +348,7 @@ export function Dashboard() {
         !r.qcStatus || 
         r.qcStatus === 'PERLU_PERBAIKAN' ||
         r.qcStatus === 'REVISI_PERBAIKAN' ||
-        (r.status === 'KOSONG' && r.qcStatus !== 'LOLOS_QC') ||
+        ((r.status === 'KOSONG' || r.status === 'READY') && r.qcStatus !== 'LOLOS_QC') ||
         (incomingCheckinRoomIds.has(r.id) && r.qcStatus !== 'LOLOS_QC')
       );
     });

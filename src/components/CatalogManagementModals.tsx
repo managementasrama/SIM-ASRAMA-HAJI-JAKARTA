@@ -907,7 +907,7 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
   const [capacity, setCapacity] = useState(4);
   const [type, setType] = useState('Standar');
   const [bedType, setBedType] = useState('4 Single Bed');
-  const [status, setStatus] = useState<'KOSONG' | 'TERISI' | 'BOOKED' | 'MAINTENANCE'>('KOSONG');
+  const [status, setStatus] = useState<'READY' | 'KOSONG' | 'TERISI' | 'BOOKED' | 'MAINTENANCE' | 'CLOSED' | 'TIDAK_READY'>('READY');
   const [pricePerNight, setPricePerNight] = useState(480000);
   const [facilitiesText, setFacilitiesText] = useState('AC Split Dingin, 4 Single Bed, Kamar Mandi Dalam, Water Heater, Linen Bersih UPT, Lemari 4 Pintu, Sajadah');
   const [selectedTypeMode, setSelectedTypeMode] = useState('Standar');
@@ -1035,7 +1035,7 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
       
       const capNum = roomToEdit.capacityNumber || parseInt(String(roomToEdit.capacity).replace(/\D/g, '')) || 4;
       setCapacity(capNum);
-      setStatus(roomToEdit.status || 'KOSONG');
+      setStatus((roomToEdit.status === 'KOSONG' ? 'READY' : roomToEdit.status) || 'READY');
       const defRate = findRoomRate(rType, rBed, roomCapacityRates);
       const catalogPrice = defRate ? defRate.pricePerNight : roomToEdit.pricePerNight;
       setPricePerNight(catalogPrice || 480000);
@@ -1053,7 +1053,7 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
       setType('Standar');
       setBedType('4 Single Bed');
       setCapacity(4);
-      setStatus('KOSONG');
+      setStatus('READY');
       const defRate = findRoomRate('Standar', '4 Single Bed', roomCapacityRates);
       setPricePerNight(defRate?.pricePerNight || 480000);
       setFacilitiesText(defRate?.facilities?.join(', ') || 'AC Split Dingin, 4 Single Bed, Kamar Mandi Dalam, Water Heater, Linen Bersih UPT, Lemari 4 Pintu, Sajadah');
@@ -1534,10 +1534,11 @@ export function RoomModal({ isOpen, onClose, roomToEdit, defaultBuilding }: Room
                   onChange={e => setStatus(e.target.value as any)}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 >
-                  <option key="KOSONG" value="KOSONG">{isSerbagunaRoom ? 'Tersedia (Dapat Disewa)' : 'Kosong (Tersedia)'}</option>
+                  <option key="READY" value="READY">{isSerbagunaRoom ? 'Tersedia (Dapat Disewa)' : 'Ready (Siap Huni)'}</option>
                   <option key="TERISI" value="TERISI">{isSerbagunaRoom ? 'Terpakai / Berlangsung Acara' : 'Terisi (Check-In)'}</option>
-                  <option key="BOOKED" value="BOOKED">Booked (Reservasi Acara)</option>
-                  <option key="MAINTENANCE" value="MAINTENANCE">Maintenance</option>
+                  <option key="BOOKED" value="BOOKED">Booked (Reservasi Tamu / Acara)</option>
+                  <option key="MAINTENANCE" value="MAINTENANCE">Maintenance (Perbaikan)</option>
+                  <option key="CLOSED" value="CLOSED">Tidak Ready (Closed)</option>
                 </select>
               </div>
             </div>

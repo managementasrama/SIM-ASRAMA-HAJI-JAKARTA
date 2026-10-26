@@ -97,40 +97,50 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
     return Array.from(floorsSet).sort((a, b) => a - b);
   }, [rooms, selectedBuildingName]);
 
-  // Filtered available rooms in selected building
-  const availableRoomsInBuilding = useMemo(() => {
+  // Semua kamar di gedung yang dipilih (dengan filter lantai & pencarian)
+  const allRoomsInBuilding = useMemo(() => {
     return rooms.filter(r => {
       if (!r) return false;
-      // Must match building
+      // Harus sesuai gedung terpilih
       if (r.building.toLowerCase() !== selectedBuildingName.toLowerCase()) return false;
-      // Cannot be the current source room
-      if (sourceRoom && (r.id === sourceRoom.id || r.roomNumber === sourceRoom.roomNumber)) return false;
-      // Must be empty & ready (not in maintenance)
-      if (r.status !== 'KOSONG') return false;
-      // Floor filter
-      if (selectedFloor !== 'ALL' && r.floor !== selectedFloor) return false;
-      // Search filter
+      // Filter lantai jika dipilih
+      if (selectedFloor !== 'ALL' && (r.floor || 1) !== selectedFloor) return false;
+      // Pencarian nomor kamar / tipe / bed / status
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesNum = r.roomNumber.toLowerCase().includes(q);
         const matchesType = (r.type || '').toLowerCase().includes(q);
         const matchesBed = (r.bedType || '').toLowerCase().includes(q);
-        if (!matchesNum && !matchesType && !matchesBed) return false;
+        const matchesStatus = (r.status || '').toLowerCase().includes(q);
+        if (!matchesNum && !matchesType && !matchesBed && !matchesStatus) return false;
       }
       return true;
+    }).sort((a, b) => {
+      const flA = a.floor || 1;
+      const flB = b.floor || 1;
+      if (flA !== flB) return flA - flB;
+      return a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true });
     });
-  }, [rooms, selectedBuildingName, sourceRoom, selectedFloor, searchQuery]);
+  }, [rooms, selectedBuildingName, selectedFloor, searchQuery]);
 
-  // Count available rooms per building for badges
-  const availableCountByBuilding = useMemo(() => {
-    const map: Record<string, number> = {};
+  // Hitung jumlah kamar Ready yang siap dihuni di gedung terpilih
+  const readyRoomsInBuilding = useMemo(() => {
+    return allRoomsInBuilding.filter(r => {
+      const isSource = sourceRoom && (r.id === sourceRoom.id || r.roomNumber === sourceRoom.roomNumber);
+      return (r.status === 'READY' || r.status === 'KOSONG') && !isSource;
+    });
+  }, [allRoomsInBuilding, sourceRoom]);
+
+  // Statistik kamar per gedung untuk badge tab (Ready & Total)
+  const roomCountByBuilding = useMemo(() => {
+    const map: Record<string, { ready: number; total: number }> = {};
     lodgingBuildings.forEach(b => {
-      const count = rooms.filter(r => 
-        r.building.toLowerCase() === b.name.toLowerCase() &&
-        r.status === 'KOSONG' &&
+      const bRooms = rooms.filter(r => r.building.toLowerCase() === b.name.toLowerCase());
+      const readyCount = bRooms.filter(r => 
+        (r.status === 'READY' || r.status === 'KOSONG') &&
         (!sourceRoom || r.id !== sourceRoom.id)
       ).length;
-      map[b.name.toLowerCase()] = count;
+      map[b.name.toLowerCase()] = { ready: readyCount, total: bRooms.length };
     });
     return map;
   }, [lodgingBuildings, rooms, sourceRoom]);
@@ -144,8 +154,14 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
       return;
     }
 
-    if (targetRoom.status !== 'KOSONG') {
-      showToast(`Kamar ${targetRoom.roomNumber} saat ini tidak berstatus kosong (${targetRoom.status}). Silakan pilih kamar lainnya.`, 'error');
+    const isTargetReady = targetRoom.status === 'READY' || targetRoom.status === 'KOSONG';
+    if (!isTargetReady) {
+      showToast(`Kamar ${targetRoom.roomNumber} saat ini tidak berstatus Ready (${targetRoom.status}). Hanya kamar berstatus Ready yang dapat dipilih!`, 'error');
+      return;
+    }
+
+    if (sourceRoom && (targetRoom.id === sourceRoom.id || targetRoom.roomNumber === sourceRoom.roomNumber)) {
+      showToast(`Kamar ${targetRoom.roomNumber} adalah kamar asal tamu saat ini. Silakan pilih kamar tujuan lain!`, 'error');
       return;
     }
 
@@ -250,7 +266,7 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
             </div>
           </div>
 
-          {/* SECTION 2: PEMILIHAN GEDUNG & DENAH KAMAR TUJUAN (PROFESIONAL MIRIP DENAH PENYEWAAN) */}
+          {/* SECTION 2: PEMILIHAN GEDUNG & DENAH KAMAR TUJUAN (SEMUA KAMAR TERLIHAT, NON-READY DIBLOKIR) */}
           <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
@@ -258,11 +274,11 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
                   1
                 </span>
                 <h4 className="font-bold text-xs sm:text-sm text-slate-800">
-                  Pilih Gedung &amp; Kamar Kosong Tujuan
+                  Denah Pemilihan Kamar &amp; Gedung Tujuan
                 </h4>
               </div>
               <span className="text-[11px] text-slate-500">
-                Tersedia <strong className="text-emerald-700">{availableRoomsInBuilding.length}</strong> unit kosong di gedung terpilih
+                Tersedia <strong className="text-emerald-700">{readyRoomsInBuilding.length}</strong> unit Ready dari total <strong>{allRoomsInBuilding.length}</strong> kamar
               </span>
             </div>
 
@@ -274,7 +290,7 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {lodgingBuildings.map(b => {
                   const isSelected = selectedBuildingName.toLowerCase() === b.name.toLowerCase();
-                  const count = availableCountByBuilding[b.name.toLowerCase()] || 0;
+                  const stats = roomCountByBuilding[b.name.toLowerCase()] || { ready: 0, total: 0 };
                   return (
                     <button
                       key={b.id || b.name}
@@ -299,11 +315,11 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
                           {b.floors || 3} Lantai
                         </span>
                         <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                          count > 0 
+                          stats.ready > 0 
                             ? (isSelected ? 'bg-gold-400 text-hajj-950' : 'bg-emerald-100 text-emerald-800')
                             : (isSelected ? 'bg-red-500/40 text-red-100' : 'bg-slate-100 text-slate-400')
                         }`}>
-                          {count} Kosong
+                          {stats.ready} Ready / {stats.total} Unit
                         </span>
                       </div>
                     </button>
@@ -349,7 +365,7 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
                 <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
                 <input
                   type="text"
-                  placeholder="Cari no. kamar / tipe..."
+                  placeholder="Cari no. kamar / status / tipe..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-hajj-700"
@@ -357,31 +373,91 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
               </div>
             </div>
 
-            {/* GRID KARTU KAMAR KOSONG SIAP HUNI */}
-            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 max-h-56 overflow-y-auto custom-scrollbar">
-              {availableRoomsInBuilding.length === 0 ? (
+            {/* GRID DENAH SEMUA KAMAR (Kamar tidak ready ditampilkan diblokir/disabled) */}
+            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 max-h-64 overflow-y-auto custom-scrollbar">
+              {allRoomsInBuilding.length === 0 ? (
                 <div className="py-8 text-center text-slate-400 space-y-1.5">
                   <i className="fa-solid fa-door-closed text-2xl text-slate-300"></i>
-                  <p className="text-xs font-semibold text-slate-600">Tidak ada kamar kosong yang siap dihuni</p>
+                  <p className="text-xs font-semibold text-slate-600">Tidak ada kamar ditemukan pada lantai/pencarian ini</p>
                   <p className="text-[11px] text-slate-400">
-                    Semua kamar di lantai ini sedang terisi, di-booking, atau dalam masa perbaikan. Silakan pilih lantai atau gedung lain.
+                    Silakan ganti lantai atau kata kunci pencarian nomor kamar.
                   </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                  {availableRoomsInBuilding.map(r => {
+                  {allRoomsInBuilding.map(r => {
+                    const isSource = sourceRoom && (r.id === sourceRoom.id || r.roomNumber === sourceRoom.roomNumber);
+                    const isReady = (r.status === 'READY' || r.status === 'KOSONG') && !isSource;
                     const isSelected = selectedTargetRoomId === r.id;
+                    const isTerisi = r.status === 'TERISI';
+                    const isBooked = r.status === 'BOOKED';
+                    const isMaintenance = r.status === 'MAINTENANCE';
+                    const isClosed = r.status === 'CLOSED' || r.status === 'TIDAK_READY';
+
+                    let blockBadge = null;
+                    let blockReason = '';
+                    if (isSource) {
+                      blockBadge = (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-900 border border-blue-200 flex items-center gap-1">
+                          <i className="fa-solid fa-user-check text-[8px]"></i>
+                          <span>Kamar Asal</span>
+                        </span>
+                      );
+                      blockReason = 'Ini adalah kamar asal tamu saat ini';
+                    } else if (isTerisi) {
+                      blockBadge = (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                          <i className="fa-solid fa-user-group text-[8px]"></i>
+                          <span>Sedang Terisi</span>
+                        </span>
+                      );
+                      blockReason = 'Kamar sedang ditempati tamu menginap';
+                    } else if (isBooked) {
+                      blockBadge = (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
+                          <i className="fa-solid fa-calendar-check text-[8px]"></i>
+                          <span>Di-Booking</span>
+                        </span>
+                      );
+                      blockReason = 'Kamar sudah di-booking tamu lain';
+                    } else if (isMaintenance) {
+                      blockBadge = (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                          <i className="fa-solid fa-wrench text-[8px]"></i>
+                          <span>Maintenance</span>
+                        </span>
+                      );
+                      blockReason = 'Kamar dalam perbaikan sarana teknisi';
+                    } else if (isClosed) {
+                      blockBadge = (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-200 text-slate-800 border border-slate-300 flex items-center gap-1">
+                          <i className="fa-solid fa-lock text-[8px]"></i>
+                          <span>Closed (Tidak Ready)</span>
+                        </span>
+                      );
+                      blockReason = 'Kamar sedang ditutup sementara (Hold)';
+                    }
+
                     return (
                       <div
                         key={r.id}
-                        onClick={() => setSelectedTargetRoomId(r.id)}
-                        className={`p-3 rounded-xl border transition cursor-pointer relative flex flex-col justify-between ${
-                          isSelected
-                            ? 'bg-emerald-50/90 border-emerald-500 shadow-md ring-2 ring-emerald-500'
-                            : 'bg-white hover:bg-slate-50/90 border-slate-200 shadow-2xs'
+                        onClick={() => {
+                          if (!isReady) {
+                            showToast(`Kamar ${r.roomNumber} tidak dapat dipilih (${blockReason})`, 'warning');
+                            return;
+                          }
+                          setSelectedTargetRoomId(r.id);
+                        }}
+                        className={`p-3 rounded-xl border transition relative flex flex-col justify-between ${
+                          isReady
+                            ? (isSelected
+                                ? 'bg-emerald-50/95 border-emerald-500 shadow-md ring-2 ring-emerald-500 cursor-pointer'
+                                : 'bg-white hover:bg-emerald-50/30 border-slate-200 hover:border-emerald-300 shadow-2xs cursor-pointer')
+                            : 'bg-slate-100/90 border-slate-200/90 opacity-60 cursor-not-allowed select-none'
                         }`}
+                        title={isReady ? `Pilih Kamar ${r.roomNumber}` : `Kamar ${r.roomNumber} tidak dapat dipilih: ${blockReason}`}
                       >
-                        {isSelected && (
+                        {isSelected && isReady && (
                           <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] shadow-xs">
                             <i className="fa-solid fa-check"></i>
                           </div>
@@ -389,7 +465,7 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
 
                         <div>
                           <div className="flex items-center justify-between pr-5">
-                            <span className="font-extrabold text-sm text-slate-900 tracking-tight">
+                            <span className={`font-extrabold text-sm tracking-tight ${isReady ? 'text-slate-900' : 'text-slate-500'}`}>
                               Kamar {r.roomNumber}
                             </span>
                             <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
@@ -409,19 +485,30 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
                               <span>•</span>
                               <span>{r.capacity || '4 Orang'}</span>
                             </div>
-                            <div className="font-bold text-emerald-700 font-mono text-xs pt-0.5">
+                            <div className={`font-bold font-mono text-xs pt-0.5 ${isReady ? 'text-emerald-700' : 'text-slate-400'}`}>
                               {formatRupiah(r.pricePerNight || 0)} <span className="text-[10px] text-slate-400 font-normal">/ malam</span>
                             </div>
                           </div>
                         </div>
 
-                        <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                          <span className="text-emerald-700 font-semibold flex items-center">
-                            <i className="fa-solid fa-circle-check text-[9px] mr-1"></i> Siap Dihuni (QC)
-                          </span>
-                          <span className={`font-bold ${isSelected ? 'text-emerald-700' : 'text-slate-400'}`}>
-                            {isSelected ? 'Terpilih' : 'Klik Pilih'}
-                          </span>
+                        <div className="mt-2 pt-1.5 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+                          {isReady ? (
+                            <>
+                              <span className="text-emerald-700 font-bold flex items-center">
+                                <i className="fa-solid fa-circle-check text-[9px] mr-1"></i> Ready (Siap Huni)
+                              </span>
+                              <span className={`font-bold ${isSelected ? 'text-emerald-700' : 'text-emerald-600 underline'}`}>
+                                {isSelected ? 'Terpilih' : 'Pilih Kamar'}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {blockBadge}
+                              <span className="text-slate-400 font-semibold italic flex items-center gap-1 text-[9px]">
+                                <i className="fa-solid fa-ban text-[8px]"></i> Diblokir
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     );

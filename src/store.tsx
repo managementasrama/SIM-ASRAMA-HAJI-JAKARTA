@@ -2589,7 +2589,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRooms(prev => {
       const updatedRooms = prev.map(r => {
         if (r.id === tx.roomId || (r.roomNumber === tx.roomNumber && (!tx.building || normalizeBuildingName(tx.building) === normalizeBuildingName(r.building)))) {
-          if (r.status === 'KOSONG' || tx.status === 'TERISI') {
+          if (r.status === 'KOSONG' || r.status === 'READY' || tx.status === 'TERISI') {
             return { ...r, status: tx.status as any, activeTxId: tx.id };
           }
         }
@@ -2777,7 +2777,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         const wasInGroupOld = transactions.some(t => (t.groupId === editGroupId || (t.isGroup && t.groupName?.toLowerCase() === groupName.toLowerCase())) && t.roomId === r.id);
         if (wasInGroupOld && !nowInGroup) {
-          return { ...r, status: 'KOSONG', activeTxId: null, qcStatus: 'PERLU_INSPEKSI' };
+          return { ...r, status: 'READY', activeTxId: null, qcStatus: 'PERLU_INSPEKSI' };
         }
         return r;
       });
@@ -3019,7 +3019,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (nextBooked) {
               return { ...r, status: "BOOKED", activeTxId: nextBooked.id, qcStatus: "PERLU_INSPEKSI" };
             }
-            return { ...r, status: "KOSONG", activeTxId: null, qcStatus: "PERLU_INSPEKSI" };
+            return { ...r, status: "READY", activeTxId: null, qcStatus: "PERLU_INSPEKSI" };
           }
           return r;
         });
@@ -3167,7 +3167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (sourceRoom && r.id === sourceRoom.id) {
           return {
             ...r,
-            status: 'KOSONG' as const,
+            status: 'READY' as const,
             qcStatus: 'PERLU_INSPEKSI' as const,
             activeTxId: null,
             updatedAt: nowIso
