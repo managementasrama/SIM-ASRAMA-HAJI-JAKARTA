@@ -2150,6 +2150,36 @@ export function RoomsView() {
                 </div>
               </div>
 
+              {/* Visual Legend Bar for Room Statuses */}
+              <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-750/50 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <i className="fa-solid fa-circle-info text-emerald-600"></i>
+                  <span>Keterangan Status Kamar:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs font-semibold">
+                  <div className="flex items-center space-x-1.5" title="Kamar bersih, kosong, dan siap dihuni tamu">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-2xs"></span>
+                    <span className="text-slate-700 dark:text-slate-300">Ready</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5" title="Kamar sedang dihuni oleh tamu aktif">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-2xs"></span>
+                    <span className="text-slate-700 dark:text-slate-300">Terisi</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5" title="Kamar sudah dipesan / reservasi terjadwal">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-2xs"></span>
+                    <span className="text-slate-700 dark:text-slate-300">Booked</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5" title="Kamar sedang dalam perbaikan / pemeliharaan teknis">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-2xs"></span>
+                    <span className="text-slate-700 dark:text-slate-300">Maintenance</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5" title="Kamar ditutup sementara (Closed / Tidak Ready)">
+                    <span className="w-2.5 h-2.5 rounded-full bg-slate-500 shadow-2xs"></span>
+                    <span className="text-slate-700 dark:text-slate-300">Closed (Tidak Ready)</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Bar Reset Filter Aktif (Hanya muncul jika ada penyaringan aktif) */}
               {(bFilter !== 'ALL' || roomTypeFilter !== 'ALL' || bedTypeFilter !== 'ALL' || sFilter !== 'ALL' || search) && (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-300">
