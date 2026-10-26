@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Component } from 'react';
 import { AppProvider, useAppContext } from './store';
 import { Login } from './components/Login';
 import { Header } from './components/Header';
@@ -199,10 +199,82 @@ function MainApp() {
   );
 }
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  public state: { hasError: boolean; error: Error | null } = { hasError: false, error: null };
+  public props!: { children: React.ReactNode };
+
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-xl max-w-md w-full text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center text-2xl mx-auto shadow-inner">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-800">Terjadi Kendala Sistem</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Aplikasi mengalami galat saat merender komponen. Silakan muat ulang halaman atau reset cache jika masalah berlanjut.
+              </p>
+              {this.state.error && (
+                <div className="mt-3 p-2 bg-slate-100 rounded text-[10px] text-red-600 font-mono text-left max-h-24 overflow-auto">
+                  {this.state.error.toString()}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.reload();
+                }}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition cursor-pointer"
+              >
+                <i className="fa-solid fa-rotate-right mr-1.5"></i>
+                Muat Ulang Halaman
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.clear();
+                  window.location.reload();
+                }}
+                className="py-2.5 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="Bersihkan cache lokal & reset data"
+              >
+                Reset Cache
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <AppProvider>
-      <MainApp />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <MainApp />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }
+
+
+
