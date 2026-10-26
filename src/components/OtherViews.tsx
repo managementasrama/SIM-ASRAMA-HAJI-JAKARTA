@@ -4475,10 +4475,12 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     }
 
     return cleanList.sort((a, b) => {
-      const timeA = new Date(a.timestamp).getTime() || 0;
-      const timeB = new Date(b.timestamp).getTime() || 0;
+      const tsA = typeof a.timestamp === 'string' ? a.timestamp : String(a.timestamp || '');
+      const tsB = typeof b.timestamp === 'string' ? b.timestamp : String(b.timestamp || '');
+      const timeA = new Date(tsA).getTime() || 0;
+      const timeB = new Date(tsB).getTime() || 0;
       if (timeA && timeB && timeA !== timeB) return timeB - timeA;
-      return (b.timestamp || '').localeCompare(a.timestamp || '');
+      return tsB.localeCompare(tsA);
     });
   }, [auditLogs, dataStorage]);
 
