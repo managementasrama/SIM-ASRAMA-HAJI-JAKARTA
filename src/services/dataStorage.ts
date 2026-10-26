@@ -372,32 +372,27 @@ export class DataStorageService {
       preferCloud: boolean = false
     ): T[] {
       const map = new Map<string, T>();
-      // 1. Masukkan entitas dari cloud
-      for (const item of (cloudList || [])) {
+      // 1. Masukkan seluruh entitas lokal terlebih dahulu agar data lokal tidak pernah hilang
+      for (const item of (localList || [])) {
         if (item && item.id) {
           map.set(String(item.id).trim(), item);
         }
       }
-      // 2. Bandingkan dengan entitas lokal
-      for (const item of (localList || [])) {
+      // 2. Gabungkan/perbarui dengan data dari cloud jika cloud memiliki data valid
+      for (const item of (cloudList || [])) {
         if (!item || !item.id) continue;
         const key = String(item.id).trim();
-        const existingCloud = map.get(key);
-        if (!existingCloud) {
-          // Data dibuat di lokal dan belum ada di cloud: jangan pernah dihapus
+        const existingLocal = map.get(key);
+        if (!existingLocal) {
           map.set(key, item);
         } else {
-          const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-          const cloudTime = existingCloud.updatedAt ? new Date(existingCloud.updatedAt).getTime() : 0;
-          if (localTime > cloudTime) {
-            // Lokal dimutasi lebih baru oleh pengguna: pertahankan data lokal
+          const localTime = existingLocal.updatedAt ? new Date(existingLocal.updatedAt).getTime() : 0;
+          const cloudTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+          if (cloudTime > localTime) {
             map.set(key, item);
-          } else if (cloudTime > localTime) {
-            // Cloud lebih baru: terapkan versi cloud
-            map.set(key, existingCloud);
           } else {
-            // Waktu sama atau belum memiliki timestamp: utamakan lokal agar edit pengguna tidak terhapus
-            map.set(key, preferCloud ? existingCloud : item);
+            // Pertahankan lokal
+            map.set(key, existingLocal);
           }
         }
       }

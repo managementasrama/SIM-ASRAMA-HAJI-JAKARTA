@@ -112,6 +112,7 @@ export function SpreadsheetIntegrationView() {
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
   const [showPushConfirm, setShowPushConfirm] = useState(false);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [showVerifySyncModal, setShowVerifySyncModal] = useState(false);
   const [syncLogs, setSyncLogs] = useState<Array<{ time: string; type: 'FETCH' | 'PUSH' | 'CONFIG' | 'PROVISION'; message: string; success: boolean }>>([]);
 
   // Ambil konfigurasi tersimpan saat pertama kali dibuka (dari localStorage dan backend server)
@@ -1691,6 +1692,14 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
             )}
             <button
               type="button"
+              onClick={() => setShowVerifySyncModal(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            >
+              <i className="fa-solid fa-shield-halved"></i>
+              <span>Verifikasi Sinkronisasi</span>
+            </button>
+            <button
+              type="button"
               onClick={handleCopyScript}
               className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md cursor-pointer"
             >
@@ -3234,6 +3243,102 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
               >
                 <i className="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
                 <span>Jalankan Auto-Provisioning Sekarang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Verifikasi Sinkronisasi (Sync Verification) */}
+      {showVerifySyncModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                  <i className="fa-solid fa-shield-halved text-lg"></i>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-slate-100 text-base">
+                    Verifikasi Sinkronisasi (Sync Verification)
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Membandingkan timestamp API Google Spreadsheet dengan state memori lokal aplikasi.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVerifySyncModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center justify-center transition"
+              >
+                <i className="fa-solid fa-xmark text-sm"></i>
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">Status Koneksi API:</span>
+                  <span className={`px-2.5 py-1 rounded-lg font-extrabold ${
+                    syncStatus === 'connected' 
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' 
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                  }`}>
+                    {syncStatus === 'connected' ? 'Terhubung & Aktif' : syncStatus.toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">Waktu Sinkronisasi Terakhir (API):</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-200 font-semibold">
+                    {lastSyncTime ? new Date(lastSyncTime).toLocaleString('id-ID') : 'Belum Pernah'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">Total Transaksi Lokal:</span>
+                  <span className="font-mono text-emerald-700 dark:text-emerald-400 font-extrabold">
+                    {transactions?.length || 0} Berkas
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 dark:text-slate-400 font-bold">Total Kamar / Unit:</span>
+                  <span className="font-mono text-emerald-700 dark:text-emerald-400 font-extrabold">
+                    {rooms?.length || 0} Kamar
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800/60 space-y-1.5">
+                <div className="font-bold text-teal-950 dark:text-teal-200 flex items-center space-x-1.5">
+                  <i className="fa-solid fa-circle-info text-teal-600"></i>
+                  <span>Analisis Kesenjangan (Sync Gap Analysis)</span>
+                </div>
+                <p className="text-teal-900/80 dark:text-teal-300/80 leading-relaxed">
+                  {(lastSyncTime && Date.now() - new Date(lastSyncTime).getTime() < 600000) 
+                    ? 'State aplikasi selaras sempurna dengan Google Spreadsheet. Tidak ditemukan kesenjangan data.' 
+                    : 'Terdapat jeda waktu sejak sinkronisasi terakhir. Disarankan untuk memuat ulang data dari spreadsheet guna memastikan laporan transaksi terbaru termuat.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowVerifySyncModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Tutup
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVerifySyncModal(false);
+                  handleFetchSpreadsheetData();
+                }}
+                className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl text-xs shadow-md transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <i className="fa-solid fa-rotate"></i>
+                <span>Tarik Data Terbaru Sekarang</span>
               </button>
             </div>
           </div>
