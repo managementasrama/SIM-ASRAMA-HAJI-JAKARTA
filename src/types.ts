@@ -12,6 +12,8 @@ export type UserRole =
   | 'Quality Control' 
   | 'Manager Teknisi' 
   | 'Teknisi' 
+  | 'Manager Petugas Gedung'
+  | 'Petugas Gedung'
   | 'Manager Koperasi' 
   | 'Petugas Koperasi'
   | 'Manager'
@@ -31,6 +33,7 @@ export interface UserPermissions {
   canIssueKwitansi?: boolean;       // Terbitkan & Cetak Kwitansi Ber-QR Resmi Sah
   canCrudMaintenance?: boolean;     // CRUD Tiket Maintenance & Teknisi
   canCrudQc?: boolean;              // CRUD Inspeksi Mutu QC & Checklist
+  canCrudCleaning?: boolean;        // CRUD Laporan Pembersihan & Foto Bukti Petugas Gedung
   canCrudCatering?: boolean;        // CRUD Menu & Pesanan Makan Koperasi
   canManageUsers?: boolean;         // Menambah / Edit / Hapus Akun Petugas
   canManagePermissions?: boolean;   // Mengatur Hak Akses & Otorisasi Akun
@@ -74,6 +77,20 @@ export interface Building {
   updatedAt?: string;
 }
 
+export interface CleaningLog {
+  id: string;
+  roomId?: string;
+  meetingRoomId?: string;
+  building: string;
+  roomNumber: string;
+  petugasId: string;
+  petugasName: string;
+  timestamp: string;
+  photoUrl: string;
+  notes: string;
+  status: 'SELESAI_DIKERJAKAN' | 'MENUNGGU_QC' | 'DISETUJUI_QC';
+}
+
 export interface MeetingRoom {
   id: string;
   name: string; // e.g. "Gedung SG-1 (SG-1)", "Aula Utama Arafah"
@@ -86,10 +103,11 @@ export interface MeetingRoom {
   dailyRate: number;
   sessionRate?: number;
   description?: string;
-  status: 'TERSEDIA' | 'TERPAKAI' | 'MAINTENANCE';
+  status: 'TERSEDIA' | 'TERPAKAI' | 'MAINTENANCE' | 'READY' | 'CLOSED' | 'DIBERSIHKAN' | string;
   qcStatus?: 'LOLOS_QC' | 'PERLU_INSPEKSI' | 'PERLU_PERBAIKAN' | 'MENUNGGU_QC';
   activeTxId?: string | null;
   activeMaintId?: string | null;
+  cleaningLogs?: CleaningLog[];
   createdAt?: string;
   updatedAt?: string;
 }
