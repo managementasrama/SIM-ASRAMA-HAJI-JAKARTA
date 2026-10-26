@@ -2124,6 +2124,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } catch (_) {}
 
+    // Tarik data terbaru dari Google Spreadsheet saat berhasil masuk (login) agar aplikasi selalu sinkron
+    dataStorage.hydrateFromSpreadsheet(true).then(cloudDb => {
+      if (cloudDb) {
+        setUsers(cloudDb.users || users);
+        setBuildings(cloudDb.buildings || buildings);
+        setMeetingRooms(cloudDb.meetingRooms || meetingRooms);
+        setRooms(cloudDb.rooms || rooms);
+        setTransactions(cloudDb.transactions || transactions);
+        setMaintenances(cloudDb.maintenances || maintenances);
+        setAuditLogs(cloudDb.auditLogs || auditLogs);
+        setQcInspections(cloudDb.qcInspections || qcInspections);
+        setBreakfastMenuItems(cloudDb.breakfastMenuItems || breakfastMenuItems);
+        setBreakfastOrders(cloudDb.breakfastOrders || breakfastOrders);
+        if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
+      }
+    }).catch(() => {});
+
     setCurrentUser(user);
     const now = new Date();
     const loginTimeStr = getRealLocalDateTimeStr(now);
