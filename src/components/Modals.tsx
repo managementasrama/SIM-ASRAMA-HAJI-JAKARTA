@@ -5481,6 +5481,14 @@ export function Modals() {
         roomId={modalState.modalRoomDetail?.data?.roomId || null}
       />
 
+      {/* MODAL PINDAH KAMAR / GEDUNG */}
+      <RoomTransferModal
+        isOpen={Boolean(modalState.modalRoomTransfer?.isOpen)}
+        onClose={() => closeModal('modalRoomTransfer')}
+        transaction={modalState.modalRoomTransfer?.data?.transaction || null}
+        room={modalState.modalRoomTransfer?.data?.room || null}
+      />
+
       {/* MODAL PENDAFTARAN ROMBONGAN (HAJI, UMUM & INSTANSI) */}
       <GroupRegistrationModal
         isOpen={Boolean(modalState.modalGroupRegistration?.isOpen)}
