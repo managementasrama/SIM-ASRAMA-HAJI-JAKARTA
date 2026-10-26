@@ -88,7 +88,8 @@ export interface CleaningLog {
   timestamp: string;
   photoUrl: string;
   notes: string;
-  status: 'SELESAI_DIKERJAKAN' | 'MENUNGGU_QC' | 'DISETUJUI_QC';
+  status: 'SELESAI_DIKERJAKAN' | 'MENUNGGU_QC' | 'DISETUJUI_QC' | 'LOLOS_QC' | 'PERLU_INSPEKSI' | string;
+  updatedAt?: string;
 }
 
 export interface MeetingRoom {

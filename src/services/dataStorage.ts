@@ -96,7 +96,7 @@ export interface CompleteStorageDatabase {
   breakfastOrders: BreakfastOrder[];
   roomCapacityRates: RoomCapacityRate[];
   passwordResetRequests?: PasswordResetRequest[];
-  cleaningLogs: CleaningLog[];
+  cleaningLogs?: CleaningLog[];
 }
 
 function getMinistryPngLogo(): string {

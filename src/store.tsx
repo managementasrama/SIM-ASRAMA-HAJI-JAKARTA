@@ -283,6 +283,7 @@ interface AppContextType {
   // Cleaning Logs & Petugas Gedung Database
   cleaningLogs: CleaningLog[];
   addCleaningLog: (log: CleaningLog) => void;
+  updateCleaningLog: (log: CleaningLog) => void;
   updateCleaningLogStatus: (logId: string, status: CleaningLog['status']) => void;
   deleteCleaningLog: (logId: string) => void;
   
@@ -5046,6 +5047,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logAudit('Laporan Pembersihan Gedung', `Petugas ${saved.petugasName} mengirim laporan pembersihan untuk ${saved.building} ${saved.roomNumber}.`);
   };
 
+  const updateCleaningLog = (log: CleaningLog) => {
+    const saved = dataStorage.saveCleaningLog(log);
+    setCleaningLogs(dataStorage.getCleaningLogs());
+    logAudit('Ubah Laporan Pembersihan', `Laporan pembersihan ID ${saved.id} untuk ${saved.building} ${saved.roomNumber} diperbarui.`);
+  };
+
   const updateCleaningLogStatus = (logId: string, status: CleaningLog['status']) => {
     const db = dataStorage.getDatabase();
     const logs = db.cleaningLogs || [];
@@ -5066,7 +5073,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider value={{
       currentUser, users, rooms, transactions, maintenances, auditLogs, workSessions, qcInspections, activeSessionId, onlinePresences, activeTab, toasts, modalState,
-      cleaningLogs, addCleaningLog, updateCleaningLogStatus, deleteCleaningLog,
+      cleaningLogs, addCleaningLog, updateCleaningLog, updateCleaningLogStatus, deleteCleaningLog,
       storageNamespace, switchStorageNamespace, isNetworkOnline, isDarkMode, toggleDarkMode, updateCurrentAccount, appSettings, updateAppSettings,
       buildings, meetingRooms, addBuilding, updateBuilding, deleteBuilding, addMeetingRoom, updateMeetingRoom, deleteMeetingRoom, addRoom, updateRoom, deleteRoom,
       roomCapacityRates, addRoomCapacityRate, updateRoomCapacityRate, deleteRoomCapacityRate, resetRoomCapacityRates, applyRateToAllRooms,
