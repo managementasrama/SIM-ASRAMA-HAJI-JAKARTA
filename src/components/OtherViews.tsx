@@ -4511,18 +4511,19 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     return deduplicatedAuditLogs.filter(log => {
       // Date filter
       let logDate = '';
-      if (log.timestamp) {
-        if (log.timestamp.includes('/')) {
-          const parts = log.timestamp.split(',')[0].trim().split('/');
+      const tsStr = log && typeof log.timestamp === 'string' ? log.timestamp : (log && log.timestamp != null ? String(log.timestamp) : '');
+      if (tsStr) {
+        if (tsStr.includes('/')) {
+          const parts = tsStr.split(',')[0].trim().split('/');
           if (parts.length === 3) {
             logDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
           }
-        } else if (log.timestamp.includes('-')) {
-          logDate = log.timestamp.slice(0, 10);
+        } else if (tsStr.includes('-')) {
+          logDate = tsStr.slice(0, 10);
         }
       }
       if (!logDate) {
-        logDate = (log.timestamp || '').split(' ')[0];
+        logDate = tsStr.split(' ')[0];
       }
 
       if (datePreset === 'HARI_INI' && logDate !== realToday) return false;
@@ -4574,14 +4575,15 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
       // Date parsing
       let logDate = '';
-      if (log.timestamp) {
-        if (log.timestamp.includes('/')) {
-          const parts = log.timestamp.split(',')[0].trim().split('/');
+      const tsPdfStr = log && typeof log.timestamp === 'string' ? log.timestamp : (log && log.timestamp != null ? String(log.timestamp) : '');
+      if (tsPdfStr) {
+        if (tsPdfStr.includes('/')) {
+          const parts = tsPdfStr.split(',')[0].trim().split('/');
           if (parts.length === 3) {
             logDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
           }
-        } else if (log.timestamp.includes('-')) {
-          logDate = log.timestamp.slice(0, 10);
+        } else if (tsPdfStr.includes('-')) {
+          logDate = tsPdfStr.slice(0, 10);
         }
       }
 
