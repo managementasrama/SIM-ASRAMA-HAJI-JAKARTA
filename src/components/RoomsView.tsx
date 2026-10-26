@@ -825,6 +825,17 @@ export function RoomsView() {
                     <span>Rincian Kamar</span>
                   </button>
                 </div>
+                {((activeTx && activeTx.status === 'TERISI') || (terisiTxs.length > 0 && terisiTxs[0].status === 'TERISI')) && (
+                  <button 
+                    type="button"
+                    onClick={() => openModal('modalRoomTransfer', { transaction: activeTx || terisiTxs[0], room })} 
+                    className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold rounded-lg text-xs border border-blue-200 flex items-center justify-center space-x-1.5 transition cursor-pointer shadow-2xs"
+                    title="Pindahkan tamu ke kamar atau gedung lain"
+                  >
+                    <i className="fa-solid fa-right-left text-[11px] text-blue-600"></i>
+                    <span>Pindah Kamar</span>
+                  </button>
+                )}
                 {bookedTxs.length > 0 && (
                   <button 
                     type="button"

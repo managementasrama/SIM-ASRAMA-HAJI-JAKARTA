@@ -17,7 +17,8 @@ import {
   UserRole,
   EmailNotificationItem,
   RoomCapacityRate,
-  UserPermissions
+  UserPermissions,
+  RoomTransferRecord
 } from './types';
 import { initialUsers, getInitialRooms, initialTransactions, initialMaintenances, initialAuditLogs, initialWorkSessions, initialQcInspections, initialBuildings, initialMeetingRooms } from './data';
 import { initialChatChannels, initialChatMessages, getDirectChannelId, resolveDirectPartner, isUserParticipantInChannel } from './chatData';
@@ -237,6 +238,7 @@ interface AppContextType {
   updateTransaction: (tx: Transaction) => void;
   updateBreakfastStatus: (txId: string, status: 'MENUNGGU' | 'SEDANG_DIBUAT' | 'PENGANTARAN' | 'SELESAI' | 'DIBATALKAN') => void;
   checkoutRoom: (roomId: string, txId?: string) => void;
+  transferRoom: (transactionId: string, targetRoomId: string, options?: any) => boolean;
   activateCheckin: (roomId: string, targetTxId?: string) => void;
   cancelBooking: (roomId: string, txId?: string, reason?: string) => void;
   batchCancelGroup: (txIdsOrGroupId: string[] | string, reason?: string) => boolean;
@@ -3046,39 +3048,112 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const transferRoom = (transactionId: string, targetRoomId: string, transferNotes?: string) => {
+  const transferRoom = (
+    transactionId: string, 
+    targetRoomId: string, 
+    options?: string | {
+      reasonCategory?: string;
+      notes?: string;
+      ratePolicy?: 'PERTAHANKAN_TARIF' | 'SESUAIKAN_TARIF';
+      rateAdjustmentTotal?: number;
+      newPricePerNight?: number;
+      remainingDays?: number;
+    }
+  ): boolean => {
     if (!isRecepRole(currentUser?.role)) {
       showToast("Akses Ditolak: Hanya staf Resepsionis yang berwenang memindahkan kamar!", "error");
-      return;
+      return false;
     }
 
     const tx = transactions.find(t => t.id === transactionId);
     if (!tx) {
-      showToast("Transaksi tidak ditemukan.", "error");
-      return;
+      showToast("Data transaksi tamu tidak ditemukan.", "error");
+      return false;
     }
 
     const sourceRoom = rooms.find(r => r.id === tx.roomId || (r.roomNumber === tx.roomNumber && r.building === tx.building));
     const targetRoom = rooms.find(r => r.id === targetRoomId);
 
     if (!targetRoom) {
-      showToast("Kamar tujuan tidak ditemukan.", "error");
-      return;
+      showToast("Kamar tujuan tidak ditemukan di direktori hunian.", "error");
+      return false;
     }
 
     if (targetRoom.status !== 'KOSONG') {
-      showToast("Kamar tujuan tidak kosong atau sedang terisi/dalam perawatan.", "warning");
-      return;
+      showToast(`Kamar ${targetRoom.roomNumber} saat ini tidak berstatus Kosong (${targetRoom.status}). Silakan pilih kamar kosong lainnya.`, "warning");
+      return false;
     }
 
-    const nowStr = new Date().toISOString();
+    const reasonCategory = typeof options === 'object' ? (options.reasonCategory || 'PERMINTAAN_TAMU') : 'PERMINTAAN_TAMU';
+    const transferNotes = typeof options === 'object' ? (options.notes || '') : (options || '');
+    const ratePolicy = typeof options === 'object' ? (options.ratePolicy || 'PERTAHANKAN_TARIF') : 'PERTAHANKAN_TARIF';
+    const remainingDays = typeof options === 'object' && options.remainingDays !== undefined ? options.remainingDays : 1;
+    const oldPricePerNight = tx.pricePerNight || sourceRoom?.pricePerNight || 0;
+    const targetRoomRate = targetRoom.pricePerNight || oldPricePerNight;
+    const newPricePerNight = typeof options === 'object' && options.newPricePerNight !== undefined ? options.newPricePerNight : targetRoomRate;
+    const priceDiffPerNight = newPricePerNight - oldPricePerNight;
+    const calculatedAdjustment = typeof options === 'object' && options.rateAdjustmentTotal !== undefined 
+      ? options.rateAdjustmentTotal 
+      : (priceDiffPerNight * remainingDays);
+
+    const adjustedTotalAmount = ratePolicy === 'SESUAIKAN_TARIF' 
+      ? Math.max(0, (tx.totalAmount || 0) + calculatedAdjustment) 
+      : (tx.totalAmount || 0);
+
+    const adjustedRemainingAmount = ratePolicy === 'SESUAIKAN_TARIF'
+      ? Math.max(0, (tx.remainingAmount || 0) + calculatedAdjustment)
+      : (tx.remainingAmount || 0);
+
+    const adjustedPaymentStatus = ratePolicy === 'SESUAIKAN_TARIF' && adjustedRemainingAmount > 0
+      ? (tx.paidAmount && tx.paidAmount > 0 ? 'DP' : 'BELUM_LUNAS')
+      : tx.paymentStatus;
+
+    const nowIso = new Date().toISOString();
+    const transferRecord: RoomTransferRecord = {
+      transferredAt: nowIso,
+      transferredBy: currentUser?.fullName || 'Petugas Resepsionis',
+      fromRoomId: sourceRoom?.id || tx.roomId,
+      fromRoomNumber: sourceRoom?.roomNumber || tx.roomNumber,
+      fromBuilding: sourceRoom?.building || tx.building,
+      toRoomId: targetRoom.id,
+      toRoomNumber: targetRoom.roomNumber,
+      toBuilding: targetRoom.building,
+      reasonCategory,
+      notes: transferNotes || undefined,
+      ratePolicy,
+      oldRate: oldPricePerNight,
+      newRate: newPricePerNight,
+      rateDiffPerNight: priceDiffPerNight,
+      remainingDays,
+      rateAdjustmentTotal: ratePolicy === 'SESUAIKAN_TARIF' ? calculatedAdjustment : 0
+    };
+
+    const existingHistory = Array.isArray(tx.transferHistory) ? tx.transferHistory : [];
+    const updatedHistory = [...existingHistory, transferRecord];
+    const newTransferredCount = (tx.transferredCount || 0) + 1;
+
+    const reasonLabel = 
+      reasonCategory === 'KELUHAN_FASILITAS' ? 'Keluhan Fasilitas' :
+      reasonCategory === 'PERMINTAAN_TAMU' ? 'Permintaan Tamu' :
+      reasonCategory === 'UPGRADE_KAMAR' ? 'Upgrade Kamar' :
+      reasonCategory === 'KEBUTUHAN_OPERASIONAL' ? 'Kebutuhan Operasional' :
+      'Mutasi Kamar';
+
     const updatedTx: Transaction = {
       ...tx,
       roomId: targetRoom.id,
       roomNumber: targetRoom.roomNumber,
       building: targetRoom.building,
-      notes: transferNotes ? `${tx.notes || ''} [Pindah Kamar dari ${sourceRoom ? sourceRoom.roomNumber : tx.roomNumber} ke ${targetRoom.roomNumber}: ${transferNotes}]` : `${tx.notes || ''} [Pindah Kamar ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}]`,
-      updatedAt: nowStr
+      pricePerNight: ratePolicy === 'SESUAIKAN_TARIF' ? newPricePerNight : tx.pricePerNight,
+      totalAmount: adjustedTotalAmount,
+      remainingAmount: adjustedRemainingAmount,
+      paymentStatus: adjustedPaymentStatus,
+      transferredCount: newTransferredCount,
+      transferHistory: updatedHistory,
+      notes: transferNotes 
+        ? `${tx.notes || ''} [Pindah ke ${targetRoom.building} ${targetRoom.roomNumber} (${reasonLabel}): ${transferNotes}]` 
+        : `${tx.notes || ''} [Pindah ke ${targetRoom.building} ${targetRoom.roomNumber} (${reasonLabel})]`,
+      updatedAt: nowIso
     };
 
     setTransactions(prev => {
@@ -3094,14 +3169,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...r,
             status: 'KOSONG' as const,
             qcStatus: 'PERLU_INSPEKSI' as const,
-            activeTxId: null
+            activeTxId: null,
+            updatedAt: nowIso
           };
         }
         if (r.id === targetRoom.id) {
           return {
             ...r,
             status: 'TERISI' as const,
-            activeTxId: tx.id
+            activeTxId: tx.id,
+            updatedAt: nowIso
           };
         }
         return r;
@@ -3110,8 +3187,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return updatedRooms;
     });
 
-    logAudit("PINDAH_KAMAR", `Memindahkan tamu ${tx.guestName} dari ${sourceRoom ? sourceRoom.building + ' Kamar ' + sourceRoom.roomNumber : tx.roomNumber} ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}.`);
-    showToast(`Berhasil memindahkan tamu ${tx.guestName} ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}! Kamar asal kini berstatus Perlu Inspeksi.`, "success");
+    setBreakfastOrders(prev => {
+      let changed = false;
+      const updated = prev.map(o => {
+        if (o.transactionId === tx.id || (o.roomNumber === sourceRoom?.roomNumber && o.status !== 'DIBATALKAN' && o.status !== 'SELESAI')) {
+          changed = true;
+          const synced = {
+            ...o,
+            roomNumber: targetRoom.roomNumber,
+            building: targetRoom.building,
+            notes: o.notes ? `${o.notes} • Mutasi ke ${targetRoom.roomNumber}` : `Pindah dari ${sourceRoom?.roomNumber || tx.roomNumber} ke ${targetRoom.roomNumber}`,
+            updatedAt: nowIso
+          };
+          dataStorage.saveBreakfastOrder(synced);
+          return synced;
+        }
+        return o;
+      });
+      return changed ? updated : prev;
+    });
+
+    const auditDetail = `Memindahkan tamu "${tx.guestName}" dari ${sourceRoom ? sourceRoom.building + ' Kamar ' + sourceRoom.roomNumber : tx.roomNumber} ke ${targetRoom.building} Kamar ${targetRoom.roomNumber} (${reasonLabel}). Kebijakan Tarif: ${ratePolicy === 'SESUAIKAN_TARIF' ? 'Penyesuaian Biaya (Rp ' + calculatedAdjustment.toLocaleString('id-ID') + ')' : 'Pertahankan Tarif Awal'}.`;
+    logAudit("PINDAH_KAMAR", auditDetail);
+    showToast(`Berhasil memindahkan tamu ${tx.guestName} ke ${targetRoom.building} Kamar ${targetRoom.roomNumber}! Kamar lama ditandai "Perlu Inspeksi QC & Housekeeping".`, "success");
+    return true;
   };
 
   const cancelBooking = (roomIdOrTxId: string, txId?: string, reason?: string) => {

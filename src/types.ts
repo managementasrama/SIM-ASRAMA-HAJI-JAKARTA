@@ -332,6 +332,27 @@ export interface Transaction {
     user: string;
     reason?: string;
   }[];
+  transferredCount?: number;
+  transferHistory?: RoomTransferRecord[];
+}
+
+export interface RoomTransferRecord {
+  transferredAt: string;
+  transferredBy: string;
+  fromRoomId: string;
+  fromRoomNumber: string;
+  fromBuilding: string;
+  toRoomId: string;
+  toRoomNumber: string;
+  toBuilding: string;
+  reasonCategory: 'KELUHAN_FASILITAS' | 'PERMINTAAN_TAMU' | 'UPGRADE_KAMAR' | 'KEBUTUHAN_OPERASIONAL' | 'LAINNYA' | string;
+  notes?: string;
+  ratePolicy: 'PERTAHANKAN_TARIF' | 'SESUAIKAN_TARIF';
+  oldRate: number;
+  newRate: number;
+  rateDiffPerNight: number;
+  remainingDays: number;
+  rateAdjustmentTotal: number;
 }
 
 export interface Maintenance {

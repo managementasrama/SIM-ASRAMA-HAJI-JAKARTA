@@ -383,6 +383,15 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                             {tx.category === 'JEMAAH' ? `Jemaah Haji (${tx.kloter || '-'})` : (isAula ? 'Penyewa Acara' : 'Tamu Umum')}
                           </span>
+                          {(tx.transferredCount || (tx.transferHistory && tx.transferHistory.length > 0)) && (
+                            <span 
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200 flex items-center space-x-1"
+                              title={`Tamu ini telah melakukan mutasi/pindah kamar sebanyak ${tx.transferHistory?.length || tx.transferredCount || 1} kali`}
+                            >
+                              <i className="fa-solid fa-right-left text-[9px]"></i>
+                              <span>Mutasi ({tx.transferHistory?.length || tx.transferredCount || 1}x)</span>
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5 flex items-center space-x-3">
                           <span><i className="fa-solid fa-phone text-slate-400 mr-1"></i>{tx.phone || '-'}</span>
@@ -447,6 +456,53 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                         )}
                       </div>
                     </div>
+
+                    {/* Riwayat Mutasi / Pindah Kamar (Audit Trail) */}
+                    {tx.transferHistory && tx.transferHistory.length > 0 && (
+                      <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 space-y-2 text-xs">
+                        <div className="flex items-center justify-between text-blue-950 font-bold">
+                          <span className="flex items-center space-x-1.5">
+                            <i className="fa-solid fa-clock-rotate-left text-blue-700"></i>
+                            <span>Riwayat Mutasi &amp; Pindah Kamar ({tx.transferHistory.length}x Pemindahan)</span>
+                          </span>
+                          <span className="text-[10px] bg-blue-200/80 text-blue-900 font-bold px-2 py-0.5 rounded">
+                            Audit SOP
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {tx.transferHistory.map((th, thIdx) => (
+                            <div key={thIdx} className="bg-white/95 rounded-lg p-2.5 border border-blue-100 shadow-2xs space-y-1 text-[11px]">
+                              <div className="flex flex-wrap items-center justify-between gap-1">
+                                <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                                  <span className="text-slate-600">{th.sourceBuilding} (Kamar {th.sourceRoomNumber})</span>
+                                  <i className="fa-solid fa-arrow-right text-[10px] text-blue-600"></i>
+                                  <span className="text-emerald-700">{th.targetBuilding} (Kamar {th.targetRoomNumber})</span>
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {new Date(th.transferDate).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[10px] text-slate-600 pt-0.5 border-t border-slate-100">
+                                <div>
+                                  <span className="text-slate-400">Alasan:</span>{' '}
+                                  <span className="font-semibold text-slate-700">{th.reasonCategory.replace(/_/g, ' ')}</span>
+                                  {th.notes ? ` (${th.notes})` : ''}
+                                </div>
+                                <div className="sm:text-right">
+                                  <span className="text-slate-400">Petugas:</span>{' '}
+                                  <span className="font-semibold text-slate-700">{th.transferredBy}</span>
+                                  {th.ratePolicy === 'SESUAIKAN_TARIF' && th.rateAdjustmentTotal !== 0 && (
+                                    <span className="ml-1 text-amber-700 font-bold">
+                                      [{th.rateAdjustmentTotal > 0 ? `+${formatRupiah(th.rateAdjustmentTotal)}` : formatRupiah(th.rateAdjustmentTotal)}]
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Action Buttons for this tenant */}
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
