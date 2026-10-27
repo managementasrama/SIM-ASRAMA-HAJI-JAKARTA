@@ -1938,14 +1938,15 @@ async function startServer() {
       } else {
         realtimeState.workSessions.unshift(payload);
       }
-      // If this session is AKTIF, close any older AKTIF session for the same userId only if explicitly requested
-      if (payload.closeOtherUserSessions && payload.userId) {
+      // If this session is AKTIF, automatically close any older AKTIF session for the same user across all devices
+      if (payload.userId && payload.status === "AKTIF") {
         realtimeState.workSessions = realtimeState.workSessions.map((s: any) => {
           if (s.userId === payload.userId && s.id !== payload.id && s.status === "AKTIF") {
             return {
               ...s,
               status: "SELESAI",
               logoutTime: payload.loginTime || new Date().toISOString().replace("T", " ").substring(0, 19),
+              notes: s.notes ? `${s.notes} • Dialihkan karena login di perangkat baru` : "Dialihkan karena login di perangkat baru",
             };
           }
           return s;

@@ -120,6 +120,30 @@ export function formatDateTimeWIB(str: string | Date | null | undefined): string
   return `${d}/${m}/${y} , ${hh}:${mm} WIB`;
 }
 
+/**
+ * Ekstraksi tanggal standar YYYY-MM-DD dari string waktu apa pun (ISO, YYYY-MM-DD, DD/MM/YYYY, dll.)
+ */
+export function extractStandardDate(loginTimeStr: string | null | undefined, fallbackDate: string = getRealTodayDate()): string {
+  if (!loginTimeStr) return fallbackDate;
+  const d = parseLocalTimeString(loginTimeStr);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  const trimmed = String(loginTimeStr).trim();
+  const matchIso = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (matchIso) {
+    return `${matchIso[1]}-${matchIso[2].padStart(2, '0')}-${matchIso[3].padStart(2, '0')}`;
+  }
+  const matchIndo = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (matchIndo) {
+    return `${matchIndo[3]}-${matchIndo[2].padStart(2, '0')}-${matchIndo[1].padStart(2, '0')}`;
+  }
+  return fallbackDate;
+}
+
 export function getRealDateWithOffset(offsetDays: number = 1): string {
   const target = new Date();
   target.setDate(target.getDate() + offsetDays);

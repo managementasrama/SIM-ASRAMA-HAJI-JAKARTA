@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppContext, formatHMS, isTeknisiRole, isManagerTeknisi, isManagerQc, isKoperasiRole, isRecepRole, isQcRole, isSuperAdmin, isKeuanganRole } from '../store';
-import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatIndonesianDateTime, formatDateTimeWIB, parseLocalTimeString, isMeetingFacility, compareBuildingOrder, formatRupiah } from '../lib/utils';
+import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatIndonesianDateTime, formatDateTimeWIB, parseLocalTimeString, isMeetingFacility, compareBuildingOrder, formatRupiah, extractStandardDate } from '../lib/utils';
 import { Transaction, Maintenance, WorkSession, BreakfastMenuItem, BreakfastOrder, AuditLog } from '../types';
 import { consolidateGroupTransactions, calculateSystemFinancials, getBookingTimestamp, getGroupBookingTimestamp } from '../lib/reportExporter';
 import { calculateTransactionPricing, calculateGroupPricing } from '../lib/pricingCalculator';
@@ -4000,9 +4000,18 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   // Unique users and roles for filter dropdowns
   const uniqueUsers = useMemo(() => {
     const names = new Set<string>();
-    safeWorkSessions.forEach(s => names.add(s.userName));
-    return Array.from(names);
-  }, [safeWorkSessions]);
+    safeWorkSessions.forEach(s => {
+      const normId = (s.userId || '').trim().toLowerCase();
+      const normName = (s.userName || '').trim().toLowerCase();
+      const matched = users.find(u => 
+        (normId && u.id.toLowerCase() === normId) ||
+        (normName && u.fullName.trim().toLowerCase() === normName) ||
+        (normName && u.username.trim().toLowerCase() === normName)
+      );
+      names.add(matched?.fullName || s.userName.trim());
+    });
+    return Array.from(names).filter(Boolean).sort();
+  }, [safeWorkSessions, users]);
 
   const uniqueRoles = useMemo(() => {
     const roles = new Set<string>();
@@ -4053,22 +4062,29 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const filteredSessions = useMemo(() => {
     return sessionsWithLiveDuration.filter(session => {
       // User filter
-      if (selectedUser !== 'SEMUA' && session.userName !== selectedUser) {
-        return false;
+      if (selectedUser !== 'SEMUA') {
+        const normId = (session.userId || '').trim().toLowerCase();
+        const normName = (session.userName || '').trim().toLowerCase();
+        const matched = users.find(u => 
+          (normId && u.id.toLowerCase() === normId) ||
+          (normName && u.fullName.trim().toLowerCase() === normName) ||
+          (normName && u.username.trim().toLowerCase() === normName)
+        );
+        const canonName = matched?.fullName || session.userName.trim();
+        if (canonName !== selectedUser) {
+          return false;
+        }
       }
-
       // Role filter
       if (selectedRole !== 'SEMUA' && session.userRole !== selectedRole) {
         return false;
       }
-
       // Status filter
       if (sessionStatus !== 'SEMUA' && session.status !== sessionStatus) {
         return false;
       }
-
       // Date Presets
-      const sessionDate = session.loginTime.split(' ')[0];
+      const sessionDate = extractStandardDate(session.loginTime, realToday);
       if (datePreset === 'HARI_INI' && sessionDate !== realToday) {
         return false;
       }
@@ -4204,9 +4220,9 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   };
 
   // Group sessions by officer and date:
-  // JIKA PETUGAS YANG SAMA TERDAPAT CHECK-IN DI TANGGAL YANG SAMA,
-  // MAKA DURASI AKAN OTOMATIS TERAKUMULASI DI TANGGAL TERSEBUT
-  // DAN JIKA DIA CHECK-IN LAGI DI TANGGAL YANG SAMA, MAKA REKAP AKAN MENYESUAIKAN!
+  // ATURAN BAKU: SEMUA SESI DARI AKUN PETUGAS YANG SAMA DI TANGGAL YANG SAMA
+  // AKAN TERGABUNG MENJADI SATU BARIS REKAP HARIAN (MANDIRI PER TANGGAL),
+  // MESKIPUN PETUGAS LOGIN BERULANG KALI ATAU DARI PERANGKAT MANA PUN!
   const dailyWorkRecords = useMemo(() => {
     const map = new Map<string, {
       key: string;
@@ -4226,6 +4242,29 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       notesList: string[];
     }>();
 
+    // Resolver akun pengguna kanonikal (agar 1 akun selalu konsisten ID & namanya)
+    const resolveUser = (s: WorkSession) => {
+      const normId = (s.userId || '').trim().toLowerCase();
+      const normName = (s.userName || '').trim().toLowerCase();
+      const matched = users.find(u => 
+        (normId && u.id.toLowerCase() === normId) ||
+        (normName && u.fullName.trim().toLowerCase() === normName) ||
+        (normName && u.username.trim().toLowerCase() === normName)
+      );
+      if (matched) {
+        return {
+          canonicalId: matched.id,
+          canonicalName: matched.fullName,
+          canonicalRole: matched.role
+        };
+      }
+      return {
+        canonicalId: normId || normName || 'unknown_user',
+        canonicalName: s.userName?.trim() || 'Petugas',
+        canonicalRole: s.userRole || 'Petugas'
+      };
+    };
+
     // Sort chronologically ascending for clean timeline calculation
     const sorted = [...filteredSessions].sort((a, b) => {
       const msA = parseLocalTimeString(a.loginTime).getTime();
@@ -4235,18 +4274,19 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     });
 
     sorted.forEach(s => {
-      const loginDate = (s.loginTime || '').split(' ')[0] || realToday;
-      const key = `${s.userId || s.userName || ''}___${loginDate}`;
+      const { canonicalId, canonicalName, canonicalRole } = resolveUser(s);
+      const sessionDate = extractStandardDate(s.loginTime, realToday);
+      const key = `${canonicalId}___${sessionDate}`;
       const existing = map.get(key);
       const sDur = Math.max(0, Math.floor(Number(s.durationSeconds) || 0));
 
       if (!existing) {
         map.set(key, {
           key,
-          date: loginDate,
-          userId: s.userId,
-          userName: s.userName,
-          userRole: s.userRole,
+          date: sessionDate,
+          userId: canonicalId,
+          userName: canonicalName,
+          userRole: canonicalRole,
           sessionCount: 1,
           totalDurationSeconds: sDur,
           firstLoginTime: s.loginTime,
@@ -4308,7 +4348,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       if (cmpDate !== 0) return cmpDate;
       return (a.userName || '').localeCompare(b.userName || '');
     });
-  }, [filteredSessions, realToday]);
+  }, [filteredSessions, users, realToday]);
 
   // Lookup map to get daily accumulated info for any individual session
   const sessionDailyMap = useMemo(() => {
@@ -4340,15 +4380,26 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     }>();
 
     sessionsWithLiveDuration.forEach(s => {
-      const loginDate = s.loginTime.split(' ')[0];
-      const existing = map.get(s.userName);
+      const normId = (s.userId || '').trim().toLowerCase();
+      const normName = (s.userName || '').trim().toLowerCase();
+      const matched = users.find(u => 
+        (normId && u.id.toLowerCase() === normId) ||
+        (normName && u.fullName.trim().toLowerCase() === normName) ||
+        (normName && u.username.trim().toLowerCase() === normName)
+      );
+      const canonId = matched?.id || normId || normName || 'unknown_user';
+      const canonName = matched?.fullName || s.userName.trim();
+      const canonRole = matched?.role || s.userRole;
+      const sessionDate = extractStandardDate(s.loginTime, realToday);
+
+      const existing = map.get(canonId);
       if (!existing) {
         const dateSet = new Set<string>();
-        dateSet.add(loginDate);
-        map.set(s.userName, {
-          userId: s.userId,
-          userName: s.userName,
-          userRole: s.userRole,
+        dateSet.add(sessionDate);
+        map.set(canonId, {
+          userId: canonId,
+          userName: canonName,
+          userRole: canonRole,
           totalSeconds: s.durationSeconds,
           sessionCount: 1,
           uniqueDates: dateSet,
@@ -4359,10 +4410,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       } else {
         existing.totalSeconds += s.durationSeconds;
         existing.sessionCount += 1;
-        if (existing.uniqueDates.has(loginDate)) {
+        if (existing.uniqueDates.has(sessionDate)) {
           existing.hasMultiCheckinDates = true;
         } else {
-          existing.uniqueDates.add(loginDate);
+          existing.uniqueDates.add(sessionDate);
         }
         if (s.status === 'AKTIF') existing.isOnline = true;
       }
@@ -4372,7 +4423,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       ...item,
       uniqueDaysCount: item.uniqueDates.size
     })).sort((a, b) => b.totalSeconds - a.totalSeconds);
-  }, [sessionsWithLiveDuration]);
+  }, [sessionsWithLiveDuration, users, realToday]);
 
   // Export CSV (Supports both Rekap Harian and Rincian Sesi)
   const handleExportCSV = () => {

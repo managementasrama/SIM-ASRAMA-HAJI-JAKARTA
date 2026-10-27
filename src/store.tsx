@@ -582,15 +582,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Enforce 1 active session per account across devices (Single device login enforcement)
   useEffect(() => {
     if (!currentUser || !activeSessionId) return;
-    const interval = setInterval(() => {
-      const newerActive = workSessions.find(
+    const checkOtherSession = () => {
+      const otherActive = workSessions.find(
         s => s.userId === currentUser.id && s.status === 'AKTIF' && s.id !== activeSessionId
       );
-      if (newerActive) {
-        showToast("Akun ini telah masuk di perangkat baru. Sesi di perangkat ini otomatis offline.", "warning");
+      if (otherActive) {
+        showToast("Akun ini telah masuk di perangkat baru. Sesi di perangkat ini otomatis dialihkan & keluar.", "warning");
         logout();
       }
-    }, 5000);
+    };
+    checkOtherSession();
+    const interval = setInterval(checkOtherSession, 3000);
     return () => clearInterval(interval);
   }, [currentUser, activeSessionId, workSessions]);
 
@@ -1551,7 +1553,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? prev.map(s => (s.id === incomingSession.id ? { ...s, ...incomingSession } : s))
             : [incomingSession, ...prev];
 
-          if (incomingSession.closeOtherUserSessions && incomingSession.userId) {
+          if (incomingSession.userId && incomingSession.status === 'AKTIF') {
             next = next.map(s => {
               if (s.userId === incomingSession.userId && s.id !== incomingSession.id && s.status === 'AKTIF') {
                 return {
@@ -1565,6 +1567,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           return next;
         });
+
+        if (
+          currentUserRef.current &&
+          incomingSession.userId === currentUserRef.current.id &&
+          activeSessionIdRef.current &&
+          incomingSession.id !== activeSessionIdRef.current &&
+          incomingSession.status === 'AKTIF'
+        ) {
+          showToast("Akun Anda telah masuk di perangkat baru. Sesi di perangkat ini dialihkan & keluar otomatis.", "warning");
+          logout();
+        }
       } else if (event.type === 'session:clear') {
         setWorkSessions([]);
       } else if (event.type === 'session:delete' && (event.payload?.id || event.payload?.ids)) {
