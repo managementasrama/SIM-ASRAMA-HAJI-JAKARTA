@@ -9,6 +9,7 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: "50mb" }));
+  app.use(express.text({ type: ["text/plain", "text/*"], limit: "10mb" }));
 
   // CORS & Multi-Host Header Support for multi-device cross-network connections
   app.use((req, res, next) => {
@@ -1828,6 +1829,84 @@ async function startServer() {
       chatMessages: realtimeState.chatMessages,
       timestamp: Date.now(),
     });
+  });
+
+  app.post("/api/session/auto-checkout", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+
+    let data = req.body;
+    if (typeof data === "string") {
+      try {
+        data = JSON.parse(data);
+      } catch (_) {}
+    }
+
+    const { sessionId, userId, logoutTime, durationSeconds } = data || {};
+    if (!sessionId && !userId) {
+      res.json({ ok: true, message: "No session or user specified" });
+      return;
+    }
+
+    const now = new Date();
+    const resolvedLogoutTime = logoutTime || new Date().toISOString().replace("T", " ").substring(0, 19);
+
+    let updatedSession: any = null;
+
+    realtimeState.workSessions = realtimeState.workSessions.map((s: any) => {
+      const isMatch = (sessionId && s.id === sessionId) || (userId && s.userId === userId && s.status === "AKTIF");
+      if (isMatch) {
+        let diffSec = Number(durationSeconds) || 0;
+        if (!diffSec && s.loginTime) {
+          const startMs = new Date(s.loginTime.replace(/-/g, "/")).getTime();
+          if (!isNaN(startMs)) {
+            diffSec = Math.max(1, Math.floor((now.getTime() - startMs) / 1000));
+          }
+        }
+        if (!diffSec) diffSec = s.durationSeconds || 1;
+
+        const hours = Math.floor(diffSec / 3600);
+        const minutes = Math.floor((diffSec % 3600) / 60);
+        const seconds = diffSec % 60;
+        const formatted = `${hours} Jam ${minutes} Menit ${seconds} Detik`;
+
+        updatedSession = {
+          ...s,
+          status: "SELESAI",
+          logoutTime: resolvedLogoutTime,
+          durationSeconds: diffSec,
+          durationFormatted: formatted,
+          notes: s.notes ? `${s.notes} • Auto check-out saat tab/browser ditutup` : "Auto check-out saat tab/browser ditutup",
+        };
+        return updatedSession;
+      }
+      return s;
+    });
+
+    if (updatedSession) {
+      if (serverDatabaseCache && Array.isArray(serverDatabaseCache.workSessions)) {
+        const cIdx = serverDatabaseCache.workSessions.findIndex((s: any) => s.id === updatedSession.id);
+        if (cIdx >= 0) {
+          serverDatabaseCache.workSessions[cIdx] = updatedSession;
+        } else {
+          serverDatabaseCache.workSessions.unshift(updatedSession);
+        }
+      }
+
+      if (userId) {
+        for (const [key, p] of Object.entries(realtimeState.presences)) {
+          if (p.userId === userId) {
+            delete realtimeState.presences[key];
+          }
+        }
+        broadcastRealtimeEvent("presence:sync", Object.values(realtimeState.presences));
+      }
+
+      broadcastRealtimeEvent("session:upsert", updatedSession);
+      triggerAsyncWorkSessionSpreadsheetSync();
+    }
+
+    res.json({ ok: true, updated: updatedSession });
   });
 
   app.post("/api/realtime/event", (req, res) => {

@@ -67,12 +67,57 @@ export function getRealLocalDateTimeStr(date: Date = new Date()): string {
 
 export function parseLocalTimeString(str: string | null | undefined): Date {
   if (!str) return new Date();
-  const [datePart, timePart] = String(str).trim().split(' ');
+  const trimmed = String(str).trim();
+  if (trimmed.includes('T')) {
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d;
+  }
+  // Handle comma separator like "27/10/2026 , 08:30 WIB"
+  const normalized = trimmed.replace(/\s*,\s*/g, ' ').replace(/WIB/i, '').trim();
+  const [datePart, timePart] = normalized.split(/\s+/);
   if (!datePart) return new Date();
+
+  if (datePart.includes('/')) {
+    const parts = datePart.split('/');
+    if (parts.length === 3) {
+      const d = Number(parts[0]);
+      const m = Number(parts[1]);
+      const y = Number(parts[2]);
+      const [hh, mm, ss] = (timePart || '00:00:00').split(':').map(Number);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m - 1, d, hh || 0, mm || 0, ss || 0);
+      }
+    }
+  }
+
   const [y, m, d] = datePart.split('-').map(Number);
   const [hh, mm, ss] = (timePart || '00:00:00').split(':').map(Number);
   if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date();
   return new Date(y, m - 1, d, hh || 0, mm || 0, ss || 0);
+}
+
+/**
+ * Format tanggal dan jam ke standar: dd/mm/yyyy , hh:mm WIB
+ * Contoh: 27/10/2026 , 08:30 WIB
+ */
+export function formatDateTimeWIB(str: string | Date | null | undefined): string {
+  if (!str) return '-';
+  let dateObj: Date;
+  if (str instanceof Date) {
+    dateObj = str;
+  } else {
+    dateObj = parseLocalTimeString(String(str));
+  }
+  if (isNaN(dateObj.getTime())) return String(str);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const d = pad(dateObj.getDate());
+  const m = pad(dateObj.getMonth() + 1);
+  const y = dateObj.getFullYear();
+  const hh = pad(dateObj.getHours());
+  const mm = pad(dateObj.getMinutes());
+
+  return `${d}/${m}/${y} , ${hh}:${mm} WIB`;
 }
 
 export function getRealDateWithOffset(offsetDays: number = 1): string {

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAppContext, formatHMS, isTeknisiRole, isManagerTeknisi, isManagerQc, isKoperasiRole, isRecepRole, isQcRole, isSuperAdmin, isKeuanganRole } from '../store';
-import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatIndonesianDateTime, parseLocalTimeString, isMeetingFacility, compareBuildingOrder, formatRupiah } from '../lib/utils';
+import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatIndonesianDateTime, formatDateTimeWIB, parseLocalTimeString, isMeetingFacility, compareBuildingOrder, formatRupiah } from '../lib/utils';
 import { Transaction, Maintenance, WorkSession, BreakfastMenuItem, BreakfastOrder, AuditLog } from '../types';
 import { consolidateGroupTransactions, calculateSystemFinancials, getBookingTimestamp, getGroupBookingTimestamp } from '../lib/reportExporter';
 import { calculateTransactionPricing, calculateGroupPricing } from '../lib/pricingCalculator';
@@ -4387,8 +4387,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
         'Nama Petugas', 
         'Role/Jabatan', 
         'Jumlah Check-In', 
-        'Jam Masuk Pertama', 
-        'Jam Keluar Terakhir', 
+        'Waktu Masuk Pertama (dd/mm/yyyy , hh:mm WIB)', 
+        'Waktu Keluar Terakhir (dd/mm/yyyy , hh:mm WIB)', 
         'Total Detik Akumulasi', 
         'Total Rekap Durasi Kerja', 
         'Status Sesi',
@@ -4396,12 +4396,12 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       ];
 
       const rows = dailyWorkRecords.map(rec => {
-        const firstLoginTimeOnly = rec.firstLoginTime.split(' ')[1] || '';
-        const lastLogoutTimeOnly = rec.lastLogoutTime ? (rec.lastLogoutTime.split(' ')[1] || '') : (rec.hasActiveSession ? 'Masih Aktif Bertugas' : '-');
+        const firstLoginFormatted = formatDateTimeWIB(rec.firstLoginTime);
+        const lastLogoutFormatted = rec.lastLogoutTime ? formatDateTimeWIB(rec.lastLogoutTime) : (rec.hasActiveSession ? 'Masih Aktif Bertugas' : '-');
         const sessionDetails = rec.sessions.map((s, idx) => {
-          const inTime = s.loginTime.split(' ')[1] || '';
-          const outTime = s.logoutTime ? (s.logoutTime.split(' ')[1] || '') : 'Aktif';
-          return `Sesi ${idx + 1} (${s.id}): ${inTime}-${outTime} (${formatHMS(s.durationSeconds)})`;
+          const inFormatted = formatDateTimeWIB(s.loginTime);
+          const outFormatted = s.logoutTime ? formatDateTimeWIB(s.logoutTime) : 'Aktif';
+          return `Sesi ${idx + 1} (${s.id}): ${inFormatted} - ${outFormatted} (${formatHMS(s.durationSeconds)})`;
         }).join('; ');
 
         return [
@@ -4409,8 +4409,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           `"${rec.userName}"`,
           `"${rec.userRole}"`,
           rec.sessionCount,
-          `"${firstLoginTimeOnly}"`,
-          `"${lastLogoutTimeOnly}"`,
+          `"${firstLoginFormatted}"`,
+          `"${lastLogoutFormatted}"`,
           rec.totalDurationSeconds,
           `"${formatHMS(rec.totalDurationSeconds)}"`,
           `"${rec.status}"`,
@@ -4433,16 +4433,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
         return;
       }
 
-      const headers = ['ID Sesi', 'Nama Petugas', 'Role/Jabatan', 'Tgl Masuk', 'Jam Masuk', 'Tgl Keluar', 'Jam Keluar', 'Durasi Sesi Ini', 'Total Akumulasi Tgl Ini', 'Status', 'Catatan'];
+      const headers = ['ID Sesi', 'Nama Petugas', 'Role/Jabatan', 'Waktu Masuk (dd/mm/yyyy , hh:mm WIB)', 'Waktu Keluar (dd/mm/yyyy , hh:mm WIB)', 'Durasi Sesi Ini', 'Total Akumulasi Tgl Ini', 'Status', 'Catatan'];
       const rows = filteredSessions.map(s => {
-        const [loginDate, loginTimeOnly] = s.loginTime.split(' ');
-        let logoutDate = '-';
-        let logoutTimeOnly = '-';
-        if (s.logoutTime) {
-          const parts = s.logoutTime.split(' ');
-          logoutDate = parts[0];
-          logoutTimeOnly = parts[1] || '';
-        }
+        const loginFormatted = formatDateTimeWIB(s.loginTime);
+        const logoutFormatted = s.logoutTime ? formatDateTimeWIB(s.logoutTime) : 'Masih Aktif';
         const dailyInfo = sessionDailyMap.get(s.id);
         const accumulatedStr = dailyInfo ? formatHMS(dailyInfo.totalDurationSeconds) : s.durationFormatted;
 
@@ -4450,10 +4444,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           `"${s.id}"`,
           `"${s.userName}"`,
           `"${s.userRole}"`,
-          `"${loginDate}"`,
-          `"${loginTimeOnly || ''}"`,
-          `"${logoutDate}"`,
-          `"${logoutTimeOnly}"`,
+          `"${loginFormatted}"`,
+          `"${logoutFormatted}"`,
           `"${formatHMS(s.durationSeconds)}"`,
           `"${accumulatedStr}"`,
           `"${s.status}"`,
@@ -4876,7 +4868,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {activeOfficersList.map(officer => {
-                  const inTime = officer.loginTime.split(' ')[1] || officer.loginTime;
+                  const inTimeFormatted = formatDateTimeWIB(officer.loginTime);
                   return (
                     <div
                       key={officer.userId}
@@ -4909,7 +4901,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                               {officer.assignedBuilding ? ` (${officer.assignedBuilding})` : ''}
                             </p>
                             <p className="text-[10px] text-slate-300 font-mono mt-0.5">
-                              Masuk: {inTime} WIB
+                              Masuk: {inTimeFormatted}
                             </p>
                           </div>
                         </div>
@@ -5125,7 +5117,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                       <th className="p-3.5">
                         <span className="flex items-center space-x-1">
                           <i className="fa-solid fa-clock text-blue-600"></i>
-                          <span>Rentang Jam (Pertama s/d Terakhir)</span>
+                          <span>Rentang Jam (dd/mm/yyyy , hh:mm WIB)</span>
                         </span>
                       </th>
                       <th className="p-3.5">
@@ -5144,15 +5136,6 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                       dailyWorkRecords.map(rec => {
                         const isExpanded = !!expandedDateRows[rec.key];
                         const isToday = rec.date === realToday;
-                        const firstLoginParts = (rec.firstLoginTime || '').split(' ');
-                        const firstLoginTimeOnly = firstLoginParts[1] || rec.firstLoginTime;
-                        const lastLogoutParts = (rec.lastLogoutTime || '').split(' ');
-                        const lastLogoutTimeOnly = lastLogoutParts[1] || null;
-                        const lastLogoutDateOnly = lastLogoutParts[0] || '';
-                        const isCrossDay = lastLogoutDateOnly && lastLogoutDateOnly !== rec.date;
-
-                        const latestLoginParts = (rec.latestLoginTime || '').split(' ');
-                        const latestLoginTimeOnly = latestLoginParts[1] || rec.latestLoginTime;
 
                         return (
                           <React.Fragment key={rec.key}>
@@ -5213,37 +5196,32 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                               <td className="p-3.5">
                                 <div className="space-y-1.5">
                                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded font-mono font-bold shadow-2xs">
+                                    <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg font-mono font-bold shadow-2xs">
                                       <i className="fa-solid fa-right-to-bracket text-blue-600 text-[10px]"></i>
-                                      <span>Masuk: {firstLoginTimeOnly} WIB</span>
+                                      <span>Masuk: {formatDateTimeWIB(rec.firstLoginTime)}</span>
                                     </span>
                                     <span className="text-slate-400 font-bold">➔</span>
                                     {rec.hasActiveSession ? (
-                                      <span className="inline-flex items-center space-x-1.5 px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded font-bold text-xs animate-pulse shadow-2xs">
+                                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg font-bold text-xs animate-pulse shadow-2xs">
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                                         <span>Masih Bertugas (Aktif)</span>
                                       </span>
-                                    ) : lastLogoutTimeOnly ? (
-                                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-rose-50 text-rose-800 border border-rose-200 rounded font-mono font-bold shadow-2xs">
+                                    ) : rec.lastLogoutTime ? (
+                                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg font-mono font-bold shadow-2xs">
                                         <i className="fa-solid fa-right-from-bracket text-rose-600 text-[10px]"></i>
-                                        <span>Keluar: {lastLogoutTimeOnly} WIB</span>
-                                        {isCrossDay && (
-                                          <span className="text-[10px] bg-rose-200 text-rose-900 px-1 py-0.2 rounded font-sans font-extrabold ml-1">
-                                            (+{formatIndonesianDate(lastLogoutDateOnly)})
-                                          </span>
-                                        )}
+                                        <span>Keluar: {formatDateTimeWIB(rec.lastLogoutTime)}</span>
                                       </span>
                                     ) : (
-                                      <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded font-mono text-xs">
+                                      <span className="px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg font-mono text-xs">
                                         Belum Check-Out
                                       </span>
                                     )}
                                   </div>
 
-                                  {rec.hasActiveSession && rec.sessionCount > 1 && latestLoginTimeOnly && latestLoginTimeOnly !== firstLoginTimeOnly && (
+                                  {rec.hasActiveSession && rec.sessionCount > 1 && (
                                     <div className="text-[10px] text-emerald-700 font-medium">
-                                      Check-in terakhir (Sesi #{rec.sessionCount}): <span className="font-mono font-bold">{latestLoginTimeOnly} WIB</span>
-                                      {lastLogoutTimeOnly && <span className="text-slate-500"> • Keluar sesi sebelumnya: <span className="font-mono">{lastLogoutTimeOnly} WIB</span></span>}
+                                      Check-in terakhir (Sesi #{rec.sessionCount}): <span className="font-mono font-bold">{formatDateTimeWIB(rec.latestLoginTime)}</span>
+                                      {rec.lastLogoutTime && <span className="text-slate-500"> • Keluar sesi sebelumnya: <span className="font-mono">{formatDateTimeWIB(rec.lastLogoutTime)}</span></span>}
                                     </div>
                                   )}
 
@@ -5334,8 +5312,6 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                       {rec.sessions.map((s, sIdx) => {
-                                        const inTime = s.loginTime.split(' ')[1] || '';
-                                        const outTime = s.logoutTime ? (s.logoutTime.split(' ')[1] || '') : 'Masih Berjalan';
                                         return (
                                           <div key={s.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs">
                                             <div>
@@ -5345,8 +5321,12 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                                                 </span>
                                                 <span className="font-mono text-[11px] text-slate-500">#{s.id}</span>
                                               </div>
-                                              <div className="text-[11px] text-slate-600 mt-1 font-mono">
-                                                {inTime} WIB ➔ {outTime} WIB
+                                              <div className="text-[11px] text-slate-600 mt-1 font-mono flex flex-wrap items-center gap-1">
+                                                <span className="text-blue-700 font-bold">{formatDateTimeWIB(s.loginTime)}</span>
+                                                <span className="text-slate-400 font-bold">➔</span>
+                                                <span className={s.logoutTime ? 'text-rose-700 font-bold' : 'text-emerald-600 font-bold'}>
+                                                  {s.logoutTime ? formatDateTimeWIB(s.logoutTime) : 'Masih Berjalan (Aktif)'}
+                                                </span>
                                               </div>
                                               {s.notes && (
                                                 <p className="text-[10px] text-slate-400 mt-0.5 italic">{s.notes}</p>
@@ -5402,13 +5382,13 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                       <th className="p-3.5">
                         <span className="flex items-center space-x-1">
                           <i className="fa-solid fa-right-to-bracket text-blue-600"></i>
-                          <span>Tanggal & Jam Masuk</span>
+                          <span>Waktu Masuk (dd/mm/yyyy , hh:mm WIB)</span>
                         </span>
                       </th>
                       <th className="p-3.5">
                         <span className="flex items-center space-x-1">
                           <i className="fa-solid fa-right-from-bracket text-red-600"></i>
-                          <span>Tanggal & Jam Keluar</span>
+                          <span>Waktu Keluar (dd/mm/yyyy , hh:mm WIB)</span>
                         </span>
                       </th>
                       <th className="p-3.5">
@@ -5425,20 +5405,6 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   <tbody className="divide-y divide-slate-100">
                     {filteredSessions.length > 0 ? (
                       filteredSessions.map((session, idx) => {
-                        const [loginDate, loginTimeOnly] = session.loginTime.split(' ');
-                        let logoutDate = '-';
-                        let logoutTimeOnly = '-';
-                        let isCrossDay = false;
-
-                        if (session.logoutTime) {
-                          const parts = session.logoutTime.split(' ');
-                          logoutDate = parts[0];
-                          logoutTimeOnly = parts[1] || '';
-                          if (logoutDate !== loginDate) {
-                            isCrossDay = true;
-                          }
-                        }
-
                         const dailyInfo = sessionDailyMap.get(session.id);
                         const hasMultipleOnDate = dailyInfo && dailyInfo.sessionCount > 1;
 
@@ -5466,33 +5432,23 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
                             {/* Tanggal & Jam Masuk */}
                             <td className="p-3.5">
-                              <div className="space-y-0.5">
-                                <div className="font-bold text-slate-800 flex items-center space-x-1">
-                                  <i className="fa-regular fa-calendar text-blue-500"></i>
-                                  <span>{formatIndonesianDate(loginDate)}</span>
-                                </div>
-                                <div className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded font-mono font-bold text-[11px]">
-                                  {loginTimeOnly} WIB
-                                </div>
+                              <div className="inline-block px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg font-mono font-bold text-xs whitespace-nowrap shadow-2xs">
+                                <i className="fa-solid fa-right-to-bracket text-blue-600 mr-1.5 text-[10px]"></i>
+                                <span>{formatDateTimeWIB(session.loginTime)}</span>
                               </div>
                             </td>
 
                             {/* Tanggal & Jam Keluar */}
                             <td className="p-3.5">
                               {session.status === 'AKTIF' ? (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse whitespace-nowrap shadow-2xs">
                                   <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-ping"></span>
                                   Sedang Bertugas (Belum Keluar)
                                 </span>
                               ) : (
-                                <div className="space-y-0.5">
-                                  <div className="font-bold text-slate-800 flex items-center space-x-1">
-                                    <i className="fa-regular fa-calendar-check text-red-500"></i>
-                                    <span>{formatIndonesianDate(logoutDate)}</span>
-                                  </div>
-                                  <div className="inline-block px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded font-mono font-bold text-[11px]">
-                                    {logoutTimeOnly} WIB
-                                  </div>
+                                <div className="inline-block px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg font-mono font-bold text-xs whitespace-nowrap shadow-2xs">
+                                  <i className="fa-solid fa-right-from-bracket text-rose-600 mr-1.5 text-[10px]"></i>
+                                  <span>{formatDateTimeWIB(session.logoutTime)}</span>
                                 </div>
                               )}
                             </td>
@@ -6749,7 +6705,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
               <p className="font-bold">Apakah Anda yakin ingin menghapus rekap sesi kerja ini secara permanen?</p>
               <p className="text-slate-600 text-[11px]">
                 Petugas: <strong>{sessionToDelete.userName}</strong> ({sessionToDelete.userRole})<br />
-                Waktu Masuk: {sessionToDelete.loginTime}<br />
+                Waktu Masuk: <strong>{formatDateTimeWIB(sessionToDelete.loginTime)}</strong><br />
+                {sessionToDelete.logoutTime && (
+                  <>Waktu Keluar: <strong>{formatDateTimeWIB(sessionToDelete.logoutTime)}</strong><br /></>
+                )}
                 Tindakan ini tidak dapat dibatalkan dan akan menghapus data dari database sistem secara permanen.
               </p>
             </div>

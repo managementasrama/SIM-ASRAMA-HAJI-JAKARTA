@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 import { exportToExcelWithExcelJs, loadOfficialLogoImage } from './excelExporter';
 export { loadOfficialLogoImage };
 import { Transaction, Maintenance, QcInspection, WorkSession, AuditLog, Room, User, ConsolidatedGroupRecord, GroupType, BreakfastOrder } from '../types';
-import { formatIndonesianDate, formatRupiah, getRealTodayDate, addDaysToDateStr, isMeetingFacility } from './utils';
+import { formatIndonesianDate, formatRupiah, getRealTodayDate, addDaysToDateStr, isMeetingFacility, formatDateTimeWIB } from './utils';
 import { downloadHtmlContentAsPdf, downloadReportPdfDirect, getReportSignatory, calculateReportColumnWidths } from './pdfDownloader';
 import { dataStorage } from '../services/dataStorage';
 import { calculateTransactionPricing, calculateGroupPricing } from './pricingCalculator';
@@ -1247,8 +1247,8 @@ export function generateReportData(params: ReportExportParams) {
       'ID Sesi',
       'Nama Petugas',
       'Role / Jabatan',
-      'Waktu Masuk (Check-In)',
-      'Waktu Keluar (Check-Out)',
+      'Waktu Masuk (dd/mm/yyyy , hh:mm WIB)',
+      'Waktu Keluar (dd/mm/yyyy , hh:mm WIB)',
       'Durasi Kerja',
       'Status Sesi',
       'Catatan Petugas'
@@ -1262,8 +1262,8 @@ export function generateReportData(params: ReportExportParams) {
         s.id,
         s.userName,
         s.userRole,
-        s.loginTime,
-        s.logoutTime || 'Masih Bertugas (Aktif)',
+        formatDateTimeWIB(s.loginTime),
+        s.logoutTime ? formatDateTimeWIB(s.logoutTime) : 'Masih Bertugas (Aktif)',
         s.durationFormatted || '-',
         s.status,
         s.notes || '-'

@@ -1314,12 +1314,101 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const activeChatChannelIdRef = useRef<string | null>(activeChatChannelId);
   const chatSoundEnabledRef = useRef<boolean>(chatSoundEnabled);
   const usersRef = useRef<User[]>(users);
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  const workSessionsRef = useRef<WorkSession[]>(workSessions);
 
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { isChatOpenRef.current = isChatOpen; }, [isChatOpen]);
   useEffect(() => { activeChatChannelIdRef.current = activeChatChannelId; }, [activeChatChannelId]);
   useEffect(() => { chatSoundEnabledRef.current = chatSoundEnabled; }, [chatSoundEnabled]);
   useEffect(() => { usersRef.current = users; }, [users]);
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  useEffect(() => { workSessionsRef.current = workSessions; }, [workSessions]);
+
+  // Otomatis Cekout & Logout saat browser atau tab aplikasi tertutup
+  // Namun jika user atau browser hanya dalam masa idle / tidak cekout, waktu sesi tetap berjalan
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const performAutoCheckoutOnClose = () => {
+      const user = currentUserRef.current;
+      if (!user) return;
+
+      const activeId = activeSessionIdRef.current;
+      const currentSessions = workSessionsRef.current;
+      const activeSession = currentSessions.find(s =>
+        (activeId && s.id === activeId) || (s.userId === user.id && s.status === 'AKTIF' && !s.logoutTime)
+      );
+
+      const now = new Date();
+      const logoutTimeStr = getRealLocalDateTimeStr(now);
+      let durationSec = 1;
+
+      if (activeSession && activeSession.loginTime) {
+        const startMs = parseLocalTimeString(activeSession.loginTime).getTime();
+        if (!isNaN(startMs)) {
+          durationSec = Math.max(1, Math.floor((now.getTime() - startMs) / 1000));
+        }
+      }
+
+      const sessionId = activeSession?.id || activeId || `SESI-${user.id}`;
+
+      // 1. Simpan status selesai langsung ke cache lokal
+      if (activeSession) {
+        const finished: WorkSession = {
+          ...activeSession,
+          status: 'SELESAI',
+          logoutTime: logoutTimeStr,
+          durationSeconds: durationSec,
+          durationFormatted: formatHMS(durationSec),
+          notes: activeSession.notes
+            ? `${activeSession.notes} • Auto check-out saat tab/browser ditutup`
+            : 'Auto check-out saat tab/browser ditutup'
+        };
+        try {
+          dataStorage.saveWorkSession(finished);
+        } catch (_) {}
+      }
+
+      // 2. Bersihkan sesi akun pengguna dari storage agar akun otomatis logout saat browser/tab ditutup
+      try {
+        sessionStorage.removeItem('sim_haji_current_user');
+        sessionStorage.removeItem('sim_haji_active_session_id');
+        localStorage.removeItem('sim_haji_current_user');
+        localStorage.removeItem('sim_haji_active_session_id');
+      } catch (_) {}
+
+      // 3. Kirim suar (beacon / keepalive fetch) ke backend server untuk update status & spreadsheet seketika
+      const payloadStr = JSON.stringify({
+        sessionId,
+        userId: user.id,
+        logoutTime: logoutTimeStr,
+        durationSeconds: durationSec
+      });
+
+      const endpoint = '/api/session/auto-checkout';
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        navigator.sendBeacon(endpoint, new Blob([payloadStr], { type: 'application/json' }));
+      } else {
+        try {
+          fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payloadStr,
+            keepalive: true
+          }).catch(() => {});
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener('pagehide', performAutoCheckoutOnClose);
+    window.addEventListener('beforeunload', performAutoCheckoutOnClose);
+
+    return () => {
+      window.removeEventListener('pagehide', performAutoCheckoutOnClose);
+      window.removeEventListener('beforeunload', performAutoCheckoutOnClose);
+    };
+  }, []);
 
   // Langganan Real-Time Engine (SSE + Broadcast/Presence + BroadcastChannel)
   useEffect(() => {
