@@ -3981,10 +3981,11 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     }
   }, [defaultSubView]);
 
-  // Modal konfirmasi Reset Database & Reset Sesi
+  // Modal konfirmasi Reset Database & Reset Sesi & Hapus Sesi
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [showResetSessionsModal, setShowResetSessionsModal] = useState(false);
-  useBodyScrollLock(showResetConfirmModal || showResetSessionsModal);
+  const [sessionToDelete, setSessionToDelete] = useState<WorkSession | null>(null);
+  useBodyScrollLock(showResetConfirmModal || showResetSessionsModal || Boolean(sessionToDelete));
   
   // Audit Trail Filters
   const [auditActionFilter, setAuditActionFilter] = useState<string>('SEMUA');
@@ -4008,11 +4009,11 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     return Array.from(roles);
   }, [safeWorkSessions]);
 
-  // Compute live duration for active sessions
+  // Compute live duration for active sessions and accurate duration for completed sessions
   const sessionsWithLiveDuration = useMemo(() => {
     return safeWorkSessions.map(session => {
+      const loginDate = parseLocalTimeString(session.loginTime);
       if (session.status === 'AKTIF') {
-        const loginDate = parseLocalTimeString(session.loginTime);
         const now = new Date();
         const diffSeconds = Math.max(0, Math.floor((now.getTime() - loginDate.getTime()) / 1000));
         return {
@@ -4020,6 +4021,16 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           durationSeconds: diffSeconds,
           durationFormatted: `${formatHMS(diffSeconds)} (Sedang Berjalan)`
         };
+      } else if (session.logoutTime) {
+        const logoutDate = parseLocalTimeString(session.logoutTime);
+        const diffSeconds = Math.max(0, Math.floor((logoutDate.getTime() - loginDate.getTime()) / 1000));
+        if (!isNaN(diffSeconds) && diffSeconds >= 0) {
+          return {
+            ...session,
+            durationSeconds: diffSeconds,
+            durationFormatted: formatHMS(diffSeconds)
+          };
+        }
       }
       return session;
     });
@@ -5252,13 +5263,23 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                                                 <p className="text-[10px] text-slate-400 mt-0.5 italic">{s.notes}</p>
                                               )}
                                             </div>
-                                            <div className="text-right">
+                                            <div className="text-right space-y-1">
                                               <span className="font-extrabold text-blue-700 block text-xs">
                                                 {formatHMS(s.durationSeconds)}
                                               </span>
-                                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${s.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
-                                                {s.status}
-                                              </span>
+                                              <div className="flex items-center justify-end space-x-1.5">
+                                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${s.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                                                  {s.status}
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setSessionToDelete(s)}
+                                                  className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded transition cursor-pointer"
+                                                  title="Hapus sesi ini"
+                                                >
+                                                  <i className="fa-solid fa-trash-can text-[10px]"></i>
+                                                </button>
+                                              </div>
                                             </div>
                                           </div>
                                         );
@@ -5309,6 +5330,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                       </th>
                       <th className="p-3.5">Akumulasi Tgl Tersebut</th>
                       <th className="p-3.5 text-center">Status</th>
+                      <th className="p-3.5 text-center">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -5431,12 +5453,24 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                                 </span>
                               )}
                             </td>
+                            {/* Action Delete */}
+                            <td className="p-3.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setSessionToDelete(session)}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold transition inline-flex items-center space-x-1 cursor-pointer shadow-2xs"
+                                title="Hapus sesi kerja ini"
+                              >
+                                <i className="fa-solid fa-trash-can text-[10px]"></i>
+                                <span>Hapus</span>
+                              </button>
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-400 italic">
+                        <td colSpan={8} className="p-8 text-center text-slate-400 italic">
                           Tidak ada catatan sesi jam kerja yang sesuai dengan filter yang dipilih.
                         </td>
                       </tr>
@@ -6597,6 +6631,58 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
               >
                 <i className="fa-solid fa-trash-can"></i>
                 <span>Kosongkan Log</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Konfirmasi Hapus Sesi Kerja Individual */}
+      {sessionToDelete && (
+        <div 
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150"
+          onClick={() => setSessionToDelete(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center text-xl shrink-0">
+                <i className="fa-solid fa-triangle-exclamation"></i>
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-900 text-base">Hapus Rekap Sesi Kerja</h4>
+                <p className="text-xs text-slate-500">ID Sesi: #{sessionToDelete.id}</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900 space-y-1.5">
+              <p className="font-bold">Apakah Anda yakin ingin menghapus rekap sesi kerja ini secara permanen?</p>
+              <p className="text-slate-600 text-[11px]">
+                Petugas: <strong>{sessionToDelete.userName}</strong> ({sessionToDelete.userRole})<br />
+                Waktu Masuk: {sessionToDelete.loginTime}<br />
+                Tindakan ini tidak dapat dibatalkan dan akan menghapus data dari database sistem secara permanen.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSessionToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteWorkSession(sessionToDelete.id);
+                  setSessionToDelete(null);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+              >
+                <i className="fa-solid fa-trash-can"></i>
+                <span>Ya, Hapus Permanen</span>
               </button>
             </div>
           </div>

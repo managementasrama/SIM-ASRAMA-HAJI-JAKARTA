@@ -47,7 +47,8 @@ export function SpreadsheetIntegrationView() {
     appSettings,
     dataStorage,
     pushAllToSupabase,
-    pullFromCentralDatabase
+    pullFromCentralDatabase,
+    manualSyncSupabase
   } = useAppContext();
 
   const defaultWebAppUrl = 'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
@@ -3333,7 +3334,7 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
                 type="button"
                 onClick={() => {
                   setShowVerifySyncModal(false);
-                  handleFetchSpreadsheetData();
+                  manualSyncSupabase();
                 }}
                 className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-xl text-xs shadow-md transition flex items-center space-x-1.5 cursor-pointer"
               >
