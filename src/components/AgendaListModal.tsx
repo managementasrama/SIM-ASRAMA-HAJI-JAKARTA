@@ -66,10 +66,10 @@ export function AgendaListModal({ isOpen, onClose, type }: AgendaListModalProps)
         groupKey = `KLOTER-${tx.kloter}`;
       } else if (
         tx.guestName &&
-        (tx.guestName.toLowerCase().includes('rombongan') || 
-         tx.guestName.toLowerCase().includes('kloter'))
+        (String(tx.guestName).toLowerCase().includes('rombongan') || 
+         String(tx.guestName).toLowerCase().includes('kloter'))
       ) {
-        groupKey = `NAME-${(tx.guestName || '').trim().toLowerCase()}-${tx.startDate}`;
+        groupKey = `NAME-${String(tx.guestName || '').trim().toLowerCase()}-${tx.startDate}`;
       }
 
       if (groupKey) {
@@ -134,12 +134,12 @@ export function AgendaListModal({ isOpen, onClose, type }: AgendaListModalProps)
       if (filterMode === 'GROUP' && !item.isGroup) return false;
       if (filterMode === 'INDIVIDUAL' && item.isGroup) return false;
 
-      if (!searchTerm) return true;
-      const term = searchTerm.toLowerCase();
-      const matchName = item.groupName.toLowerCase().includes(term);
-      const matchRoom = item.roomNumbers.some(rn => rn.toLowerCase().includes(term));
-      const matchPic = item.picName.toLowerCase().includes(term);
-      const matchBuilding = item.building.toLowerCase().includes(term);
+      if (!searchTerm || !String(searchTerm).trim()) return true;
+      const term = String(searchTerm).toLowerCase().trim();
+      const matchName = String(item.groupName || '').toLowerCase().includes(term);
+      const matchRoom = item.roomNumbers.some(rn => String(rn || '').toLowerCase().includes(term));
+      const matchPic = String(item.picName || '').toLowerCase().includes(term);
+      const matchBuilding = String(item.building || '').toLowerCase().includes(term);
       return matchName || matchRoom || matchPic || matchBuilding;
     });
   }, [consolidatedList, filterMode, searchTerm]);

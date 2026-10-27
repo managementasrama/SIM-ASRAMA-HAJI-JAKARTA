@@ -676,8 +676,8 @@ export function RolePermissionsSection({
       }
 
       // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (searchQuery && String(searchQuery).trim()) {
+        const q = String(searchQuery).toLowerCase().trim();
         const matchName = String(u.fullName || '').toLowerCase().includes(q);
         const matchUser = String(u.username || '').toLowerCase().includes(q);
         const matchRole = String(u.role || '').toLowerCase().includes(q);

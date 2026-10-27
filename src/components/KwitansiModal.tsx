@@ -126,7 +126,7 @@ function KwitansiModalInner({
     return rombonganList.find(grp => 
       grp.representativeTx.id === tx.id ||
       (tx.groupId && grp.groupId === tx.groupId) ||
-      (tx.groupName && grp.groupName.trim().toLowerCase() === tx.groupName.trim().toLowerCase() && grp.startDate === tx.startDate) ||
+      (tx.groupName && String(grp.groupName || '').trim().toLowerCase() === String(tx.groupName).trim().toLowerCase() && grp.startDate === tx.startDate) ||
       (grp.allRoomNumbers && tx.roomNumber && grp.allRoomNumbers.includes(tx.roomNumber))
     );
   }, [rombonganList, tx, groupKey, groupRecord]);
@@ -137,7 +137,7 @@ function KwitansiModalInner({
   const memberTransactions = matchedGroup ? matchedGroup.memberTransactions : transactions.filter(t => {
     if (t.id === tx.id) return true;
     if (tx.groupId && t.groupId === tx.groupId) return true;
-    if (tx.isGroup && t.isGroup && tx.groupName && tx.groupName.trim().toLowerCase() === (t.groupName || '').trim().toLowerCase() && tx.startDate === t.startDate) return true;
+    if (tx.isGroup && t.isGroup && tx.groupName && String(tx.groupName).trim().toLowerCase() === String(t.groupName || '').trim().toLowerCase() && tx.startDate === t.startDate) return true;
     if (tx.allocatedRoomNumbers && tx.allocatedRoomNumbers.includes(t.roomNumber)) return true;
     return false;
   });
@@ -189,7 +189,7 @@ function KwitansiModalInner({
     tx.roomNumber?.toLowerCase().includes('serbaguna') || 
     Boolean(tx.rentType?.toLowerCase().includes('serbaguna'))
   );
-  const hasAula = Boolean(tx.includeAula || (tx.rentAulaId && tx.rentAulaId.trim() !== ''));
+  const hasAula = Boolean(tx.includeAula || (tx.rentAulaId && String(tx.rentAulaId).trim() !== ''));
   const resolvedAulaName = tx.rentAulaName || 'Aula Utama UPT';
   const resolvedAulaSession = tx.rentAulaSession || 'Sewa Tambahan Acara';
   const resolvedAulaDurationDays = tx.rentAulaDurationDays || 1;
@@ -1258,7 +1258,7 @@ export function KwitansiPrintSheet({
     return rombonganList.find(grp => 
       grp.representativeTx.id === tx.id ||
       (tx.groupId && grp.groupId === tx.groupId) ||
-      (tx.groupName && grp.groupName.trim().toLowerCase() === tx.groupName.trim().toLowerCase() && grp.startDate === tx.startDate) ||
+      (tx.groupName && String(grp.groupName || '').trim().toLowerCase() === String(tx.groupName).trim().toLowerCase() && grp.startDate === tx.startDate) ||
       (grp.allRoomNumbers && tx.roomNumber && grp.allRoomNumbers.includes(tx.roomNumber))
     );
   }, [rombonganList, tx, groupKey, groupRecord]);
@@ -1268,7 +1268,7 @@ export function KwitansiPrintSheet({
   const memberTransactions = matchedGroup ? matchedGroup.memberTransactions : transactions.filter(t => {
     if (t.id === tx.id) return true;
     if (tx.groupId && t.groupId === tx.groupId) return true;
-    if (tx.isGroup && t.isGroup && tx.groupName && tx.groupName.trim().toLowerCase() === (t.groupName || '').trim().toLowerCase() && tx.startDate === t.startDate) return true;
+    if (tx.isGroup && t.isGroup && tx.groupName && String(tx.groupName).trim().toLowerCase() === String(t.groupName || '').trim().toLowerCase() && tx.startDate === t.startDate) return true;
     if (tx.allocatedRoomNumbers && tx.allocatedRoomNumbers.includes(t.roomNumber)) return true;
     return false;
   });
@@ -1320,7 +1320,7 @@ export function KwitansiPrintSheet({
     tx.roomNumber?.toLowerCase().includes('serbaguna') || 
     Boolean(tx.rentType?.toLowerCase().includes('serbaguna'))
   );
-  const hasAula = Boolean(tx.includeAula || (tx.rentAulaId && tx.rentAulaId.trim() !== ''));
+  const hasAula = Boolean(tx.includeAula || (tx.rentAulaId && String(tx.rentAulaId).trim() !== ''));
   const resolvedAulaName = tx.rentAulaName || 'Aula Utama UPT';
   const resolvedAulaSession = tx.rentAulaSession || 'Sewa Tambahan Acara';
   const resolvedAulaDurationDays = tx.rentAulaDurationDays || 1;

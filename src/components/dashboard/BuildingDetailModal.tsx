@@ -44,9 +44,9 @@ export function BuildingDetailModal({
   const allRoomsPool = useMemo(() => {
     const list: Room[] = [...rooms];
     meetingRooms.forEach(mr => {
-      const exists = list.some(r => r.id === mr.id || r.roomNumber.toLowerCase() === mr.name.toLowerCase());
+      const exists = list.some(r => r.id === mr.id || String(r.roomNumber || '').toLowerCase() === String(mr.name || '').toLowerCase());
       if (!exists) {
-        const isSG = mr.category === 'SERBAGUNA' || (mr.name || '').toLowerCase().includes('serbaguna');
+        const isSG = mr.category === 'SERBAGUNA' || String(mr.name || '').toLowerCase().includes('serbaguna');
         const targetBld = mr.building && mr.building !== 'Ruang Pertemuan' && mr.building !== 'Gedung Serbaguna' && mr.building !== 'Gedung Serbaguna (SG)'
           ? mr.building
           : (isSG ? 'Gedung Serbaguna (SG)' : 'Ruang Pertemuan');
@@ -69,16 +69,16 @@ export function BuildingDetailModal({
   // Filter kamar yang ada di gedung ini tersinkronisasi 100% dengan manajemen gedung (RoomsView)
   const buildingRooms = useMemo(() => {
     if (!building) return [];
-    const rawBName = (building.name || '').trim();
+    const rawBName = String(building.name || '').trim();
     const bLower = rawBName.toLowerCase();
     const isTargetSG = bLower.includes('serbaguna') || bLower.includes('sg');
     const isTargetAula = !isTargetSG && (bLower.includes('pertemuan') || bLower.includes('aula') || isMeetingFacility(rawBName));
 
     const matched = allRoomsPool.filter(r => {
       const roomKey = getRoomBuildingKey(r, meetingRooms);
-      const rLower = (roomKey || '').toLowerCase().trim();
-      const rNum = (r.roomNumber || '').toLowerCase().trim();
-      const rType = (r.type || '').toLowerCase().trim();
+      const rLower = String(roomKey || '').toLowerCase().trim();
+      const rNum = String(r.roomNumber || '').toLowerCase().trim();
+      const rType = String(r.type || '').toLowerCase().trim();
 
       if (isTargetSG) {
         return (
@@ -112,19 +112,19 @@ export function BuildingDetailModal({
 
       // Gedung Hunian reguler: identik dengan RoomsView grouping
       if (roomKey === rawBName || rLower === bLower) return true;
-      if (r.building === rawBName || (r.building || '').toLowerCase().trim() === bLower) return true;
+      if (r.building === rawBName || String(r.building || '').toLowerCase().trim() === bLower) return true;
 
       // Pencocokan alias nama gedung haji (Arafah, Muzdalifah, Mina, Madinah)
       const aliases = ['arafah', 'muzdalifah', 'mina', 'madinah'];
       for (const al of aliases) {
-        if (bLower.includes(al) && (rLower.includes(al) || (r.building || '').toLowerCase().includes(al))) {
+        if (bLower.includes(al) && (rLower.includes(al) || String(r.building || '').toLowerCase().includes(al))) {
           return true;
         }
       }
 
       // Pencocokan kode gedung huruf (e.g. "Gedung A" vs "Gedung A (Arafah)")
       const bLetterMatch = bLower.match(/gedung\s+([a-z0-9]+)/);
-      const rLetterMatch = rLower.match(/gedung\s+([a-z0-9]+)/) || (r.building || '').toLowerCase().match(/gedung\s+([a-z0-9]+)/);
+      const rLetterMatch = rLower.match(/gedung\s+([a-z0-9]+)/) || String(r.building || '').toLowerCase().match(/gedung\s+([a-z0-9]+)/);
       if (bLetterMatch && rLetterMatch && bLetterMatch[1] === rLetterMatch[1]) {
         return true;
       }
@@ -183,11 +183,11 @@ export function BuildingDetailModal({
   const activeBuildingTxs = useMemo(() => {
     if (!building) return [];
     const roomIds = new Set(buildingRooms.map(r => r.id));
-    const roomNumbers = new Set(buildingRooms.map(r => r.roomNumber.toLowerCase()));
+    const roomNumbers = new Set(buildingRooms.map(r => String(r.roomNumber || '').toLowerCase()));
 
     return transactions.filter(t => {
       const matchId = t.roomId && roomIds.has(t.roomId);
-      const matchNum = t.roomNumber && roomNumbers.has(t.roomNumber.toLowerCase());
+      const matchNum = t.roomNumber && roomNumbers.has(String(t.roomNumber || '').toLowerCase());
       const matchTxId = buildingRooms.some(r => r.activeTxId === t.id);
       const isActive = t.status === 'TERISI' || t.status === 'BOOKED';
       return (matchId || matchNum || matchTxId) && isActive;
@@ -198,11 +198,11 @@ export function BuildingDetailModal({
   const filteredRooms = useMemo(() => {
     return buildingRooms.filter(r => {
       if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchNum = (r.roomNumber || '').toLowerCase().includes(q);
-        const matchType = (r.type || '').toLowerCase().includes(q);
-        const matchBed = (r.bedType || '').toLowerCase().includes(q);
+      if (searchQuery && String(searchQuery).trim()) {
+        const q = String(searchQuery).toLowerCase().trim();
+        const matchNum = String(r.roomNumber || '').toLowerCase().includes(q);
+        const matchType = String(r.type || '').toLowerCase().includes(q);
+        const matchBed = String(r.bedType || '').toLowerCase().includes(q);
         return matchNum || matchType || matchBed;
       }
       return true;
@@ -211,7 +211,7 @@ export function BuildingDetailModal({
 
   if (!isOpen || !building) return null;
 
-  const isAula = building.isAula || building.name.includes('Pertemuan') || building.name.includes('Aula') || building.name.includes('Serbaguna');
+  const isAula = building.isAula || String(building.name || '').includes('Pertemuan') || String(building.name || '').includes('Aula') || String(building.name || '').includes('Serbaguna');
 
   return (
     <div 

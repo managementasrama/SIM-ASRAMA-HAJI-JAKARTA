@@ -19,7 +19,7 @@ const PENGINAPAN_ICONS = [
 ];
 
 function getBuildingIcon(bName: string, category?: string): string {
-  const norm = bName.toLowerCase();
+  const norm = String(bName || '').toLowerCase();
   if (category === 'SERBAGUNA' || norm.includes('serbaguna') || norm.includes('sg-') || norm.includes('(sg)')) {
     return 'fa-layer-group';
   }
@@ -33,14 +33,15 @@ function getBuildingIcon(bName: string, category?: string): string {
   if (norm.includes('sekretariat') || norm.includes('kantor')) return 'fa-building-columns';
   
   let hash = 0;
-  for (let i = 0; i < bName.length; i++) {
-    hash = (hash * 31 + bName.charCodeAt(i)) >>> 0;
+  const str = String(bName || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   }
   return PENGINAPAN_ICONS[hash % PENGINAPAN_ICONS.length];
 }
 
 function getBuildingColorClass(bName: string, category?: string): { bg: string; text: string; border: string } {
-  const norm = bName.toLowerCase();
+  const norm = String(bName || '').toLowerCase();
   if (category === 'SERBAGUNA' || norm.includes('serbaguna') || norm.includes('sg-')) {
     return { bg: 'bg-amber-600 text-white', text: 'text-amber-800', border: 'border-amber-700' };
   }
@@ -60,8 +61,9 @@ function getBuildingColorClass(bName: string, category?: string): { bg: string; 
     { bg: 'bg-violet-800 text-violet-100', text: 'text-violet-800', border: 'border-violet-700' },
   ];
   let hash = 0;
-  for (let i = 0; i < bName.length; i++) {
-    hash = (hash * 31 + bName.charCodeAt(i)) >>> 0;
+  const str = String(bName || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   }
   return palette[hash % palette.length];
 }
@@ -139,12 +141,12 @@ export function QualityControlView() {
         const roomQc = r.qcStatus || 'PERLU_INSPEKSI';
         if (roomQc !== qcFilter) return false;
       }
-      if (search) {
-        const q = search.toLowerCase();
-        const matchNum = r.roomNumber.toLowerCase().includes(q);
-        const matchBld = r.building.toLowerCase().includes(q) || effectiveBuilding.toLowerCase().includes(q);
-        const matchNotes = (r.lastQcNotes || '').toLowerCase().includes(q);
-        const matchBy = (r.lastQcBy || '').toLowerCase().includes(q);
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase().trim();
+        const matchNum = String(r.roomNumber || '').toLowerCase().includes(q);
+        const matchBld = String(r.building || '').toLowerCase().includes(q) || String(effectiveBuilding || '').toLowerCase().includes(q);
+        const matchNotes = String(r.lastQcNotes || '').toLowerCase().includes(q);
+        const matchBy = String(r.lastQcBy || '').toLowerCase().includes(q);
         if (!matchNum && !matchBld && !matchNotes && !matchBy) return false;
       }
       return true;
@@ -851,7 +853,7 @@ export function QualityControlView() {
                           const bPerluPerbaikan = bRooms.filter(r => r.qcStatus === 'PERLU_PERBAIKAN').length;
                           const bPerluInspeksi = bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI').length;
                           const uniqueTypes: string[] = Array.from(
-                            new Set(bRooms.map(r => (r.type || 'Standar').trim()).filter(Boolean))
+                            new Set(bRooms.map(r => String(r.type || 'Standar').trim()).filter(Boolean))
                           );
                           const formattedTypes = uniqueTypes.map(t => {
                             const clean = String(t).replace(/^(type|tipe)\s+/i, '').trim();
@@ -948,7 +950,7 @@ export function QualityControlView() {
                         const bName = selectedBuildingKey;
                         const bRooms = grouped[bName] || [];
                         const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
-                        const bDescription = (bObj?.description && bObj.description.trim())
+                        const bDescription = (bObj?.description && String(bObj.description).trim())
                           || OFFICIAL_TARIFFS[bName]?.desc
                           || 'Fasilitas Kamar Hunian UPT Asrama Haji Jakarta';
 

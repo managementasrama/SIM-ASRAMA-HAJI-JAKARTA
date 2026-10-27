@@ -89,7 +89,7 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
 
   // Floors for the selected building
   const availableFloors = useMemo(() => {
-    const bldRooms = rooms.filter(r => r.building.toLowerCase() === selectedBuildingName.toLowerCase());
+    const bldRooms = rooms.filter(r => String(r.building || '').toLowerCase() === String(selectedBuildingName || '').toLowerCase());
     const floorsSet = new Set<number>();
     bldRooms.forEach(r => {
       if (r.floor) floorsSet.add(r.floor);
@@ -102,16 +102,16 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
     return rooms.filter(r => {
       if (!r) return false;
       // Harus sesuai gedung terpilih
-      if (r.building.toLowerCase() !== selectedBuildingName.toLowerCase()) return false;
+      if (String(r.building || '').toLowerCase() !== String(selectedBuildingName || '').toLowerCase()) return false;
       // Filter lantai jika dipilih
       if (selectedFloor !== 'ALL' && (r.floor || 1) !== selectedFloor) return false;
       // Pencarian nomor kamar / tipe / bed / status
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesNum = r.roomNumber.toLowerCase().includes(q);
-        const matchesType = (r.type || '').toLowerCase().includes(q);
-        const matchesBed = (r.bedType || '').toLowerCase().includes(q);
-        const matchesStatus = (r.status || '').toLowerCase().includes(q);
+      if (searchQuery && String(searchQuery).trim()) {
+        const q = String(searchQuery).toLowerCase().trim();
+        const matchesNum = String(r.roomNumber || '').toLowerCase().includes(q);
+        const matchesType = String(r.type || '').toLowerCase().includes(q);
+        const matchesBed = String(r.bedType || '').toLowerCase().includes(q);
+        const matchesStatus = String(r.status || '').toLowerCase().includes(q);
         if (!matchesNum && !matchesType && !matchesBed && !matchesStatus) return false;
       }
       return true;
@@ -119,7 +119,7 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
       const flA = a.floor || 1;
       const flB = b.floor || 1;
       if (flA !== flB) return flA - flB;
-      return a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true });
+      return String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''), undefined, { numeric: true });
     });
   }, [rooms, selectedBuildingName, selectedFloor, searchQuery]);
 
@@ -135,12 +135,12 @@ export const RoomTransferModal: React.FC<RoomTransferModalProps> = ({
   const roomCountByBuilding = useMemo(() => {
     const map: Record<string, { ready: number; total: number }> = {};
     lodgingBuildings.forEach(b => {
-      const bRooms = rooms.filter(r => r.building.toLowerCase() === b.name.toLowerCase());
+      const bRooms = rooms.filter(r => String(r.building || '').toLowerCase() === String(b.name || '').toLowerCase());
       const readyCount = bRooms.filter(r => 
         (r.status === 'READY' || r.status === 'KOSONG') &&
         (!sourceRoom || r.id !== sourceRoom.id)
       ).length;
-      map[b.name.toLowerCase()] = { ready: readyCount, total: bRooms.length };
+      map[String(b.name || '').toLowerCase()] = { ready: readyCount, total: bRooms.length };
     });
     return map;
   }, [lodgingBuildings, rooms, sourceRoom]);

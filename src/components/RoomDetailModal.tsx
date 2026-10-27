@@ -105,10 +105,10 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   );
   const isSG = Boolean(
     isAula && (
-      room.building?.toLowerCase().includes('serbaguna') ||
-      room.type?.toLowerCase().includes('serbaguna') ||
-      room.roomNumber?.toLowerCase().includes('serbaguna') ||
-      room.roomNumber?.toLowerCase().startsWith('sg')
+      String(room.building || '').toLowerCase().includes('serbaguna') ||
+      String(room.type || '').toLowerCase().includes('serbaguna') ||
+      String(room.roomNumber || '').toLowerCase().includes('serbaguna') ||
+      String(room.roomNumber || '').toLowerCase().startsWith('sg')
     )
   );
   const realToday = getRealTodayDate();
@@ -117,7 +117,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   const isMatchRoom = (t: Transaction) => 
     t.roomId === room.id || 
     t.id === room.activeTxId || 
-    (t.roomNumber && t.roomNumber.toLowerCase() === room.roomNumber.toLowerCase() && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(room.building)));
+    (t.roomNumber && String(t.roomNumber).toLowerCase() === String(room.roomNumber).toLowerCase() && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(room.building)));
 
   // For Ruang Pertemuan (Aula), booking on real today is automatically active / terlaksana today
   const terisiTxs = transactions.filter(t => 

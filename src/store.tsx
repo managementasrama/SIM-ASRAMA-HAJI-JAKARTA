@@ -2746,8 +2746,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const isTxMatch = (o.transactionId && removedTxIds.has(o.transactionId)) ||
                           (o.id && Array.from(removedTxIds).some(id => o.id === `BO-TX-${id}` || o.id.includes(id)));
         const isRoomMatch = o.roomNumber && removedRoomNumbers.has(o.roomNumber) && (
-          Boolean(o.notes?.toLowerCase().includes(groupName.toLowerCase())) ||
-          Boolean(o.guestName && o.guestName.toLowerCase().includes(groupName.toLowerCase()))
+          Boolean(o.notes && String(o.notes).toLowerCase().includes(String(groupName).toLowerCase())) ||
+          Boolean(o.guestName && String(o.guestName).toLowerCase().includes(String(groupName).toLowerCase()))
         );
 
         if (isTxMatch || isRoomMatch) {
@@ -2858,14 +2858,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!updatedTx.breakfast || updatedTx.cateringPackage === 'TIDAK' || updatedTx.status === 'DIBATALKAN') {
         // Tamu membatalkan / tidak memakai paket sarapan: hapus order sarapan terkait dari sistem dapur
         const filtered = prev.filter(o => {
+          const oGuest = String(o.guestName || '').trim().toLowerCase();
+          const updGuest = String(updatedTx.guestName || '').trim().toLowerCase();
+          const oldGuest = oldTx ? String(oldTx.guestName || '').trim().toLowerCase() : '';
           const isMatch = 
             (o.transactionId && o.transactionId === updatedTx.id) ||
             o.id === `BO-TX-${updatedTx.id}` ||
             (o.id && updatedTx.id && o.id.includes(updatedTx.id)) ||
             (o.roomNumber === updatedTx.roomNumber && (
               !o.guestName || 
-              o.guestName.trim().toLowerCase() === updatedTx.guestName.trim().toLowerCase() ||
-              (oldTx && o.guestName.trim().toLowerCase() === oldTx.guestName.trim().toLowerCase()) ||
+              (oGuest && updGuest && oGuest === updGuest) ||
+              (oldGuest && oGuest && oGuest === oldGuest) ||
               o.startDate === updatedTx.startDate ||
               (oldTx && o.startDate === oldTx.startDate)
             )) ||
@@ -2883,13 +2886,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Tamu memakai paket sarapan: sinkronkan tanggal, porsi, hari, menu, dan status
         let found = false;
         const mapped = prev.map(o => {
+          const oGuest = String(o.guestName || '').trim().toLowerCase();
+          const updGuest = String(updatedTx.guestName || '').trim().toLowerCase();
+          const oldGuest = oldTx ? String(oldTx.guestName || '').trim().toLowerCase() : '';
           const isMatch = 
             (o.transactionId && o.transactionId === updatedTx.id) ||
             o.id === `BO-TX-${updatedTx.id}` ||
             (o.id && updatedTx.id && o.id.includes(updatedTx.id)) ||
             (o.roomNumber === updatedTx.roomNumber && (
-              o.guestName.trim().toLowerCase() === updatedTx.guestName.trim().toLowerCase() ||
-              (oldTx && o.guestName.trim().toLowerCase() === oldTx.guestName.trim().toLowerCase())
+              (oGuest && updGuest && oGuest === updGuest) ||
+              (oldGuest && oGuest && oGuest === oldGuest)
             ));
           if (isMatch) {
             found = true;
@@ -3374,13 +3380,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (Array.isArray(txIdsOrGroupId)) {
       targetTxs = transactions.filter(t => txIdsOrGroupId.includes(t.id) && t.status !== 'DIBATALKAN' && t.status !== 'SELESAI');
     } else {
-      const key = txIdsOrGroupId.trim().toLowerCase();
+      const key = String(txIdsOrGroupId || '').trim().toLowerCase();
       targetTxs = transactions.filter(t => {
         if (t.status === 'DIBATALKAN' || t.status === 'SELESAI') return false;
-        if (t.groupId && t.groupId.toLowerCase() === key) return true;
-        if (t.groupName && t.groupName.trim().toLowerCase() === key) return true;
-        if (t.guestName && t.guestName.trim().toLowerCase() === key) return true;
-        if (key.startsWith('kloter-') && t.kloter && `kloter-${t.kloter.toLowerCase()}` === key) return true;
+        if (t.groupId && String(t.groupId).toLowerCase() === key) return true;
+        if (t.groupName && String(t.groupName).trim().toLowerCase() === key) return true;
+        if (t.guestName && String(t.guestName).trim().toLowerCase() === key) return true;
+        if (key.startsWith('kloter-') && t.kloter && `kloter-${String(t.kloter).toLowerCase()}` === key) return true;
         return false;
       });
     }
@@ -3733,14 +3739,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (Array.isArray(txIdsOrGroupId)) {
       targetTxs = transactions.filter(t => txIdsOrGroupId.includes(t.id));
     } else {
-      const key = (txIdsOrGroupId || '').trim().toLowerCase();
+      const key = String(txIdsOrGroupId || '').trim().toLowerCase();
       targetTxs = transactions.filter(t => {
         if (t.status === 'DIBATALKAN' || t.status === 'SELESAI') return false;
-        if (t.groupId && t.groupId.toLowerCase() === key) return true;
-        if (t.groupName && t.groupName.trim().toLowerCase() === key) return true;
-        if (t.guestName && t.guestName.trim().toLowerCase() === key) return true;
-        if (key.startsWith('kloter-') && t.kloter && `kloter-${t.kloter.toLowerCase()}` === key) return true;
-        if (t.notes && t.notes.toLowerCase().includes(key)) return true;
+        if (t.groupId && String(t.groupId).toLowerCase() === key) return true;
+        if (t.groupName && String(t.groupName).trim().toLowerCase() === key) return true;
+        if (t.guestName && String(t.guestName).trim().toLowerCase() === key) return true;
+        if (key.startsWith('kloter-') && t.kloter && `kloter-${String(t.kloter).toLowerCase()}` === key) return true;
+        if (t.notes && String(t.notes).toLowerCase().includes(key)) return true;
         return false;
       });
     }
@@ -3786,14 +3792,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (Array.isArray(txIdsOrGroupId)) {
       targetTxs = transactions.filter(t => txIdsOrGroupId.includes(t.id));
     } else {
-      const key = (txIdsOrGroupId || '').trim().toLowerCase();
+      const key = String(txIdsOrGroupId || '').trim().toLowerCase();
       targetTxs = transactions.filter(t => {
         if (t.status === 'DIBATALKAN' || t.status === 'SELESAI') return false;
-        if (t.groupId && t.groupId.toLowerCase() === key) return true;
-        if (t.groupName && t.groupName.trim().toLowerCase() === key) return true;
-        if (t.guestName && t.guestName.trim().toLowerCase() === key) return true;
-        if (key.startsWith('kloter-') && t.kloter && `kloter-${t.kloter.toLowerCase()}` === key) return true;
-        if (t.notes && t.notes.toLowerCase().includes(key)) return true;
+        if (t.groupId && String(t.groupId).toLowerCase() === key) return true;
+        if (t.groupName && String(t.groupName).trim().toLowerCase() === key) return true;
+        if (t.guestName && String(t.guestName).trim().toLowerCase() === key) return true;
+        if (key.startsWith('kloter-') && t.kloter && `kloter-${String(t.kloter).toLowerCase()}` === key) return true;
+        if (t.notes && String(t.notes).toLowerCase().includes(key)) return true;
         return false;
       });
     }
@@ -4234,7 +4240,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         reportTime: inspection.inspectionDate,
         status: 'MENUNGGU_PENUGASAN',
         technician: 'Menunggu Penugasan Manager Teknisi',
-        facilityType: inspection.facilityType || (inspection.roomNumber.includes('Aula') ? 'RUANG_PERTEMUAN' : 'KAMAR')
+        facilityType: inspection.facilityType || (String(inspection.roomNumber || '').includes('Aula') ? 'RUANG_PERTEMUAN' : 'KAMAR')
       };
 
       setMaintenances(prev => [newMaint, ...prev]);
@@ -4323,7 +4329,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           reportTime: inspection.inspectionDate,
           status: 'MENUNGGU_PENUGASAN',
           technician: 'Menunggu Penugasan Manager Teknisi',
-          facilityType: inspection.facilityType || (inspection.roomNumber.includes('Aula') ? 'RUANG_PERTEMUAN' : 'KAMAR')
+          facilityType: inspection.facilityType || (String(inspection.roomNumber || '').includes('Aula') ? 'RUANG_PERTEMUAN' : 'KAMAR')
         };
         nextMaintenances = [newMaintItem, ...nextMaintenances.filter(m => m.id !== generatedMaintId)];
       }

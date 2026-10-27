@@ -1129,12 +1129,12 @@ export function MaintenanceReportsView() {
       const isAulaMaint = m.building === 'Ruang Pertemuan' || isMeetingFacility(m.building) || m.facilityType === 'AULA';
       if (facilityFilter === 'KAMAR' && isAulaMaint) return false;
       if (facilityFilter === 'AULA' && !isAulaMaint) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const matchRoom = m.roomNumber.toLowerCase().includes(q);
-        const matchDesc = m.description.toLowerCase().includes(q);
-        const matchTech = m.technician.toLowerCase().includes(q);
-        const matchCat = m.category.toLowerCase().includes(q);
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase().trim();
+        const matchRoom = String(m.roomNumber || '').toLowerCase().includes(q);
+        const matchDesc = String(m.description || '').toLowerCase().includes(q);
+        const matchTech = String(m.technician || '').toLowerCase().includes(q);
+        const matchCat = String(m.category || '').toLowerCase().includes(q);
         if (!matchRoom && !matchDesc && !matchTech && !matchCat) return false;
       }
       return true;
@@ -2024,11 +2024,12 @@ export function BreakfastOrdersView() {
   // Filtered orders
   const filteredOrders = useMemo(() => {
     return consolidatedOrders.filter(order => {
+      const orderGuestClean = String(order.guestName || '').trim().toLowerCase();
       const tx = transactions.find(t => 
         t.id === order.transactionId || 
         (order.id && t.id && order.id.includes(t.id)) ||
         (t.roomNumber === order.roomNumber && (
-          t.guestName.trim().toLowerCase() === order.guestName.trim().toLowerCase() ||
+          (orderGuestClean && String(t.guestName || '').trim().toLowerCase() === orderGuestClean) ||
           t.status === 'TERISI' || t.status === 'BOOKED'
         ))
       );
@@ -2059,14 +2060,14 @@ export function BreakfastOrdersView() {
       if (filterMode === 'DIBATALKAN' && !isCancelled) return false;
 
       // Search Query
-      if (search) {
-        const q = search.toLowerCase();
-        const matchName = order.guestName.toLowerCase().includes(q);
-        const matchRoom = order.roomNumber.toLowerCase().includes(q);
-        const matchMenu = (order.menuName || '').toLowerCase().includes(q);
-        const matchKloter = (order.kloter || '').toLowerCase().includes(q);
-        const matchId = (order.id || '').toLowerCase().includes(q);
-        const matchBuilding = (order.building || '').toLowerCase().includes(q);
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase().trim();
+        const matchName = String(order.guestName || '').toLowerCase().includes(q);
+        const matchRoom = String(order.roomNumber || '').toLowerCase().includes(q);
+        const matchMenu = String(order.menuName || '').toLowerCase().includes(q);
+        const matchKloter = String(order.kloter || '').toLowerCase().includes(q);
+        const matchId = String(order.id || '').toLowerCase().includes(q);
+        const matchBuilding = String(order.building || '').toLowerCase().includes(q);
         if (!matchName && !matchRoom && !matchMenu && !matchKloter && !matchId && !matchBuilding) return false;
       }
 
@@ -4430,14 +4431,14 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     showToast('Filter telah direset.', 'info');
   };
 
-  const isFilterActive = selectedUser !== 'SEMUA' || selectedRole !== 'SEMUA' || sessionStatus !== 'SEMUA' || datePreset !== 'SEMUA' || customStartDate || customEndDate || searchQuery.trim() !== '';
+  const isFilterActive = selectedUser !== 'SEMUA' || selectedRole !== 'SEMUA' || sessionStatus !== 'SEMUA' || datePreset !== 'SEMUA' || customStartDate || customEndDate || String(searchQuery || '').trim() !== '';
 
   // Helper untuk mengecek apakah log merupakan unduh PDF ber-QR & TTD yang sah
   const isVerifiedPdfWithQrAndTtd = (log: AuditLog) => {
     if (log.hasQrAndSignature === false) return false;
     if (log.action !== 'UNDUH_PDF_BER_QR') return false;
-    if (!log.verificationCode || !log.verificationCode.trim()) return false;
-    if (!log.signatoryName || log.signatoryName.includes('Belum Ada')) return false;
+    if (!log.verificationCode || !String(log.verificationCode).trim()) return false;
+    if (!log.signatoryName || String(log.signatoryName).includes('Belum Ada')) return false;
     return true;
   };
 
@@ -4452,12 +4453,12 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
     for (const log of pool) {
       if (!log) continue;
-      const normTime = (log.timestamp || '').trim();
-      const normUser = (log.user || '').trim().toLowerCase();
-      const normAction = (log.action || '').trim().toLowerCase();
-      const normDetails = (log.details || '').trim().toLowerCase();
-      const normCode = (log.verificationCode || '').trim().toLowerCase();
-      const normId = (log.id ? String(log.id) : '').trim();
+      const normTime = String(log.timestamp || '').trim();
+      const normUser = String(log.user || '').trim().toLowerCase();
+      const normAction = String(log.action || '').trim().toLowerCase();
+      const normDetails = String(log.details || '').trim().toLowerCase();
+      const normCode = String(log.verificationCode || '').trim().toLowerCase();
+      const normId = String(log.id || '').trim();
 
       // Normalize details for deduplication: remove surrounding spaces/brackets/VLOG tags
       const cleanDetails = normDetails.replace(/\[vlog-[^\]]+\]/gi, '').trim();

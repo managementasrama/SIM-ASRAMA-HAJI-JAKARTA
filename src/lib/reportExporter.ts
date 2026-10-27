@@ -880,7 +880,7 @@ export function generateReportData(params: ReportExportParams) {
       }
 
       targetRooms.forEach((r, idx) => {
-        const isAula = r.building === 'Ruang Pertemuan' || r.roomNumber.toLowerCase().includes('aula');
+        const isAula = r.building === 'Ruang Pertemuan' || String(r.roomNumber || '').toLowerCase().includes('aula');
         const qcStatus = r.qcStatus || 'PERLU_INSPEKSI';
         let qcLabel = 'BELUM DIINSPEKSI';
         if (qcStatus === 'LOLOS_QC') qcLabel = 'LOLOS STANDAR (LAYAK)';
@@ -944,7 +944,7 @@ export function generateReportData(params: ReportExportParams) {
       }
 
       filtered.forEach((q, index) => {
-        const isAula = q.building === 'Ruang Pertemuan' || q.roomNumber.toLowerCase().includes('aula');
+        const isAula = q.building === 'Ruang Pertemuan' || String(q.roomNumber || '').toLowerCase().includes('aula');
         rows.push([
           index + 1,
           q.id,
@@ -966,7 +966,7 @@ export function generateReportData(params: ReportExportParams) {
 
       const lolos = filtered.filter(q => q.result === 'LOLOS_QC').length;
       const perbaikan = filtered.filter(q => q.result === 'PERLU_PERBAIKAN').length;
-      const aulaCount = filtered.filter(q => q.building === 'Ruang Pertemuan' || q.roomNumber.toLowerCase().includes('aula')).length;
+      const aulaCount = filtered.filter(q => q.building === 'Ruang Pertemuan' || String(q.roomNumber || '').toLowerCase().includes('aula')).length;
       const kamarCount = filtered.length - aulaCount;
       const kebersihanBaik = filtered.filter(q => q.cleanliness === 'BAIK').length;
       const acNormal = filtered.filter(q => q.acElectricity === 'NORMAL').length;
@@ -1191,7 +1191,7 @@ export function generateReportData(params: ReportExportParams) {
       if (a.isCancelled && !b.isCancelled) return 1;
       if (a.statusKamar.includes('TERISI') && !b.statusKamar.includes('TERISI')) return -1;
       if (!a.statusKamar.includes('TERISI') && b.statusKamar.includes('TERISI')) return 1;
-      return a.roomNumber.localeCompare(b.roomNumber);
+      return String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''));
     });
 
     filtered.forEach((o, index) => {

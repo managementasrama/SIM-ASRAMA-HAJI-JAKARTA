@@ -254,16 +254,17 @@ export function GroupRegistrationModal({
   const emptyMeetingRooms = availableMeetingRooms;
 
   const filteredAvailableRooms = emptyRooms.filter(r => {
-    if (roomSearchFilter.trim()) {
-      const q = roomSearchFilter.trim().toLowerCase();
-      const matchNum = r.roomNumber.toLowerCase().includes(q);
-      const matchBld = r.building.toLowerCase().includes(q);
-      const matchType = (r.type || '').toLowerCase().includes(q);
+    if (roomSearchFilter && String(roomSearchFilter).trim()) {
+      const q = String(roomSearchFilter).trim().toLowerCase();
+      const matchNum = String(r.roomNumber || '').toLowerCase().includes(q);
+      const matchBld = String(r.building || '').toLowerCase().includes(q);
+      const matchType = String(r.type || '').toLowerCase().includes(q);
       if (!matchNum && !matchBld && !matchType) return false;
     }
     if (selectedBuildingFilter !== 'ALL') {
-      const matchBuilding = r.building.toLowerCase().includes(selectedBuildingFilter.toLowerCase()) || 
-                            selectedBuildingFilter.toLowerCase().includes(r.building.toLowerCase());
+      const selBld = String(selectedBuildingFilter).toLowerCase();
+      const rBld = String(r.building || '').toLowerCase();
+      const matchBuilding = rBld.includes(selBld) || selBld.includes(rBld);
       if (!matchBuilding) return false;
     }
     if (selectedTypeFilter !== 'ALL' && r.type !== selectedTypeFilter) {
@@ -1079,7 +1080,7 @@ export function GroupRegistrationModal({
                       }`}
                     >
                       <div className="w-full flex items-center justify-between text-[9px]">
-                        <span className="opacity-80 truncate">{r.building.split(' ')[1] || r.building}</span>
+                        <span className="opacity-80 truncate">{String(r.building || '').split(' ')[1] || r.building}</span>
                         <span className={`px-1 py-0.2 rounded font-bold text-[8px] ${
                           isSelected
                             ? 'bg-white/25 text-white'

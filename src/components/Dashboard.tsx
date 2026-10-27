@@ -51,12 +51,12 @@ function groupAgendaTransactions(txs: Transaction[]): ConsolidatedAgendaItem[] {
       key = `KLOTER-${tx.kloter}`;
       detectedType = 'JEMAAH_HAJI';
       gName = `Jemaah Haji Kloter ${tx.kloter}`;
-    } else if (tx.notes && tx.notes.includes('[Rombongan:')) {
-      const match = tx.notes.match(/\[Rombongan:\s*([^\]]+)\]/);
+    } else if (tx.notes && String(tx.notes).includes('[Rombongan:')) {
+      const match = String(tx.notes).match(/\[Rombongan:\s*([^\]]+)\]/);
       gName = match ? match[1] : tx.guestName;
       key = `GRP-${gName.replace(/\s+/g, '-').toUpperCase()}`;
       detectedType = tx.groupType || 'UMUM';
-    } else if (tx.groupName && tx.groupName.trim() !== '' && tx.groupName !== tx.guestName) {
+    } else if (tx.groupName && String(tx.groupName).trim() !== '' && tx.groupName !== tx.guestName) {
       gName = tx.groupName;
       key = `GRP-${gName.replace(/\s+/g, '-').toUpperCase()}`;
       detectedType = tx.groupType || 'UMUM';
@@ -382,7 +382,7 @@ export function Dashboard() {
         const isRelevant = tx.status === 'TERISI' || (tx.status === 'BOOKED' && tx.startDate <= realToday);
         if (!isRelevant) return false;
         const hasExtraBed = Boolean(tx.extraBed);
-        const cleanNotes = (tx.notes || '').trim();
+        const cleanNotes = String(tx.notes || '').trim();
         const hasNotes = Boolean(cleanNotes && cleanNotes !== '-' && !cleanNotes.startsWith('[Rombongan:') && !cleanNotes.toLowerCase().includes('extend'));
         return hasExtraBed || hasNotes;
       })
@@ -391,7 +391,7 @@ export function Dashboard() {
         const bExtra = Boolean(b.extraBed);
         if (aExtra && !bExtra) return -1;
         if (!aExtra && bExtra) return 1;
-        return (a.roomNumber || '').localeCompare(b.roomNumber || '', undefined, { numeric: true });
+        return String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''), undefined, { numeric: true });
       });
   }, [transactions, realToday]);
 
@@ -530,14 +530,14 @@ export function Dashboard() {
     if (groupTabFilter !== 'ALL') {
       list = list.filter(g => g.groupType === groupTabFilter);
     }
-    if (groupSearchQuery.trim()) {
-      const q = groupSearchQuery.toLowerCase();
+    if (groupSearchQuery && String(groupSearchQuery).trim()) {
+      const q = String(groupSearchQuery).toLowerCase().trim();
       list = list.filter(g => 
-        (g.groupName && g.groupName.toLowerCase().includes(q)) ||
-        (g.picName && g.picName.toLowerCase().includes(q)) ||
-        (g.picPhone && g.picPhone.includes(q)) ||
-        g.roomNumbers.some(rn => rn.toLowerCase().includes(q)) ||
-        (g.meetingRooms && g.meetingRooms.some(mr => mr.toLowerCase().includes(q)))
+        (g.groupName && String(g.groupName).toLowerCase().includes(q)) ||
+        (g.picName && String(g.picName).toLowerCase().includes(q)) ||
+        (g.picPhone && String(g.picPhone).includes(q)) ||
+        g.roomNumbers.some(rn => String(rn || '').toLowerCase().includes(q)) ||
+        (g.meetingRooms && g.meetingRooms.some(mr => String(mr || '').toLowerCase().includes(q)))
       );
     }
     if (groupSortBy === 'DATE') {
@@ -690,9 +690,9 @@ export function Dashboard() {
     const isMeetingRoomSG = (m: MeetingRoom): boolean => {
       if (m.category === 'AULA' || m.category === 'RUANG_PERTEMUAN') return false;
       if (m.category === 'SERBAGUNA') return true;
-      const nLower = (m.name || '').toLowerCase().trim();
-      const cLower = (m.code || '').toLowerCase().trim();
-      const bLower = (m.building || '').toLowerCase().trim();
+      const nLower = String(m.name || '').toLowerCase().trim();
+      const cLower = String(m.code || '').toLowerCase().trim();
+      const bLower = String(m.building || '').toLowerCase().trim();
       if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
         return false;
       }
@@ -709,20 +709,20 @@ export function Dashboard() {
     };
 
     const isRoomSG = (r: Room): boolean => {
-      const matchingMr = (meetingRooms || []).find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
+      const matchingMr = (meetingRooms || []).find(m => m.id === r.id || String(m.name || '').toLowerCase() === String(r.roomNumber || '').toLowerCase());
       if (matchingMr) return isMeetingRoomSG(matchingMr);
-      const bLower = (r.building || '').toLowerCase();
-      const tLower = (r.type || '').toLowerCase();
-      const numLower = (r.roomNumber || '').toLowerCase();
+      const bLower = String(r.building || '').toLowerCase();
+      const tLower = String(r.type || '').toLowerCase();
+      const numLower = String(r.roomNumber || '').toLowerCase();
       return bLower.includes('serbaguna') || bLower.includes('sg') || tLower.includes('serbaguna') || tLower.includes('sg') || numLower.includes('sg-') || numLower.includes('multipurpose');
     };
 
     const isRoomAula = (r: Room): boolean => {
       if (isRoomSG(r)) return false;
-      const matchingMr = (meetingRooms || []).find(m => m.id === r.id || m.name.toLowerCase() === r.roomNumber.toLowerCase());
+      const matchingMr = (meetingRooms || []).find(m => m.id === r.id || String(m.name || '').toLowerCase() === String(r.roomNumber || '').toLowerCase());
       if (matchingMr) return !isMeetingRoomSG(matchingMr);
-      const bLower = (r.building || '').toLowerCase();
-      const tLower = (r.type || '').toLowerCase();
+      const bLower = String(r.building || '').toLowerCase();
+      const tLower = String(r.type || '').toLowerCase();
       return bLower.includes('pertemuan') || bLower.includes('aula') || tLower.includes('pertemuan') || tLower.includes('aula') || isMeetingFacility(r.building) || isMeetingFacility(r.type);
     };
 
@@ -738,12 +738,12 @@ export function Dashboard() {
       } else {
         bRooms = rooms.filter(r => {
           const rBldKey = getRoomBuildingKey(r, meetingRooms);
-          if (rBldKey.toLowerCase() === b.name.toLowerCase()) return true;
+          if (String(rBldKey || '').toLowerCase() === String(b.name || '').toLowerCase()) return true;
           return false;
         });
       }
 
-      const catalogInfo = (buildings || []).find(bld => bld.name.toLowerCase() === b.name.toLowerCase());
+      const catalogInfo = (buildings || []).find(bld => String(bld.name || '').toLowerCase() === String(b.name || '').toLowerCase());
       const fallbackTotal = isSG 
         ? ((meetingRooms || []).filter(isMeetingRoomSG).length || 3)
         : isAula 
@@ -1432,7 +1432,7 @@ export function Dashboard() {
                   <div className="flex justify-between">
                     <span>Catatan Khusus Tamu Terdata:</span>
                     <strong className="text-slate-800 dark:text-slate-200 font-semibold">
-                      {specialRequestsList.filter(t => t.notes && t.notes.trim() !== '-' && !t.notes.startsWith('[Rombongan:')).length} Catatan
+                      {specialRequestsList.filter(t => t.notes && String(t.notes).trim() !== '-' && !String(t.notes).startsWith('[Rombongan:')).length} Catatan
                     </strong>
                   </div>
                   <div className="flex justify-between">

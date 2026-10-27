@@ -338,11 +338,11 @@ export function FloatingChatPanel() {
     return accessibleChannels.filter(c => {
       if (chatSubFilter === 'GROUP' && c.type !== 'GROUP') return false;
       if (chatSubFilter === 'DIRECT' && c.type !== 'DIRECT') return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const displayName = getChannelDisplayName(c).toLowerCase();
-        const subtitle = getChannelSubtitle(c).toLowerCase();
-        const lastMsg = (c.lastMessage || '').toLowerCase();
+      if (searchQuery && String(searchQuery).trim()) {
+        const q = String(searchQuery).toLowerCase().trim();
+        const displayName = String(getChannelDisplayName(c) || '').toLowerCase();
+        const subtitle = String(getChannelSubtitle(c) || '').toLowerCase();
+        const lastMsg = String(c.lastMessage || '').toLowerCase();
         return displayName.includes(q) || subtitle.includes(q) || lastMsg.includes(q);
       }
       return true;
@@ -1375,8 +1375,8 @@ export function FloatingChatPanel() {
             <div className="p-3 overflow-y-auto custom-scrollbar flex-1 space-y-1.5">
               {otherColleagues
                 .filter(u => {
-                  if (!newChatSearch.trim()) return true;
-                  const q = newChatSearch.toLowerCase();
+                  if (!newChatSearch || !String(newChatSearch).trim()) return true;
+                  const q = String(newChatSearch).toLowerCase().trim();
                   return (
                     String(u.fullName || '').toLowerCase().includes(q) ||
                     String(u.role || '').toLowerCase().includes(q) ||

@@ -20,7 +20,7 @@ const PENGINAPAN_ICONS = [
 ];
 
 function getBuildingIcon(bName: string, category?: string): string {
-  const norm = bName.toLowerCase();
+  const norm = String(bName || '').toLowerCase();
   if (category === 'SERBAGUNA' || norm.includes('serbaguna') || norm.includes('sg-') || norm.includes('(sg)')) {
     return 'fa-layer-group';
   }
@@ -35,14 +35,15 @@ function getBuildingIcon(bName: string, category?: string): string {
   
   // Deterministic hash so each newly added penginapan building has its own distinct building icon
   let hash = 0;
-  for (let i = 0; i < bName.length; i++) {
-    hash = (hash * 31 + bName.charCodeAt(i)) >>> 0;
+  const str = String(bName || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   }
   return PENGINAPAN_ICONS[hash % PENGINAPAN_ICONS.length];
 }
 
 function getBuildingColorClass(bName: string, category?: string): { bg: string; text: string; border: string } {
-  const norm = bName.toLowerCase();
+  const norm = String(bName || '').toLowerCase();
   if (category === 'SERBAGUNA' || norm.includes('serbaguna') || norm.includes('sg-')) {
     return { bg: 'bg-amber-600 text-white', text: 'text-amber-800', border: 'border-amber-700' };
   }
@@ -62,8 +63,9 @@ function getBuildingColorClass(bName: string, category?: string): { bg: string; 
     { bg: 'bg-violet-800 text-violet-100', text: 'text-violet-800', border: 'border-violet-700' },
   ];
   let hash = 0;
-  for (let i = 0; i < bName.length; i++) {
-    hash = (hash * 31 + bName.charCodeAt(i)) >>> 0;
+  const str = String(bName || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   }
   return palette[hash % palette.length];
 }
@@ -298,9 +300,9 @@ export function RoomsView() {
   // Kamar target untuk ringkasan tipe (mengikuti filter gedung yang sedang dipilih)
   const targetBreakdownRooms = useMemo(() => {
     if (bFilter !== 'ALL' && bFilter !== 'Ruang Pertemuan / Aula' && bFilter !== 'Gedung Serbaguna (SG)' && bFilter !== 'Ruang Pertemuan' && bFilter !== 'Gedung Serbaguna') {
-      const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bFilter.toLowerCase());
+      const bObj = lodgingBuildings.find(b => String(b.name || '').toLowerCase() === String(bFilter).toLowerCase());
       return lodgingRooms.filter(r => {
-        return bObj ? isRoomMatchingBuilding(r, bObj, meetingRooms) : r.building.toLowerCase() === bFilter.toLowerCase();
+        return bObj ? isRoomMatchingBuilding(r, bObj, meetingRooms) : String(r.building || '').toLowerCase() === String(bFilter).toLowerCase();
       });
     }
     return lodgingRooms;
@@ -352,10 +354,10 @@ export function RoomsView() {
         if (bFilter === 'Gedung Serbaguna (SG)' || bFilter === 'Gedung Serbaguna' || bFilter === 'Ruang Pertemuan' || bFilter === 'Ruang Pertemuan / Aula') {
           return false; // Venue pertemuan ditampilkan di seksi terpisah
         }
-        const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bFilter.toLowerCase());
+        const bObj = lodgingBuildings.find(b => String(b.name || '').toLowerCase() === String(bFilter).toLowerCase());
         const isMatch = bObj 
           ? isRoomMatchingBuilding(r, bObj, meetingRooms)
-          : (effectiveBuilding.toLowerCase() === bFilter.toLowerCase() || r.building.toLowerCase() === bFilter.toLowerCase());
+          : (String(effectiveBuilding || '').toLowerCase() === String(bFilter).toLowerCase() || String(r.building || '').toLowerCase() === String(bFilter).toLowerCase());
         if (!isMatch) {
           return false;
         }
@@ -377,14 +379,14 @@ export function RoomsView() {
         if (!matchesExact && !matchesNorm) return false;
       }
       if (bedTypeFilter !== 'ALL' && r.bedType !== bedTypeFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const matchNum = r.roomNumber.toLowerCase().includes(q);
-        const matchBld = r.building.toLowerCase().includes(q) || effectiveBuilding.toLowerCase().includes(q);
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase().trim();
+        const matchNum = String(r.roomNumber || '').toLowerCase().includes(q);
+        const matchBld = String(r.building || '').toLowerCase().includes(q) || String(effectiveBuilding || '').toLowerCase().includes(q);
         const matchTx = transactions.some(t => 
           (t.roomId === r.id || t.roomNumber === r.roomNumber) && 
           t.status !== 'DIBATALKAN' && 
-          t.guestName?.toLowerCase().includes(q)
+          String(t.guestName || '').toLowerCase().includes(q)
         );
         if (!matchNum && !matchBld && !matchTx) return false;
       }
@@ -459,14 +461,14 @@ export function RoomsView() {
         if (!matchesExact && !matchesNorm) return false;
       }
       if (bedTypeFilter !== 'ALL' && r.bedType !== bedTypeFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        const matchNum = r.roomNumber.toLowerCase().includes(q);
-        const matchBld = r.building.toLowerCase().includes(q) || effectiveBuilding.toLowerCase().includes(q);
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase().trim();
+        const matchNum = String(r.roomNumber || '').toLowerCase().includes(q);
+        const matchBld = String(r.building || '').toLowerCase().includes(q) || String(effectiveBuilding || '').toLowerCase().includes(q);
         const matchTx = transactions.some(t =>
           (t.roomId === r.id || t.roomNumber === r.roomNumber) &&
           t.status !== 'DIBATALKAN' &&
-          t.guestName?.toLowerCase().includes(q)
+          String(t.guestName || '').toLowerCase().includes(q)
         );
         if (!matchNum && !matchBld && !matchTx) return false;
       }
@@ -2290,7 +2292,7 @@ export function RoomsView() {
                           const bookedCount = targetBldRooms.filter(r => r.status === 'BOOKED').length;
                           const maintCount = targetBldRooms.filter(r => r.status === 'MAINTENANCE').length;
                           const uniqueTypes: string[] = Array.from(
-                            new Set(targetBldRooms.map(r => (r.type || 'Standar').trim()).filter(Boolean))
+                            new Set(targetBldRooms.map(r => String(r.type || 'Standar').trim()).filter(Boolean))
                           );
                           const formattedTypes = uniqueTypes.map(t => {
                             const clean = String(t).replace(/^(type|tipe)\s+/i, '').trim();
@@ -2386,8 +2388,8 @@ export function RoomsView() {
                         const bRooms = grouped[bName] || [];
                         const bObj = buildings.find(b => b.name.toLowerCase() === bName.toLowerCase()) ||
                           lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
-                        const bDescription = (bObj?.description && bObj.description.trim())
-                          || (bObj?.capacityDesc && bObj.capacityDesc.trim())
+                        const bDescription = (bObj?.description && String(bObj.description).trim())
+                          || (bObj?.capacityDesc && String(bObj.capacityDesc).trim())
                           || OFFICIAL_TARIFFS[bName]?.desc
                           || 'Fasilitas Kamar Hunian UPT Asrama Haji Jakarta';
 

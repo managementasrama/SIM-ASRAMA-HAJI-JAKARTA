@@ -410,13 +410,13 @@ export function OperationalNotifications() {
       result = result.filter(a => a.severity === 'URGENT' || a.severity === 'HIGH');
     }
 
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.toLowerCase();
+    if (searchQuery && String(searchQuery).trim() !== '') {
+      const q = String(searchQuery).toLowerCase().trim();
       result = result.filter(a => 
-        a.title.toLowerCase().includes(q) || 
-        a.subtitle.toLowerCase().includes(q) || 
-        (a.roomNumber && a.roomNumber.toLowerCase().includes(q)) ||
-        (a.building && a.building.toLowerCase().includes(q))
+        String(a.title || '').toLowerCase().includes(q) || 
+        String(a.subtitle || '').toLowerCase().includes(q) || 
+        (a.roomNumber && String(a.roomNumber).toLowerCase().includes(q)) ||
+        (a.building && String(a.building).toLowerCase().includes(q))
       );
     }
 

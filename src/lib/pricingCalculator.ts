@@ -83,27 +83,27 @@ export function calculateMeetingRoomPricing(
     };
   }
 
-  const targetName = (tx.rentAulaName || tx.roomNumber || '').trim().toLowerCase();
+  const targetName = String(tx.rentAulaName || tx.roomNumber || '').trim().toLowerCase();
   const mrObj = allMeetingRooms.find(m => 
     (m.id && (m.id === tx.roomId || m.id === tx.rentAulaId)) ||
-    (m.name && m.name.toLowerCase() === targetName) ||
-    (m.code && m.code.toLowerCase() === targetName) ||
-    (m.name && targetName && (targetName.includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(targetName))) ||
-    (m.code && targetName && (targetName.includes(m.code.toLowerCase()) || m.code.toLowerCase().includes(targetName))) ||
-    (tx.building && m.name && m.name.toLowerCase() === tx.building.toLowerCase()) ||
-    (tx.building && m.building && m.building.toLowerCase() === tx.building.toLowerCase())
+    (m.name && String(m.name).toLowerCase() === targetName) ||
+    (m.code && String(m.code).toLowerCase() === targetName) ||
+    (m.name && targetName && (targetName.includes(String(m.name).toLowerCase()) || String(m.name).toLowerCase().includes(targetName))) ||
+    (m.code && targetName && (targetName.includes(String(m.code).toLowerCase()) || String(m.code).toLowerCase().includes(targetName))) ||
+    (tx.building && m.name && String(m.name).toLowerCase() === String(tx.building).toLowerCase()) ||
+    (tx.building && m.building && String(m.building).toLowerCase() === String(tx.building).toLowerCase())
   ) || null;
 
   const isSG = targetName.includes('serbaguna') || 
                targetName.includes('gedung sg') || 
                targetName.includes('sg-') || 
-               (tx.building && (tx.building.toLowerCase().includes('serbaguna') || tx.building.toLowerCase().includes('gedung sg'))) || 
+               (tx.building && (String(tx.building).toLowerCase().includes('serbaguna') || String(tx.building).toLowerCase().includes('gedung sg'))) || 
                mrObj?.category === 'SERBAGUNA';
 
   // Deteksi pemakaian Harian / 12-24 jam vs Sesi 8 jam
-  const durUnit = (tx.durationUnit || '').toLowerCase();
-  const rentType = (tx.rentType || '').toLowerCase();
-  const sessionStr = (tx.rentAulaSession || '').toLowerCase();
+  const durUnit = String(tx.durationUnit || '').toLowerCase();
+  const rentType = String(tx.rentType || '').toLowerCase();
+  const sessionStr = String(tx.rentAulaSession || '').toLowerCase();
 
   const isDayDuration = durUnit === 'hari' || 
                         rentType.includes('harian') ||

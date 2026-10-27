@@ -273,8 +273,8 @@ export function UserManagementView() {
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
       // Query Search
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (searchQuery && String(searchQuery).trim()) {
+        const q = String(searchQuery).toLowerCase().trim();
         const matchName = String(user.fullName || '').toLowerCase().includes(q);
         const matchUser = String(user.username || '').toLowerCase().includes(q);
         const matchPhone = String(user.phone || '').toLowerCase().includes(q);

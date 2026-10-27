@@ -34,9 +34,9 @@ export function QcWorklistPanel({
       if (filter === 'MENUNGGU_QC' && r.qcStatus !== 'MENUNGGU_QC') return false;
       if (filter === 'PERLU_PERBAIKAN' && r.qcStatus !== 'PERLU_PERBAIKAN') return false;
       if (filter === 'KOSONG' && r.status !== 'KOSONG') return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return r.roomNumber.toLowerCase().includes(q) || r.building.toLowerCase().includes(q);
+      if (search && String(search).trim()) {
+        const q = String(search).toLowerCase().trim();
+        return String(r.roomNumber || '').toLowerCase().includes(q) || String(r.building || '').toLowerCase().includes(q);
       }
       return true;
     });

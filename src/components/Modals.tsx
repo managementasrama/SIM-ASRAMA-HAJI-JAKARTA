@@ -246,18 +246,18 @@ export function Modals() {
   const matchingMr = isAula ? meetingRooms.find(m => 
     m.id === room?.id || 
     m.id === `mr-${room?.id}` ||
-    m.name.toLowerCase() === room?.roomNumber?.toLowerCase() ||
-    m.code?.toLowerCase() === room?.roomNumber?.toLowerCase() ||
-    m.name.toLowerCase() === room?.building?.toLowerCase() ||
-    (room?.building && m.building?.toLowerCase() === room.building.toLowerCase())
+    String(m.name || '').toLowerCase() === String(room?.roomNumber || '').toLowerCase() ||
+    String(m.code || '').toLowerCase() === String(room?.roomNumber || '').toLowerCase() ||
+    String(m.name || '').toLowerCase() === String(room?.building || '').toLowerCase() ||
+    (room?.building && String(m.building || '').toLowerCase() === String(room.building || '').toLowerCase())
   ) : null;
 
   const isSG = Boolean(
     isAula && (
-      room?.building?.toLowerCase().includes('serbaguna') ||
-      room?.type?.toLowerCase().includes('serbaguna') ||
-      room?.roomNumber?.toLowerCase().includes('serbaguna') ||
-      room?.roomNumber?.toLowerCase().startsWith('sg') ||
+      String(room?.building || '').toLowerCase().includes('serbaguna') ||
+      String(room?.type || '').toLowerCase().includes('serbaguna') ||
+      String(room?.roomNumber || '').toLowerCase().includes('serbaguna') ||
+      String(room?.roomNumber || '').toLowerCase().startsWith('sg') ||
       matchingMr?.category === 'SERBAGUNA'
     )
   );
@@ -868,7 +868,7 @@ export function Modals() {
     e.preventDefault();
     if (!qcTargetRoom) return;
 
-    const isQcAula = qcTargetRoom.building === 'Ruang Pertemuan' || qcTargetRoom.roomNumber.toLowerCase().includes('aula');
+    const isQcAula = qcTargetRoom.building === 'Ruang Pertemuan' || String(qcTargetRoom.roomNumber || '').toLowerCase().includes('aula');
     
     let decisionType: 'LOLOS_RUTIN' | 'LOLOS_PASCA_TEKNISI' | 'REVISI_TEKNISI' | 'PERLU_PERBAIKAN_BARU' = 'LOLOS_RUTIN';
     if (qcResult === 'LOLOS_VERIFIKASI_TEKNISI') {
@@ -4308,10 +4308,10 @@ export function Modals() {
                               groupKey = `KLOTER-${tx.kloter}`;
                             } else if (
                               tx.guestName &&
-                              (tx.guestName.toLowerCase().includes('rombongan') ||
-                               tx.guestName.toLowerCase().includes('kloter'))
+                              (String(tx.guestName).toLowerCase().includes('rombongan') ||
+                               String(tx.guestName).toLowerCase().includes('kloter'))
                             ) {
-                              groupKey = `NAME-${(tx.guestName || '').trim().toLowerCase()}-${tx.startDate}`;
+                              groupKey = `NAME-${String(tx.guestName || '').trim().toLowerCase()}-${tx.startDate}`;
                             }
 
                             if (groupKey) {
@@ -4977,7 +4977,7 @@ export function Modals() {
 
       {/* MODAL QC INSPECTION */}
       {isQcInspectionOpen && qcTargetRoom && (() => {
-        const isQcAula = qcTargetRoom.building === 'Ruang Pertemuan' || qcTargetRoom.roomNumber.toLowerCase().includes('aula');
+        const isQcAula = qcTargetRoom.building === 'Ruang Pertemuan' || String(qcTargetRoom.roomNumber || '').toLowerCase().includes('aula');
         return (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"

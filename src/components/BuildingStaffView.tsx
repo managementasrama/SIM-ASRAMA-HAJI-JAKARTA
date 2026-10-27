@@ -27,7 +27,7 @@ const PENGINAPAN_ICONS = [
 ];
 
 function getBuildingIcon(bName: string, category?: string): string {
-  const norm = bName.toLowerCase();
+  const norm = String(bName || '').toLowerCase();
   if (category === 'SERBAGUNA' || norm.includes('serbaguna') || norm.includes('sg-') || norm.includes('(sg)')) {
     return 'fa-layer-group';
   }
@@ -41,8 +41,9 @@ function getBuildingIcon(bName: string, category?: string): string {
   if (norm.includes('sekretariat') || norm.includes('kantor')) return 'fa-building-columns';
   
   let hash = 0;
-  for (let i = 0; i < bName.length; i++) {
-    hash = (hash * 31 + bName.charCodeAt(i)) >>> 0;
+  const str = String(bName || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   }
   return PENGINAPAN_ICONS[hash % PENGINAPAN_ICONS.length];
 }
@@ -271,7 +272,7 @@ export function BuildingStaffView() {
         const flA = a.floor || extractFloorFromRoomNumber(a.roomNumber) || 1;
         const flB = b.floor || extractFloorFromRoomNumber(b.roomNumber) || 1;
         if (flA !== flB) return flA - flB;
-        return a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true });
+        return String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''), undefined, { numeric: true });
       });
     });
 
@@ -750,7 +751,7 @@ export function BuildingStaffView() {
                 const bName = selectedBuildingKey;
                 const bRooms = groupedLodgingRooms[bName] || [];
                 const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
-                const bDescription = (bObj?.description && bObj.description.trim())
+                const bDescription = (bObj?.description && String(bObj.description).trim())
                   || OFFICIAL_TARIFFS[bName]?.desc
                   || 'Fasilitas Kamar Hunian UPT Asrama Haji Jakarta';
 
@@ -767,10 +768,10 @@ export function BuildingStaffView() {
                     const q = r.qcStatus || 'PERLU_INSPEKSI';
                     if (q !== statusFilter) return false;
                   }
-                  if (searchQuery.trim()) {
-                    const q = searchQuery.toLowerCase().trim();
-                    const matchNum = r.roomNumber.toLowerCase().includes(q);
-                    const matchType = (r.type || '').toLowerCase().includes(q);
+                  if (searchQuery && String(searchQuery).trim()) {
+                    const q = String(searchQuery).toLowerCase().trim();
+                    const matchNum = String(r.roomNumber || '').toLowerCase().includes(q);
+                    const matchType = String(r.type || '').toLowerCase().includes(q);
                     if (!matchNum && !matchType) return false;
                   }
                   return true;

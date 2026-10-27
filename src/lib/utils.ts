@@ -67,7 +67,7 @@ export function getRealLocalDateTimeStr(date: Date = new Date()): string {
 
 export function parseLocalTimeString(str: string | null | undefined): Date {
   if (!str) return new Date();
-  const [datePart, timePart] = str.trim().split(' ');
+  const [datePart, timePart] = String(str).trim().split(' ');
   if (!datePart) return new Date();
   const [y, m, d] = datePart.split('-').map(Number);
   const [hh, mm, ss] = (timePart || '00:00:00').split(':').map(Number);
@@ -86,16 +86,16 @@ export function getRealDateWithOffset(offsetDays: number = 1): string {
 
 export function formatIndonesianDate(dateStr: string): string {
   if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return dateStr;
+  const parts = String(dateStr).split('-');
+  if (parts.length !== 3) return String(dateStr);
   const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
   return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function addDaysToDateStr(dateStr: string, days: number = 1): string {
   if (!dateStr) return getRealDateWithOffset(days);
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return dateStr;
+  const parts = String(dateStr).split('-');
+  if (parts.length !== 3) return String(dateStr);
   const target = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
   target.setDate(target.getDate() + days);
   const year = target.getFullYear();
@@ -131,7 +131,7 @@ export function angkaKeTerbilang(nilai: number): string {
 
 export function formatIndonesianDateTime(dateTimeStr: string | null | undefined): string {
   if (!dateTimeStr) return '-';
-  const parts = dateTimeStr.split(' ');
+  const parts = String(dateTimeStr).split(' ');
   const datePart = parts[0];
   const timePart = parts[1] || '';
   const indDate = formatIndonesianDate(datePart);
@@ -174,9 +174,9 @@ export const BUILDING_ORDER = [
 /**
  * Checks if a building or room represents meeting / multipurpose / hall facilities
  */
-export function isMeetingFacility(name: string): boolean {
+export function isMeetingFacility(name: any): boolean {
   if (!name) return false;
-  const lower = name.toLowerCase();
+  const lower = String(name).toLowerCase();
   return lower.includes('ruang pertemuan') || 
          lower.includes('aula') || 
          lower.includes('serbaguna') ||
@@ -197,9 +197,10 @@ export function isMeetingFacility(name: string): boolean {
  * 3. Gedung Serbaguna (SG)
  * 4. Ruang Pertemuan / Aula di urutan paling bawah
  */
-export function getBuildingOrderRank(name?: string | null): number {
-  if (!name) return 99999;
-  const trimmed = name.trim();
+export function getBuildingOrderRank(name?: any): number {
+  if (name === null || name === undefined) return 99999;
+  const trimmed = String(name).trim();
+  if (!trimmed) return 99999;
   const lower = trimmed.toLowerCase();
 
   // Fasilitas Aula & Ruang Pertemuan selalu paling bawah
@@ -248,9 +249,9 @@ export function getBuildingOrderRank(name?: string | null): number {
  * 2. Gedung Serbaguna (SG)
  * 3. Ruang Pertemuan / Aula strictly at the very bottom
  */
-export function compareBuildingOrder(a?: string | null, b?: string | null): number {
-  const strA = (a || '').trim();
-  const strB = (b || '').trim();
+export function compareBuildingOrder(a?: any, b?: any): number {
+  const strA = String(a || '').trim();
+  const strB = String(b || '').trim();
   if (strA === strB) return 0;
   if (!strA) return 1;
   if (!strB) return -1;
@@ -553,9 +554,9 @@ export function ensureBlackSignatureDataUrl(signatureDataUrl: string): Promise<s
  * Mengikuti konvensi baku UPT Asrama Haji Jakarta:
  * Nomor lantai berada pada digit awal nomor unit kamar setelah pemisah/kode gedung (misal Gedung D5 Lantai 3 -> D5-301, Gedung A Lantai 2 -> A-201).
  */
-export function updateRoomNumberWithFloor(currentRoomNumber: string, newFloor: number, bldCode?: string): string {
-  const safeFloor = Math.max(1, Math.min(20, newFloor || 1));
-  const trimmed = (currentRoomNumber || '').trim();
+export function updateRoomNumberWithFloor(currentRoomNumber: any, newFloor: any, bldCode?: string): string {
+  const safeFloor = Math.max(1, Math.min(20, Number(newFloor) || 1));
+  const trimmed = String(currentRoomNumber || '').trim();
 
   // Jika string nomor kamar memiliki tanda pemisah '-' (contoh: "D5-201", "A-101", "SG-1")
   if (trimmed.includes('-')) {
@@ -584,7 +585,7 @@ export function updateRoomNumberWithFloor(currentRoomNumber: string, newFloor: n
   }
 
   // Jika belum ada tanda pemisah '-', cek apakah diawali prefix gedung atau langsung angka
-  const pfx = bldCode ? `${bldCode.trim().toUpperCase()}-` : '';
+  const pfx = bldCode ? `${String(bldCode).trim().toUpperCase()}-` : '';
   if (!trimmed) {
     return `${pfx}${safeFloor}01`;
   }
@@ -615,9 +616,10 @@ export function updateRoomNumberWithFloor(currentRoomNumber: string, newFloor: n
  * - "101"    -> 1
  * - "B-1205" -> 12
  */
-export function extractFloorFromRoomNumber(roomNum: string): number | null {
-  if (!roomNum) return null;
-  const trimmed = roomNum.trim();
+export function extractFloorFromRoomNumber(roomNum: any): number | null {
+  if (roomNum === null || roomNum === undefined) return null;
+  const trimmed = String(roomNum).trim();
+  if (!trimmed) return null;
 
   // Jika terdapat hyphen '-', ambil bagian kamar setelah hyphen terakhir
   let targetNumStr = trimmed;
@@ -656,30 +658,31 @@ export function getNextRoomNumber(
   floor: number = 1,
   buildingCode?: string
 ): string {
-  const safeFloor = Math.max(1, Math.min(20, floor || 1));
-  const bNameClean = (buildingName || '').trim().toLowerCase();
+  const safeFloor = Math.max(1, Math.min(20, Number(floor) || 1));
+  const bNameClean = String(buildingName || '').trim().toLowerCase();
 
   // Filter kamar yang berada di gedung yang sama
   const buildingRooms = (allRooms || []).filter(r => 
-    (r.building || '').trim().toLowerCase() === bNameClean
+    String(r.building || '').trim().toLowerCase() === bNameClean
   );
 
   // Tentukan prefix gedung (misal "D5-", "A-", "B-", "SG-")
   let prefix = '';
-  if (buildingCode && buildingCode.trim()) {
-    const cleanCode = buildingCode.trim().toUpperCase();
+  if (buildingCode && String(buildingCode).trim()) {
+    const cleanCode = String(buildingCode).trim().toUpperCase();
     prefix = cleanCode.endsWith('-') ? cleanCode : `${cleanCode}-`;
   } else if (buildingRooms.length > 0) {
-    const sample = buildingRooms.find(r => r.roomNumber && r.roomNumber.includes('-'));
+    const sample = buildingRooms.find(r => r.roomNumber && String(r.roomNumber).includes('-'));
     if (sample) {
-      const lastHyphen = sample.roomNumber.lastIndexOf('-');
-      prefix = sample.roomNumber.slice(0, lastHyphen + 1).toUpperCase();
+      const sampleNum = String(sample.roomNumber);
+      const lastHyphen = sampleNum.lastIndexOf('-');
+      prefix = sampleNum.slice(0, lastHyphen + 1).toUpperCase();
     }
   }
 
   if (!prefix && buildingName) {
     // Tangkap kode gedung misal "Gedung D5 (Madinah)" -> "D5-", "Gedung A (Arafah)" -> "A-"
-    const matchGedung = buildingName.match(/Gedung\s+([A-Za-z0-9]+)/i);
+    const matchGedung = String(buildingName).match(/Gedung\s+([A-Za-z0-9]+)/i);
     if (matchGedung) {
       prefix = `${matchGedung[1].toUpperCase()}-`;
     }
@@ -701,7 +704,7 @@ export function getNextRoomNumber(
   let detectedFloorPrefix = prefix;
 
   floorRooms.forEach(r => {
-    const raw = (r.roomNumber || '').trim();
+    const raw = String(r.roomNumber || '').trim();
     if (raw.includes('-')) {
       const lastHyphenIndex = raw.lastIndexOf('-');
       detectedFloorPrefix = raw.slice(0, lastHyphenIndex + 1);
@@ -760,9 +763,9 @@ export function deduplicateRoomCapacityRates(rates: RoomCapacityRate[]): RoomCap
  * Normalisasi nama gedung untuk alias singkat legacy (misal: "d2" -> "Gedung D2")
  * Menjaga 100% nama gedung kustom hasil input/edit pengguna di seluruh aplikasi.
  */
-export function normalizeBuildingName(name: string): string {
-  if (!name) return '';
-  const trimmed = name.trim();
+export function normalizeBuildingName(name: any): string {
+  if (name === null || name === undefined) return '';
+  const trimmed = String(name).trim();
   const lower = trimmed.toLowerCase();
 
   // Hanya normalisasi alias singkatan mentah jika bukan nama lengkap
@@ -786,7 +789,8 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
 
   // 1. Cek dari master meetingRooms jika terdaftar
   if (meetingRooms && meetingRooms.length > 0) {
-    const matchingMr = meetingRooms.find(m => m.id === r.id || m.name.toLowerCase() === (r.roomNumber || '').toLowerCase());
+    const rNumStr = String(r.roomNumber || '').toLowerCase();
+    const matchingMr = meetingRooms.find(m => m.id === r.id || String(m.name || '').toLowerCase() === rNumStr);
     if (matchingMr) {
       if (matchingMr.category === 'SERBAGUNA') {
         return 'Gedung Serbaguna (SG)';
@@ -795,11 +799,11 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
         return 'Ruang Pertemuan / Aula';
       }
       if (matchingMr.building && matchingMr.building !== 'Ruang Pertemuan' && matchingMr.building !== 'Ruang Pertemuan / Aula' && matchingMr.building !== 'Gedung Serbaguna' && matchingMr.building !== 'Gedung Serbaguna (SG)') {
-        return matchingMr.building.trim();
+        return String(matchingMr.building).trim();
       }
-      const nLower = matchingMr.name.toLowerCase().trim();
-      const cLower = (matchingMr.code || '').toLowerCase().trim();
-      const bLower = (matchingMr.building || '').toLowerCase().trim();
+      const nLower = String(matchingMr.name || '').toLowerCase().trim();
+      const cLower = String(matchingMr.code || '').toLowerCase().trim();
+      const bLower = String(matchingMr.building || '').toLowerCase().trim();
       if (nLower.startsWith('ruang pertemuan') || nLower.startsWith('aula') || nLower.startsWith('auditorium') || nLower.startsWith('ruang rapat') || nLower.startsWith('ruang vip')) {
         return 'Ruang Pertemuan / Aula';
       }
@@ -811,20 +815,22 @@ export function getRoomBuildingKey(r: Room, meetingRooms?: MeetingRoom[]): strin
   }
 
   // 2. Evaluasi tipe/kategori ruang serbaguna & aula
-  if (r.building === 'Gedung Serbaguna (SG)' || r.building === 'Gedung Serbaguna' || r.type === 'Gedung Serbaguna (SG)') {
+  const bldStr = String(r.building || '');
+  const typeStr = String(r.type || '');
+  if (bldStr === 'Gedung Serbaguna (SG)' || bldStr === 'Gedung Serbaguna' || typeStr === 'Gedung Serbaguna (SG)') {
     return 'Gedung Serbaguna (SG)';
   }
-  if (r.building === 'Ruang Pertemuan' || r.building === 'Ruang Pertemuan / Aula' || r.type === 'Ruang Pertemuan / Aula' || isMeetingFacility(r.building) || isMeetingFacility(r.type || '')) {
+  if (bldStr === 'Ruang Pertemuan' || bldStr === 'Ruang Pertemuan / Aula' || typeStr === 'Ruang Pertemuan / Aula' || isMeetingFacility(bldStr) || isMeetingFacility(typeStr)) {
     return 'Ruang Pertemuan / Aula';
   }
 
   // 3. Utamakan nama gedung yang tersimpan pada objek kamar (r.building) agar saat nama gedung diedit tidak memicu gedung baru/terpisah
-  if (r.building && r.building.trim() !== '') {
-    return r.building.trim();
+  if (bldStr.trim() !== '') {
+    return bldStr.trim();
   }
 
   // 4. Fallback evaluasi prefix nomor kamar hanya jika r.building kosong
-  const rNum = (r.roomNumber || '').trim().toUpperCase();
+  const rNum = String(r.roomNumber || '').trim().toUpperCase();
   if (rNum.startsWith('D2-') || rNum.startsWith('D2 ')) return 'Gedung D2';
   if (rNum.startsWith('D3-') || rNum.startsWith('D3 ')) return 'Gedung D3';
   if (rNum.startsWith('D4-') || rNum.startsWith('D4 ')) return 'Gedung D4';
@@ -854,23 +860,23 @@ export function isRoomMatchingBuilding(r: Room, b: Building, allMeetingRooms?: M
     return true;
   }
 
-  const bNameClean = (b.name || '').trim().toLowerCase();
-  const rBldClean = (r.building || '').trim().toLowerCase();
+  const bNameClean = String(b.name || '').trim().toLowerCase();
+  const rBldClean = String(r.building || '').trim().toLowerCase();
   if (rBldClean && rBldClean === bNameClean) return true;
 
   // 2. Pencocokan melalui getRoomBuildingKey
-  const effKey = getRoomBuildingKey(r, allMeetingRooms).toLowerCase();
+  const effKey = String(getRoomBuildingKey(r, allMeetingRooms) || '').toLowerCase();
   if (effKey && effKey === bNameClean) return true;
 
   // 3. Pencocokan melalui kode gedung dan prefix nomor kamar (misal: Code 'A' dengan nomor 'A-101' atau 'A101')
-  const bCode = (b.code || '').trim().toUpperCase();
-  const rNum = (r.roomNumber || '').trim().toUpperCase();
+  const bCode = String(b.code || '').trim().toUpperCase();
+  const rNum = String(r.roomNumber || '').trim().toUpperCase();
   if (bCode && (rNum.startsWith(`${bCode}-`) || rNum.startsWith(`${bCode} `) || (rNum.startsWith(bCode) && /^\d/.test(rNum.slice(bCode.length))))) {
     return true;
   }
 
   // 4. Pencocokan nama dasar tanpa tanda kurung (misal: "Gedung A" vs "Gedung A (Arafah)")
-  const getBaseName = (str: string) => str.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+  const getBaseName = (str: any) => String(str || '').replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
   const bBase = getBaseName(b.name || '');
   const rBase = getBaseName(r.building || '');
   if (bBase && rBase && bBase === rBase) return true;

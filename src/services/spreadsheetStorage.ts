@@ -1125,7 +1125,7 @@ export function computeDatasetChecksums(dataset: {
   const mrMap = new Map<string, string>();
   (dataset.meetingRooms || []).forEach(m => {
     if (!m || !m.id) return;
-    mrMap.set(m.id, `${m.id}|${(m.name || '').trim().toLowerCase()}|${Number(m.dailyRate || 0)}|${Number(m.sessionRate || 0)}`);
+    mrMap.set(m.id, `${m.id}|${String(m.name || '').trim().toLowerCase()}|${Number(m.dailyRate || 0)}|${Number(m.sessionRate || 0)}`);
   });
   const mrSorted = Array.from(mrMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
   const meetingRoomsHash = fnv1aHex(mrSorted.join(';;'));
@@ -1137,7 +1137,7 @@ export function computeDatasetChecksums(dataset: {
     const isCancelled = t.status === 'DIBATALKAN' ? 'CANCELLED' : (t.status === 'SELESAI' ? 'DONE' : 'ACTIVE');
     txMap.set(
       t.id,
-      `${t.id}|${(t.roomNumber || '').trim().toUpperCase()}|${t.startDate || ''}|${Number(t.duration || 1)}|${t.paymentStatus || 'BELUM_LUNAS'}|${Number(t.paidAmount || 0)}|${isCancelled}`
+      `${t.id}|${String(t.roomNumber || '').trim().toUpperCase()}|${t.startDate || ''}|${Number(t.duration || 1)}|${t.paymentStatus || 'BELUM_LUNAS'}|${Number(t.paidAmount || 0)}|${isCancelled}`
     );
   });
   const txSorted = Array.from(txMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
@@ -1147,7 +1147,7 @@ export function computeDatasetChecksums(dataset: {
   const maintMap = new Map<string, string>();
   maintList.forEach(m => {
     if (!m || !m.id) return;
-    maintMap.set(m.id, `${m.id}|${(m.roomNumber || '').trim().toUpperCase()}|${m.status || 'PROSES'}`);
+    maintMap.set(m.id, `${m.id}|${String(m.roomNumber || '').trim().toUpperCase()}|${m.status || 'PROSES'}`);
   });
   const maintSorted = Array.from(maintMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
   const maintenancesHash = fnv1aHex(maintSorted.join(';;'));
@@ -1182,7 +1182,7 @@ export function computeDatasetChecksums(dataset: {
     const bldKey = getRoomBuildingKey(r, dataset.meetingRooms);
     roomMap.set(
       r.id,
-      `${r.id}|${(r.roomNumber || '').trim().toUpperCase()}|${bldKey.toLowerCase()}|${effectiveStatus}|${Number(r.pricePerNight || 0)}`
+      `${r.id}|${String(r.roomNumber || '').trim().toUpperCase()}|${bldKey.toLowerCase()}|${effectiveStatus}|${Number(r.pricePerNight || 0)}`
     );
   });
   const roomSorted = Array.from(roomMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(e => e[1]);
