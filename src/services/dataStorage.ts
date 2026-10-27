@@ -394,30 +394,28 @@ export class DataStorageService {
     function mergeEntityList<T extends { id?: string; updatedAt?: string; [key: string]: any }>(
       localList: T[],
       cloudList: T[],
-      preferCloud: boolean = false
+      _preferCloud: boolean = false
     ): T[] {
       const map = new Map<string, T>();
-      // 1. Masukkan seluruh entitas lokal terlebih dahulu agar data lokal tidak pernah hilang
-      for (const item of (localList || [])) {
-        if (item && item.id) {
-          map.set(String(item.id).trim(), item);
+      // 1. Masukkan seluruh item dari cloud terlebih dahulu
+      for (const item of (cloudList || [])) {
+        if (item && (item.id || (item as any).code)) {
+          const idKey = String(item.id || (item as any).code).trim();
+          map.set(idKey, item);
         }
       }
-      // 2. Gabungkan/perbarui dengan data dari cloud jika cloud memiliki data valid
-      for (const item of (cloudList || [])) {
-        if (!item || !item.id) continue;
-        const key = String(item.id).trim();
-        const existingLocal = map.get(key);
-        if (!existingLocal) {
-          map.set(key, item);
+      // 2. Gabungkan/perbarui atau tambahkan dari lokal jika belum ada atau lebih baru
+      for (const item of (localList || [])) {
+        if (!item || (!item.id && !(item as any).code)) continue;
+        const idKey = String(item.id || (item as any).code).trim();
+        const existing = map.get(idKey);
+        if (!existing) {
+          map.set(idKey, item);
         } else {
-          const localTime = existingLocal.updatedAt ? new Date(existingLocal.updatedAt).getTime() : 0;
-          const cloudTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-          if (cloudTime > localTime) {
-            map.set(key, item);
-          } else {
-            // Pertahankan lokal
-            map.set(key, existingLocal);
+          const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+          const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+          if (localTime >= cloudTime) {
+            map.set(idKey, item);
           }
         }
       }
