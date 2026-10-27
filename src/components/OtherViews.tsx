@@ -3899,7 +3899,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     breakfastOrders = [], breakfastMenuItems = [], qcInspections = [],
     supabaseSyncState, manualSyncSupabase, pushAllToSupabase, setActiveTab, dataStorage,
     updateUser, appSettings, updateAppSettings,
-    onlinePresences = [], openChat, forceEndWorkSession
+    onlinePresences = [], openChat, forceEndWorkSession, deleteWorkSession
   } = useAppContext();
   const safeWorkSessions = workSessions || [];
   const fileImportRef = React.useRef<HTMLInputElement>(null);

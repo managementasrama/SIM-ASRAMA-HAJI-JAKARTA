@@ -178,6 +178,7 @@ interface AppContextType {
   activeSessionId: string | null;
   onlinePresences: OnlinePresenceInfo[];
   clearWorkSessions: () => void;
+  deleteWorkSession: (sessionId: string) => void;
   forceEndWorkSession: (sessionId: string) => void;
   startManualWorkSession: (user: User, notes?: string) => void;
   activeTab: string;
@@ -2345,6 +2346,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     realtimeService.broadcastClearWorkSessions();
     logAudit("Reset Sesi Kerja", "Daftar rekap riwayat sesi & jam kerja petugas telah dibersihkan.");
     showToast("Rekap sesi dan jam kerja berhasil direset!", "success");
+  };
+
+  const deleteWorkSession = (sessionId: string) => {
+    const target = workSessions.find(s => s.id === sessionId);
+    const updated = workSessions.filter(s => s.id !== sessionId);
+    setWorkSessions(updated);
+    dataStorage.saveDatabase({ ...dataStorage.getDatabase(), workSessions: updated });
+    logAudit("Hapus Sesi Kerja", `Entri rekap sesi #${sessionId} (${target?.userName || 'Petugas'}) berhasil dihapus dari sistem.`);
+    showToast(`Rekap sesi #${sessionId} berhasil dihapus.`, "success");
   };
 
   const addUser = (user: User) => {

@@ -286,7 +286,7 @@ export function FloatingChatPanel() {
       if (a.id === 'channel-all-managers') return -1;
       if (b.id === 'channel-all-managers') return 1;
       if (a.type !== b.type) return a.type === 'GROUP' ? -1 : 1;
-      return (b.lastMessageTime || '').localeCompare(a.lastMessageTime || '');
+      return String(b.lastMessageTime || '').localeCompare(String(a.lastMessageTime || ''));
     });
 
     for (const c of sorted) {
