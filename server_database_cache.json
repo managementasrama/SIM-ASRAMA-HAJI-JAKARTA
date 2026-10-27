@@ -1,6 +1,6 @@
 {
   "action": "SAVE_ALL",
-  "timestamp": "2026-10-27T12:31:59.882Z",
+  "timestamp": "2026-10-27T12:59:16.698Z",
   "buildings": [
     {
       "id": "bld-1",
@@ -6442,6 +6442,54 @@
   "qcInspections": [],
   "workSessions": [
     {
+      "id": "SESI-6337-IN",
+      "userId": "u-admin",
+      "userName": "Administrator Operasional",
+      "userRole": "Admin",
+      "loginTime": "2026-10-27 19:57:36",
+      "logoutTime": "2026-10-27 19:57:54",
+      "durationSeconds": 18,
+      "durationFormatted": "0 Jam 0 Menit 18 Detik",
+      "status": "SELESAI",
+      "department": "Administrasi & Pelayanan UPT",
+      "assignedBuilding": "Semua Gedung",
+      "lastHeartbeat": "2026-10-27T12:57:52.395Z",
+      "notes": "Sesi login perangkat terbaru (Admin - Administrasi & Pelayanan UPT)",
+      "closeOtherUserSessions": true
+    },
+    {
+      "id": "SESI-7604-IN",
+      "userId": "u-admin",
+      "userName": "Administrator Operasional",
+      "userRole": "Admin",
+      "loginTime": "2026-10-27 19:47:27",
+      "logoutTime": "2026-10-27 19:48:20",
+      "durationSeconds": 53,
+      "durationFormatted": "0 Jam 0 Menit 53 Detik",
+      "status": "SELESAI",
+      "department": "Administrasi & Pelayanan UPT",
+      "assignedBuilding": "Semua Gedung",
+      "lastHeartbeat": "2026-10-27T12:48:18.251Z",
+      "notes": "Sesi login perangkat terbaru (Admin - Administrasi & Pelayanan UPT)",
+      "closeOtherUserSessions": false
+    },
+    {
+      "id": "SESI-9176-IN",
+      "userId": "u-superadmin",
+      "userName": "Administrator Management",
+      "userRole": "Super Admin",
+      "loginTime": "2026-10-27 19:39:29",
+      "logoutTime": "2026-10-27 19:44:27",
+      "durationSeconds": 298,
+      "durationFormatted": "0 Jam 4 Menit 58 Detik",
+      "status": "SELESAI",
+      "department": "Pimpinan & IT UPT",
+      "assignedBuilding": "Semua Gedung",
+      "lastHeartbeat": "2026-10-27T12:44:25.746Z",
+      "notes": "Sesi login perangkat terbaru (Super Admin - Pimpinan & IT UPT)",
+      "closeOtherUserSessions": false
+    },
+    {
       "id": "SESI-4091-IN",
       "userId": "u-superadmin",
       "userName": "Administrator Management",
@@ -7114,6 +7162,90 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "audit-1793105874538-m4yk",
+      "timestamp": "2026-10-27 12:57:54",
+      "user": "Administrator Operasional",
+      "role": "Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Operasional (Admin) checkout tugas pada 2026-10-27 19:57:54. Durasi kerja: 0 Jam 0 Menit 18 Detik.",
+      "durationMinutes": 0
+    },
+    {
+      "id": "audit-1793105856421-38tn",
+      "timestamp": "2026-10-27 12:57:36",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Operasional (Admin) masuk bertugas pada 2026-10-27 19:57:36 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793105301075-f94z",
+      "timestamp": "2026-10-27 12:48:21",
+      "user": "Administrator Operasional",
+      "role": "Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Operasional (Admin) checkout tugas pada 2026-10-27 19:48:20. Durasi kerja: 0 Jam 0 Menit 53 Detik.",
+      "durationMinutes": 0
+    },
+    {
+      "id": "audit-1793105247679-biat",
+      "timestamp": "2026-10-27 12:47:27",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Operasional (Admin) masuk bertugas pada 2026-10-27 19:47:27 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793105067298-xh5a",
+      "timestamp": "2026-10-27 12:44:27",
+      "user": "Administrator Management",
+      "role": "Super Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Management (Super Admin) checkout tugas pada 2026-10-27 19:44:27. Durasi kerja: 0 Jam 4 Menit 58 Detik.",
+      "durationMinutes": 4
+    },
+    {
+      "id": "audit-1793104769247-ptxu",
+      "timestamp": "2026-10-27 12:39:29",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:39:29 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793104663500-mjlz",
+      "timestamp": "2026-10-27 12:37:43",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:37:43 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793104564179-g5jm",
+      "timestamp": "2026-10-27 12:36:04",
+      "user": "Administrator Management",
+      "role": "Super Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Management (Super Admin) checkout tugas pada 2026-10-27 19:36:04. Durasi kerja: 0 Jam 1 Menit 45 Detik.",
+      "durationMinutes": 1
+    },
+    {
+      "id": "audit-1793104459114-tval",
+      "timestamp": "2026-10-27 12:34:19",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:34:19 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793104431627-sysu",
+      "timestamp": "2026-10-27 12:33:51",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:33:51 (Perangkat Terbaru)"
+    },
     {
       "id": "audit-1793104104151-t791",
       "timestamp": "2026-10-27 12:28:24",
@@ -9188,96 +9320,6 @@
       "role": "Admin",
       "action": "Ubah Gedung",
       "details": "Memperbarui profil gedung: Gedung D (Madinah) -> Gedung H",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
       "hasQrAndSignature": false
     },
     {
@@ -10327,6 +10369,54 @@
   "cleaning_logs": [],
   "work_sessions": [
     {
+      "id": "SESI-6337-IN",
+      "userId": "u-admin",
+      "userName": "Administrator Operasional",
+      "userRole": "Admin",
+      "loginTime": "2026-10-27 19:57:36",
+      "logoutTime": "2026-10-27 19:57:54",
+      "durationSeconds": 18,
+      "durationFormatted": "0 Jam 0 Menit 18 Detik",
+      "status": "SELESAI",
+      "department": "Administrasi & Pelayanan UPT",
+      "assignedBuilding": "Semua Gedung",
+      "lastHeartbeat": "2026-10-27T12:57:52.395Z",
+      "notes": "Sesi login perangkat terbaru (Admin - Administrasi & Pelayanan UPT)",
+      "closeOtherUserSessions": true
+    },
+    {
+      "id": "SESI-7604-IN",
+      "userId": "u-admin",
+      "userName": "Administrator Operasional",
+      "userRole": "Admin",
+      "loginTime": "2026-10-27 19:47:27",
+      "logoutTime": "2026-10-27 19:48:20",
+      "durationSeconds": 53,
+      "durationFormatted": "0 Jam 0 Menit 53 Detik",
+      "status": "SELESAI",
+      "department": "Administrasi & Pelayanan UPT",
+      "assignedBuilding": "Semua Gedung",
+      "lastHeartbeat": "2026-10-27T12:48:18.251Z",
+      "notes": "Sesi login perangkat terbaru (Admin - Administrasi & Pelayanan UPT)",
+      "closeOtherUserSessions": false
+    },
+    {
+      "id": "SESI-9176-IN",
+      "userId": "u-superadmin",
+      "userName": "Administrator Management",
+      "userRole": "Super Admin",
+      "loginTime": "2026-10-27 19:39:29",
+      "logoutTime": "2026-10-27 19:44:27",
+      "durationSeconds": 298,
+      "durationFormatted": "0 Jam 4 Menit 58 Detik",
+      "status": "SELESAI",
+      "department": "Pimpinan & IT UPT",
+      "assignedBuilding": "Semua Gedung",
+      "lastHeartbeat": "2026-10-27T12:44:25.746Z",
+      "notes": "Sesi login perangkat terbaru (Super Admin - Pimpinan & IT UPT)",
+      "closeOtherUserSessions": false
+    },
+    {
       "id": "SESI-4091-IN",
       "userId": "u-superadmin",
       "userName": "Administrator Management",
@@ -10999,6 +11089,90 @@
     }
   ],
   "system_logs": [
+    {
+      "id": "audit-1793105874538-m4yk",
+      "timestamp": "2026-10-27 12:57:54",
+      "user": "Administrator Operasional",
+      "role": "Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Operasional (Admin) checkout tugas pada 2026-10-27 19:57:54. Durasi kerja: 0 Jam 0 Menit 18 Detik.",
+      "durationMinutes": 0
+    },
+    {
+      "id": "audit-1793105856421-38tn",
+      "timestamp": "2026-10-27 12:57:36",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Operasional (Admin) masuk bertugas pada 2026-10-27 19:57:36 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793105301075-f94z",
+      "timestamp": "2026-10-27 12:48:21",
+      "user": "Administrator Operasional",
+      "role": "Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Operasional (Admin) checkout tugas pada 2026-10-27 19:48:20. Durasi kerja: 0 Jam 0 Menit 53 Detik.",
+      "durationMinutes": 0
+    },
+    {
+      "id": "audit-1793105247679-biat",
+      "timestamp": "2026-10-27 12:47:27",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Operasional (Admin) masuk bertugas pada 2026-10-27 19:47:27 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793105067298-xh5a",
+      "timestamp": "2026-10-27 12:44:27",
+      "user": "Administrator Management",
+      "role": "Super Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Management (Super Admin) checkout tugas pada 2026-10-27 19:44:27. Durasi kerja: 0 Jam 4 Menit 58 Detik.",
+      "durationMinutes": 4
+    },
+    {
+      "id": "audit-1793104769247-ptxu",
+      "timestamp": "2026-10-27 12:39:29",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:39:29 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793104663500-mjlz",
+      "timestamp": "2026-10-27 12:37:43",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:37:43 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793104564179-g5jm",
+      "timestamp": "2026-10-27 12:36:04",
+      "user": "Administrator Management",
+      "role": "Super Admin",
+      "action": "Logout System",
+      "details": "Petugas Administrator Management (Super Admin) checkout tugas pada 2026-10-27 19:36:04. Durasi kerja: 0 Jam 1 Menit 45 Detik.",
+      "durationMinutes": 1
+    },
+    {
+      "id": "audit-1793104459114-tval",
+      "timestamp": "2026-10-27 12:34:19",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:34:19 (Perangkat Terbaru)"
+    },
+    {
+      "id": "audit-1793104431627-sysu",
+      "timestamp": "2026-10-27 12:33:51",
+      "user": "System",
+      "role": "System",
+      "action": "Login System",
+      "details": "Petugas Administrator Management (Super Admin) masuk bertugas pada 2026-10-27 19:33:51 (Perangkat Terbaru)"
+    },
     {
       "id": "audit-1793104104151-t791",
       "timestamp": "2026-10-27 12:28:24",
@@ -13073,96 +13247,6 @@
       "role": "Admin",
       "action": "Ubah Gedung",
       "details": "Memperbarui profil gedung: Gedung D (Madinah) -> Gedung H",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
-      "hasQrAndSignature": false
-    },
-    {
-      "id": "audit-1791946640629-qzd4",
-      "timestamp": "2026-10-13T19:57:20.000Z",
-      "user": "System",
-      "role": "Admin",
-      "action": "Login System",
-      "details": "Petugas Ahmad Faisal (Super Admin) (Super Admin) masuk bertugas pada 2026-10-14 09:57:20",
       "hasQrAndSignature": false
     },
     {

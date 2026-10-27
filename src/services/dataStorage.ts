@@ -1642,6 +1642,9 @@ export class DataStorageService {
     const db = this.getDatabase();
     const withTime = txs.map(t => ({ ...t, updatedAt: t.updatedAt || new Date().toISOString() }));
     this.saveDatabase({ ...db, transactions: withTime }, { skipCloudSync: true });
+    for (const t of withTime) {
+      upsertRecordToSpreadsheet('transactions', t).catch(() => {});
+    }
   }
 
   public deleteTransaction(txId: string): { success: boolean; message: string } {
