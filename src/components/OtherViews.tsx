@@ -3997,6 +3997,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const dateMinus3 = addDaysToDateStr(realToday, -3);
   const dateMinus7 = addDaysToDateStr(realToday, -7);
 
+  // Real current month string prefix e.g. "2026-10"
+  const currentMonthPrefix = realToday.slice(0, 7);
+  const currentMonthName = new Date().toLocaleString('id-ID', { month: 'long', year: 'numeric' });
+
   // Unique users and roles for filter dropdowns
   const uniqueUsers = useMemo(() => {
     const names = new Set<string>();
@@ -4091,6 +4095,9 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       if (datePreset === 'KEMARIN' && sessionDate !== realYesterday) {
         return false;
       }
+      if (datePreset === 'BULAN_INI' && !sessionDate.startsWith(currentMonthPrefix)) {
+        return false;
+      }
       if (datePreset === '3_HARI' && sessionDate < dateMinus3) {
         return false;
       }
@@ -4118,10 +4125,48 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     });
   }, [sessionsWithLiveDuration, selectedUser, selectedRole, sessionStatus, datePreset, customStartDate, customEndDate, searchQuery, realToday, realYesterday, dateMinus3, dateMinus7]);
 
-  // Aggregate statistics for filtered sessions
-  const totalFilteredSeconds = useMemo(() => {
-    return filteredSessions.reduce((acc, s) => acc + (Number(s.durationSeconds) || 0), 0);
-  }, [filteredSessions]);
+  // Total durasi kerja khusus bulan ini (real per bulan, otomatis reset ke 0 saat berganti bulan), menghormati filter petugas yang dipilih
+  const currentMonthTotalSeconds = useMemo(() => {
+    return sessionsWithLiveDuration.reduce((acc, s) => {
+      // Filter petugas jika dipilih
+      if (selectedUser !== 'SEMUA') {
+        const normId = (s.userId || '').trim().toLowerCase();
+        const normName = (s.userName || '').trim().toLowerCase();
+        const matched = users.find(u => 
+          (normId && u.id.toLowerCase() === normId) ||
+          (normName && u.fullName.trim().toLowerCase() === normName) ||
+          (normName && u.username.trim().toLowerCase() === normName)
+        );
+        const canonName = matched?.fullName || s.userName.trim();
+        if (canonName !== selectedUser) return acc;
+      }
+
+      const sDate = extractStandardDate(s.loginTime, realToday);
+      if (sDate.startsWith(currentMonthPrefix)) {
+        return acc + (Number(s.durationSeconds) || 0);
+      }
+      return acc;
+    }, 0);
+  }, [sessionsWithLiveDuration, currentMonthPrefix, realToday, selectedUser, users]);
+
+  const currentMonthSessionsCount = useMemo(() => {
+    return sessionsWithLiveDuration.filter(s => {
+      if (selectedUser !== 'SEMUA') {
+        const normId = (s.userId || '').trim().toLowerCase();
+        const normName = (s.userName || '').trim().toLowerCase();
+        const matched = users.find(u => 
+          (normId && u.id.toLowerCase() === normId) ||
+          (normName && u.fullName.trim().toLowerCase() === normName) ||
+          (normName && u.username.trim().toLowerCase() === normName)
+        );
+        const canonName = matched?.fullName || s.userName.trim();
+        if (canonName !== selectedUser) return false;
+      }
+
+      const sDate = extractStandardDate(s.loginTime, realToday);
+      return sDate.startsWith(currentMonthPrefix);
+    }).length;
+  }, [sessionsWithLiveDuration, currentMonthPrefix, realToday, selectedUser, users]);
 
   // Real-Time Active Officers List (merges active workSessions + live onlinePresences across all concurrent accounts)
   const activeOfficersList = useMemo(() => {
@@ -4205,6 +4250,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   }, [sessionsWithLiveDuration, onlinePresences, users, currentUser, ticker, realToday]);
 
   const activeOfficersCount = activeOfficersList.length;
+
+  const totalFilteredSeconds = useMemo(() => {
+    return filteredSessions.reduce((acc, s) => acc + (Number(s.durationSeconds) || 0), 0);
+  }, [filteredSessions]);
 
   const averageDurationSeconds = useMemo(() => {
     if (filteredSessions.length === 0) return 0;
@@ -4826,11 +4875,11 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 <i className="fa-solid fa-hourglass-half"></i>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">Total Durasi Kerja</p>
-                <p className="text-base font-black text-blue-700 truncate" title={formatHMS(totalFilteredSeconds)}>
-                  {formatHMS(totalFilteredSeconds)}
+                <p className="text-[10px] font-bold text-slate-500 uppercase">Total Durasi Kerja ({currentMonthName})</p>
+                <p className="text-base font-black text-blue-700 truncate" title={formatHMS(currentMonthTotalSeconds)}>
+                  {formatHMS(currentMonthTotalSeconds)}
                 </p>
-                <p className="text-[10px] text-slate-400">{filteredSessions.length} sesi tugas</p>
+                <p className="text-[10px] text-slate-400">{currentMonthSessionsCount} sesi tugas bulan ini</p>
               </div>
             </div>
 
@@ -5102,6 +5151,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   className="w-full p-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
                 >
                   <option value="SEMUA">Semua Waktu</option>
+                  <option value="BULAN_INI">Bulan Ini ({currentMonthName})</option>
                   <option value="HARI_INI">Hari Ini ({formatIndonesianDate(realToday)})</option>
                   <option value="KEMARIN">Kemarin ({formatIndonesianDate(realYesterday)})</option>
                   <option value="3_HARI">3 Hari Terakhir</option>

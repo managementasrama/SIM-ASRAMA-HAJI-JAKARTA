@@ -282,56 +282,72 @@ export async function fetchFullDatabaseFromSpreadsheet(): Promise<CompleteStorag
     cfg.webAppUrl ||
     'https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec';
 
-  // 1. Coba melalui backend Express server proxy jika bukan di hosting statis Vercel
-  if (!isVercelOrStaticDeploy()) {
-    try {
-      const proxyRes = await fetch('/api/sheets/database', {
-        method: 'GET',
-        headers: { Accept: 'application/json' }
-      });
+  const maxRetries = 3;
+  let attempt = 0;
 
-      if (proxyRes.ok) {
-        const ct = proxyRes.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          const json = await proxyRes.json();
-          if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
-            const d = json.data;
-            if (d && typeof d === 'object') {
-              const normalized = normalizeSpreadsheetPayload(d);
-              if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
-                return normalized;
+  while (attempt < maxRetries) {
+    attempt++;
+    try {
+      // 1. Coba melalui backend Express server proxy jika bukan di hosting statis Vercel
+      if (!isVercelOrStaticDeploy()) {
+        try {
+          const proxyRes = await fetch('/api/sheets/database', {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(12000)
+          });
+          if (proxyRes.ok) {
+            const ct = proxyRes.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+              const json = await proxyRes.json();
+              if ((json.status === 'success' || json.status === 'cached' || json.status === 'fallback') && json.data) {
+                const d = json.data;
+                if (d && typeof d === 'object') {
+                  const normalized = normalizeSpreadsheetPayload(d);
+                  if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
+                    return normalized;
+                  }
+                }
               }
             }
           }
+        } catch (e) {
+          console.warn(`Proxy fetch attempt ${attempt} failed:`, e);
         }
       }
-    } catch (e) {
-      console.warn('Proxy /api/sheets/database tidak merespons, beralih ke direct Web App:', e);
-    }
-  }
 
-  // 2. Fallback direct fetch ke Web App Apps Script jika server proxy offline/preview
-  if (webAppUrl) {
-    try {
-      const directRes = await fetch(webAppUrl, {
-        method: 'GET',
-        headers: { Accept: 'application/json' }
-      });
-
-      if (directRes.ok) {
-        const json = await directRes.json();
-        if (json && json.status !== 'error') {
-          const d = json.data || (Array.isArray(json.buildings) || Array.isArray(json.rooms) ? json : null);
-          if (d && typeof d === 'object') {
-            const normalized = normalizeSpreadsheetPayload(d);
-            if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
-              return normalized;
+      // 2. Fallback direct fetch ke Web App Apps Script jika server proxy offline/preview
+      if (webAppUrl) {
+        try {
+          const directRes = await fetch(webAppUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(15000)
+          });
+          if (directRes.ok) {
+            const json = await directRes.json();
+            if (json && json.status !== 'error') {
+              const d = json.data || (Array.isArray(json.buildings) || Array.isArray(json.rooms) ? json : null);
+              if (d && typeof d === 'object') {
+                const normalized = normalizeSpreadsheetPayload(d);
+                if (normalized.rooms.length > 0 || normalized.buildings.length > 0 || normalized.users.length > 0) {
+                  return normalized;
+                }
+              }
             }
           }
+        } catch (directErr) {
+          console.warn(`Direct fetch attempt ${attempt} failed:`, directErr);
         }
       }
-    } catch (directErr) {
-      console.warn('Direct fetch to Google Apps Script failed:', directErr);
+    } catch (retryErr) {
+      console.warn(`Spreadsheet fetch general attempt ${attempt} error:`, retryErr);
+    }
+
+    if (attempt < maxRetries) {
+      // Exponential backoff: 1.5s, 3s
+      const delayMs = attempt * 1500;
+      await new Promise(res => setTimeout(res, delayMs));
     }
   }
 
