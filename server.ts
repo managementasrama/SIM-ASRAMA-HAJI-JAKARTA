@@ -1897,6 +1897,16 @@ async function startServer() {
       realtimeState.workSessions = [];
       triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:clear", {}, clientId);
+    } else if (type === "session:delete" && (payload?.id || payload?.ids)) {
+      const idsToDelete = new Set<string>(
+        Array.isArray(payload.ids) ? payload.ids : [payload.id].filter(Boolean)
+      );
+      realtimeState.workSessions = realtimeState.workSessions.filter((s: any) => !idsToDelete.has(s.id));
+      if (serverDatabaseCache && Array.isArray(serverDatabaseCache.workSessions)) {
+        serverDatabaseCache.workSessions = serverDatabaseCache.workSessions.filter((s: any) => !idsToDelete.has(s.id));
+      }
+      triggerAsyncWorkSessionSpreadsheetSync();
+      broadcastRealtimeEvent("session:delete", payload, clientId);
     } else if (type === "chat:message" && payload?.message?.id) {
       const msg = payload.message;
       const channel = payload.channel;

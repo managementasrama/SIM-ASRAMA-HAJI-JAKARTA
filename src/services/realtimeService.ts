@@ -22,6 +22,7 @@ export type RealtimeEventType =
   | 'session:upsert'
   | 'session:superseded'
   | 'session:clear'
+  | 'session:delete'
   | 'chat:message'
   | 'chat:read'
   | 'chat:channel'
@@ -339,6 +340,14 @@ class RealtimeService {
 
   public broadcastWorkSession(session: WorkSession, closeOtherUserSessions: boolean = false) {
     this.emit('session:upsert', { ...session, closeOtherUserSessions });
+  }
+
+  public broadcastDeleteWorkSession(sessionId: string) {
+    this.emit('session:delete', { id: sessionId });
+  }
+
+  public broadcastDeleteWorkSessions(sessionIds: string[]) {
+    this.emit('session:delete', { ids: sessionIds });
   }
 
   public broadcastClearWorkSessions() {

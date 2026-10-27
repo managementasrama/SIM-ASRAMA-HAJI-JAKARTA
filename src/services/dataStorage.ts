@@ -154,6 +154,27 @@ export class DataStorageService {
   private hasHydratedFromCloud: boolean = false;
   private pendingSyncDb: CompleteStorageDatabase | null = null;
   private syncListeners: Array<(event: { status: 'syncing' | 'connected' | 'error'; db: CompleteStorageDatabase; error?: string | null }) => void> = [];
+  private deletedWorkSessionIds: Set<string> = new Set<string>();
+
+  private loadDeletedSessionIds(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const raw = window.localStorage.getItem('sim_haji_deleted_sessions');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          this.deletedWorkSessionIds = new Set(arr);
+        }
+      }
+    } catch (_) {}
+  }
+
+  private saveDeletedSessionIds(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem('sim_haji_deleted_sessions', JSON.stringify(Array.from(this.deletedWorkSessionIds)));
+    } catch (_) {}
+  }
 
   private loadFromStorage(): CompleteStorageDatabase | null {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -162,6 +183,9 @@ export class DataStorageService {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rooms) && parsed.rooms.length > 0) {
+          if (Array.isArray(parsed.workSessions)) {
+            parsed.workSessions = parsed.workSessions.filter((s: any) => s && s.id && !this.deletedWorkSessionIds.has(s.id));
+          }
           return parsed;
         }
       }
@@ -179,6 +203,7 @@ export class DataStorageService {
   }
 
   constructor() {
+    this.loadDeletedSessionIds();
     // Muat data lokal tersimpan (jika ada) agar perubahan pengguna tidak pernah hilang/revert
     const stored = this.loadFromStorage();
     if (stored) {
@@ -295,14 +320,14 @@ export class DataStorageService {
         const preferCloud = _forceCloudOverwrite || !this.hasHydratedFromCloud;
         const mergedDb = this.mergeDatabases(base, sheetDb, preferCloud);
 
-        // Pertahankan sesi aktif & pesan chat memori
+        // Pertahankan sesi aktif & pesan chat memori (kecuali sesi yang telah dihapus)
         if (this.cache) {
           const wsMap = new Map<string, WorkSession>();
           for (const s of (mergedDb.workSessions || [])) {
-            if (s && s.id) wsMap.set(s.id, s);
+            if (s && s.id && !this.deletedWorkSessionIds.has(s.id)) wsMap.set(s.id, s);
           }
           for (const s of (this.cache.workSessions || [])) {
-            if (!s || !s.id) continue;
+            if (!s || !s.id || this.deletedWorkSessionIds.has(s.id)) continue;
             const remoteS = wsMap.get(s.id);
             if (!remoteS) {
               if (s.status === 'AKTIF') wsMap.set(s.id, s);
@@ -1797,8 +1822,13 @@ export class DataStorageService {
   // ==========================================
   // SESI KERJA & SHIFT
   // ==========================================
+  public getDeletedWorkSessionIds(): Set<string> {
+    return this.deletedWorkSessionIds;
+  }
+
   public getWorkSessions(): WorkSession[] {
-    return this.getDatabase().workSessions;
+    const raw = this.getDatabase().workSessions || [];
+    return raw.filter(s => s && s.id && !this.deletedWorkSessionIds.has(s.id));
   }
 
   public saveWorkSession(session: WorkSession): WorkSession {
@@ -1809,6 +1839,11 @@ export class DataStorageService {
       ...session,
       id: session.id && String(session.id).trim() !== '' ? String(session.id).trim() : getNextSequentialId(db.workSessions, 'ws-')
     };
+
+    if (this.deletedWorkSessionIds.has(sessionWithId.id)) {
+      this.deletedWorkSessionIds.delete(sessionWithId.id);
+      this.saveDeletedSessionIds();
+    }
 
     if (idx >= 0) {
       updated = [...db.workSessions];
@@ -1822,8 +1857,44 @@ export class DataStorageService {
     return sessionWithId;
   }
 
+  public deleteWorkSession(sessionId: string): boolean {
+    if (!sessionId) return false;
+    this.deletedWorkSessionIds.add(sessionId);
+    this.saveDeletedSessionIds();
+
+    const db = this.getDatabase();
+    const updated = (db.workSessions || []).filter(s => s.id !== sessionId);
+    this.cache = { ...db, workSessions: updated };
+    this.saveToStorage(this.cache);
+    this.saveDatabase({ ...db, workSessions: updated }, { skipCloudSync: true });
+    deleteRecordFromSpreadsheet('work_sessions', sessionId).catch(() => {});
+    return true;
+  }
+
+  public deleteWorkSessions(sessionIds: string[]): boolean {
+    if (!Array.isArray(sessionIds) || sessionIds.length === 0) return false;
+    sessionIds.forEach(id => {
+      if (id) this.deletedWorkSessionIds.add(id);
+    });
+    this.saveDeletedSessionIds();
+
+    const idSet = new Set(sessionIds);
+    const db = this.getDatabase();
+    const updated = (db.workSessions || []).filter(s => !idSet.has(s.id));
+    this.cache = { ...db, workSessions: updated };
+    this.saveToStorage(this.cache);
+    this.saveDatabase({ ...db, workSessions: updated }, { skipCloudSync: true });
+
+    sessionIds.forEach(id => {
+      deleteRecordFromSpreadsheet('work_sessions', id).catch(() => {});
+    });
+    return true;
+  }
+
   public clearWorkSessions(): void {
     const db = this.getDatabase();
+    this.deletedWorkSessionIds.clear();
+    this.saveDeletedSessionIds();
     this.cache = { ...db, workSessions: [] };
     this.saveDatabase({ ...db, workSessions: [] }, { skipCloudSync: true });
   }

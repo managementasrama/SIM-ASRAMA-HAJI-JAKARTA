@@ -44,11 +44,11 @@ import {
   clearEmailNotificationHistory 
 } from './lib/emailNotificationService';
 
-export function formatHMS(totalSeconds: number): string {
-  if (totalSeconds < 0) totalSeconds = 0;
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
+export function formatHMS(totalSeconds: any): string {
+  const safe = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
   return `${hours} Jam ${minutes} Menit ${seconds} Detik`;
 }
 
@@ -179,6 +179,7 @@ interface AppContextType {
   onlinePresences: OnlinePresenceInfo[];
   clearWorkSessions: () => void;
   deleteWorkSession: (sessionId: string) => void;
+  deleteWorkSessionsBatch: (sessionIds: string[], contextDesc?: string) => void;
   forceEndWorkSession: (sessionId: string) => void;
   startManualWorkSession: (user: User, notes?: string) => void;
   activeTab: string;
@@ -780,13 +781,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Helper untuk menggabungkan workSessions, chatChannels, dan chatMessages dari cloud tanpa menimpa sesi/pesan baru
   const mergeAndApplyCloudRealtimeData = (cloudDb: CompleteStorageDatabase) => {
     // 1. Merge WorkSessions
+    const deletedIds = dataStorage.getDeletedWorkSessionIds();
     setWorkSessions(prev => {
       const wsMap = new Map<string, WorkSession>();
       for (const s of (cloudDb.workSessions || [])) {
-        if (s && s.id) wsMap.set(s.id, s);
+        if (s && s.id && !deletedIds.has(s.id)) wsMap.set(s.id, s);
       }
       for (const s of prev) {
-        if (!s || !s.id) continue;
+        if (!s || !s.id || deletedIds.has(s.id)) continue;
         const remoteS = wsMap.get(s.id);
         if (!remoteS) {
           if (s.status === 'AKTIF') wsMap.set(s.id, s);
@@ -1329,13 +1331,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setOnlinePresences(realtimeService.getActivePresences());
         }
         if (Array.isArray(event.payload.workSessions) && event.payload.workSessions.length > 0) {
+          const deletedIds = dataStorage.getDeletedWorkSessionIds();
           setWorkSessions(prev => {
             const wsMap = new Map<string, WorkSession>();
             for (const s of event.payload.workSessions) {
-              if (s && s.id) wsMap.set(s.id, s);
+              if (s && s.id && !deletedIds.has(s.id)) wsMap.set(s.id, s);
             }
             for (const s of prev) {
-              if (!s || !s.id) continue;
+              if (!s || !s.id || deletedIds.has(s.id)) continue;
               const existing = wsMap.get(s.id);
               if (!existing) {
                 wsMap.set(s.id, s);
@@ -1382,13 +1385,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setOnlinePresences(realtimeService.getActivePresences());
         }
         if (Array.isArray(event.payload.workSessions) && event.payload.workSessions.length > 0) {
+          const deletedIds = dataStorage.getDeletedWorkSessionIds();
           setWorkSessions(prev => {
             const wsMap = new Map<string, WorkSession>();
             for (const s of event.payload.workSessions) {
-              if (s && s.id) wsMap.set(s.id, s);
+              if (s && s.id && !deletedIds.has(s.id)) wsMap.set(s.id, s);
             }
             for (const s of prev) {
-              if (!s || !s.id) continue;
+              if (!s || !s.id || deletedIds.has(s.id)) continue;
               const existing = wsMap.get(s.id);
               if (!existing) {
                 wsMap.set(s.id, s);
@@ -1474,6 +1478,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       } else if (event.type === 'session:clear') {
         setWorkSessions([]);
+      } else if (event.type === 'session:delete' && (event.payload?.id || event.payload?.ids)) {
+        const idsToDelete = new Set<string>(
+          Array.isArray(event.payload.ids) ? event.payload.ids : [event.payload.id].filter(Boolean)
+        );
+        setWorkSessions(prev => prev.filter(s => !idsToDelete.has(s.id)));
       } else if (event.type === 'chat:message' && event.payload?.message?.id) {
         const incomingMsg = event.payload.message as ChatMessage;
         const incomingCh = event.payload.channel as ChatChannel | undefined;
@@ -2349,12 +2358,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteWorkSession = (sessionId: string) => {
+    if (!sessionId) return;
     const target = workSessions.find(s => s.id === sessionId);
     const updated = workSessions.filter(s => s.id !== sessionId);
     setWorkSessions(updated);
-    dataStorage.saveDatabase({ ...dataStorage.getDatabase(), workSessions: updated });
-    logAudit("Hapus Sesi Kerja", `Entri rekap sesi #${sessionId} (${target?.userName || 'Petugas'}) berhasil dihapus dari sistem.`);
-    showToast(`Rekap sesi #${sessionId} berhasil dihapus.`, "success");
+    dataStorage.deleteWorkSession(sessionId);
+    realtimeService.broadcastDeleteWorkSession(sessionId);
+
+    if (sessionId === activeSessionId) {
+      setActiveSessionId(null);
+      setLoginTime(null);
+      try {
+        sessionStorage.removeItem('sim_haji_active_session_id');
+      } catch (_) {}
+    }
+
+    logAudit("Hapus Sesi Kerja", `Entri rekap sesi #${sessionId} (${target?.userName || 'Petugas'}) berhasil dihapus permanen dari sistem.`);
+    showToast(`Rekap sesi #${sessionId} berhasil dihapus permanen.`, "success");
+  };
+
+  const deleteWorkSessionsBatch = (sessionIds: string[], contextDesc?: string) => {
+    if (!Array.isArray(sessionIds) || sessionIds.length === 0) return;
+    const idSet = new Set(sessionIds);
+    const updated = workSessions.filter(s => !idSet.has(s.id));
+    setWorkSessions(updated);
+    dataStorage.deleteWorkSessions(sessionIds);
+    realtimeService.broadcastDeleteWorkSessions(sessionIds);
+
+    if (activeSessionId && idSet.has(activeSessionId)) {
+      setActiveSessionId(null);
+      setLoginTime(null);
+      try {
+        sessionStorage.removeItem('sim_haji_active_session_id');
+      } catch (_) {}
+    }
+
+    logAudit("Hapus Rekap Sesi", `${sessionIds.length} entri sesi kerja ${contextDesc ? `(${contextDesc})` : ''} berhasil dihapus permanen dari sistem.`);
+    showToast(`${sessionIds.length} sesi kerja berhasil dihapus permanen.`, "success");
   };
 
   const addUser = (user: User) => {
@@ -5118,7 +5158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       markChannelAsRead, dismissChatNotification, simulateIncomingChatMessage,
       clearChatHistory, addChatChannel, deleteChatChannel,
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
-      login, logout, clearWorkSessions, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
+      login, logout, clearWorkSessions, deleteWorkSession, deleteWorkSessionsBatch, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase
