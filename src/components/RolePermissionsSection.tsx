@@ -621,6 +621,8 @@ export function RolePermissionsSection({
   const [configPhone, setConfigPhone] = useState(appSettings?.phone || '0816243154');
   const [configEmail, setConfigEmail] = useState(appSettings?.email || 'info@asramahajijakarta.id');
   const [configLogo, setConfigLogo] = useState(appSettings?.appLogo || '');
+  const [configAutoCheckout, setConfigAutoCheckout] = useState(Boolean(appSettings?.autoCheckoutOnEndDateEnabled));
+  const [configAutoCheckoutTime, setConfigAutoCheckoutTime] = useState(appSettings?.autoCheckoutTime || '12:00');
 
   // Sinkronkan state modal saat modal dibuka atau appSettings diperbarui
   useEffect(() => {
@@ -633,6 +635,8 @@ export function RolePermissionsSection({
       setConfigPhone(appSettings.phone || '0816243154');
       setConfigEmail(appSettings.email || 'info@asramahajijakarta.id');
       setConfigLogo(appSettings.appLogo || '');
+      setConfigAutoCheckout(Boolean(appSettings.autoCheckoutOnEndDateEnabled));
+      setConfigAutoCheckoutTime(appSettings.autoCheckoutTime || '12:00');
     }
   }, [showConfigModal, appSettings]);
 
@@ -747,7 +751,7 @@ export function RolePermissionsSection({
     showToast(`Hak akses akun ${selectedUser.fullName} (@${selectedUser.username}) berhasil disimpan secara detail!`, 'success');
   };
 
-  // Simpan Konfigurasi Web Branding
+  // Simpan Konfigurasi Web Branding & Auto Cekout
   const handleSaveAppConfig = (e: React.FormEvent) => {
     e.preventDefault();
     if (!onUpdateAppSettings) return;
@@ -760,11 +764,13 @@ export function RolePermissionsSection({
       address: configAddress.trim(),
       phone: configPhone.trim(),
       email: configEmail.trim(),
-      appLogo: configLogo
+      appLogo: configLogo,
+      autoCheckoutOnEndDateEnabled: configAutoCheckout,
+      autoCheckoutTime: configAutoCheckoutTime
     });
 
     setShowConfigModal(false);
-    showToast('Konfigurasi judul, sub judul, kementerian & logo berhasil diperbarui ke seluruh sistem!', 'success');
+    showToast('Konfigurasi sistem & fitur Auto Cekout berhasil diperbarui!', 'success');
   };
 
   // Hitung jumlah izin aktif
@@ -1679,6 +1685,45 @@ export function RolePermissionsSection({
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* 8. Pengaturan Auto Cekout Sesuai Tanggal Terdaftar (Admin & Super Admin Only) */}
+              <div className="space-y-2 border-t border-slate-100 dark:border-slate-700 pt-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="font-bold text-slate-900 dark:text-white block text-xs">
+                      Auto Cekout Sesuai Tanggal Terdaftar
+                    </label>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Otomatis checkout kamar &amp; ubah status ke KOTOR saat melewati tanggal akhir inap (Khusus Admin &amp; Super Admin)
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={configAutoCheckout}
+                      onChange={e => setConfigAutoCheckout(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                {configAutoCheckout && (
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-1.5 animate-in fade-in">
+                    <label className="font-bold text-emerald-900 dark:text-emerald-200 block text-[11px]">
+                      Waktu Eksekusi Auto Checkout (WIB):
+                    </label>
+                    <input
+                      type="time"
+                      value={configAutoCheckoutTime}
+                      onChange={e => setConfigAutoCheckoutTime(e.target.value)}
+                      className="p-2 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-lg text-xs font-mono font-bold w-32"
+                    />
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-300">
+                      Sistem akan memeriksa transaksi secara berkala dan memproses checkout otomatis setelah waktu ini tercapai pada tanggal berakhir inap.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Footer Modal */}

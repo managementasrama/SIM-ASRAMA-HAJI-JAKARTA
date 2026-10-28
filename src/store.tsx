@@ -561,9 +561,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const updated = dataStorage.updateAppSettings(updates);
     setAppSettings(updated);
-    logAudit('Pengaturan Web Admin', `Admin mengubah konfigurasi judul (${updated.organizationName}), sub judul (${updated.subTitle}), logo & branding sistem.`);
-    showToast('Konfigurasi Web Sistem berhasil diperbarui!', 'success');
+    logAudit('Pengaturan Web Admin', `Admin mengubah konfigurasi sistem & pengaturan auto-cekout.`);
+    showToast('Konfigurasi Web Sistem & Pengaturan berhasil diperbarui!', 'success');
   };
+
+  // Auto-checkout background routine based on registered end date (Admin & Super Admin setting)
+  useEffect(() => {
+    if (!appSettings?.autoCheckoutOnEndDateEnabled) return;
+
+    const runAutoCheckoutCheck = () => {
+      const today = getRealTodayDate();
+      const nowTimeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const targetTime = appSettings.autoCheckoutTime || '12:00';
+
+      const activeTxs = transactions.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
+      if (activeTxs.length === 0) return;
+
+      let hasAutoCheckoutOccurred = false;
+      const updatedTxs = [...transactions];
+      const updatedRooms = [...rooms];
+
+      activeTxs.forEach(tx => {
+        const durDays = getTxDays(tx);
+        const endDate = addDaysToDateStr(tx.startDate, Math.max(0, durDays - 1));
+
+        let shouldCheckout = false;
+        if (today > endDate) {
+          shouldCheckout = true;
+        } else if (today === endDate) {
+          if (nowTimeStr >= targetTime) {
+            shouldCheckout = true;
+          }
+        }
+
+        if (shouldCheckout) {
+          hasAutoCheckoutOccurred = true;
+          const txIdx = updatedTxs.findIndex(t => t.id === tx.id);
+          if (txIdx >= 0) {
+            updatedTxs[txIdx] = { ...updatedTxs[txIdx], status: 'SELESAI', checkOutTime: getRealLocalDateTimeStr() };
+          }
+
+          const roomIdx = updatedRooms.findIndex(r => r.id === tx.roomId || (r.roomNumber === tx.roomNumber && r.building === tx.building));
+          if (roomIdx >= 0) {
+            updatedRooms[roomIdx] = {
+              ...updatedRooms[roomIdx],
+              status: 'READY',
+              activeTxId: null,
+              qcStatus: 'PERLU_INSPEKSI'
+            };
+          }
+
+          logAudit(
+            'Auto Check-Out Otomatis',
+            `[Sistem Auto Cekout] Tamu ${tx.guestName} kamar ${tx.roomNumber} (${tx.building}) otomatis di-check-out sesuai tanggal berakhir (${endDate}). Status kamar: Perlu Inspeksi QC.`
+          );
+        }
+      });
+
+      if (hasAutoCheckoutOccurred) {
+        setTransactions(updatedTxs);
+        dataStorage.saveTransactions(updatedTxs);
+        setRooms(updatedRooms);
+        dataStorage.saveRooms(updatedRooms);
+        showToast('Sistem menjalankan Auto Check-Out otomatis untuk kamar yang telah melewati tanggal berakhir.', 'info');
+      }
+    };
+
+    runAutoCheckoutCheck();
+    const interval = setInterval(runAutoCheckoutCheck, 45000);
+    return () => clearInterval(interval);
+  }, [appSettings?.autoCheckoutOnEndDateEnabled, appSettings?.autoCheckoutTime, transactions, rooms]);
 
   // Breakfast Orders & Menu Catalog Database States
   const [breakfastMenuItems, setBreakfastMenuItems] = useState<BreakfastMenuItem[]>(() => dataStorage.getBreakfastMenuItems());
@@ -4638,6 +4705,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const emergencyRecoverData = (): boolean => {
+    if (!currentUser || (!isSuperAdmin(currentUser.role) && currentUser.role !== 'Admin')) {
+      showToast('Akses Ditolak: Fitur Pemulihan Data Darurat hanya dapat dijalankan oleh Admin dan Super Admin.', 'error');
+      return false;
+    }
     try {
       const res = dataStorage.tryRecoverLostData();
       if (res.recovered && res.recoveredDb) {

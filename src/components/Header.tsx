@@ -389,34 +389,36 @@ export function Header() {
                       </div>
                     )}
 
-                    {/* 3d. Pemulihan Darurat Data (Emergency Data Recovery) */}
-                    <div className="p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-600/70 rounded-xl space-y-2 shadow-2xs">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-7 h-7 rounded-lg bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 flex items-center justify-center text-xs shrink-0">
-                            <i className="fa-solid fa-life-ring"></i>
+                    {/* 3d. Pemulihan Darurat Data (Emergency Data Recovery) - Strict Admin & Super Admin Only */}
+                    {currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin') && (
+                      <div className="p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-600/70 rounded-xl space-y-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-7 h-7 rounded-lg bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 flex items-center justify-center text-xs shrink-0">
+                              <i className="fa-solid fa-life-ring"></i>
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Pemulihan Data Darurat</span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Pulihkan data yang hilang dari cadangan</span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Pemulihan Data Darurat</span>
-                            <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Pulihkan data yang hilang dari cadangan</span>
-                          </div>
+                          <span className="text-[9px] bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 px-1.5 py-0.5 rounded font-bold border border-rose-300 dark:border-rose-700">
+                            Recovery
+                          </span>
                         </div>
-                        <span className="text-[9px] bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 px-1.5 py-0.5 rounded font-bold border border-rose-300 dark:border-rose-700">
-                          Recovery
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSwitchOpen(false);
+                            emergencyRecoverData();
+                          }}
+                          className="w-full py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
+                        >
+                          <i className="fa-solid fa-clock-rotate-left"></i>
+                          <span>Pulihkan Data Hilang Sekarang</span>
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsSwitchOpen(false);
-                          emergencyRecoverData();
-                        }}
-                        className="w-full py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
-                      >
-                        <i className="fa-solid fa-clock-rotate-left"></i>
-                        <span>Pulihkan Data Hilang Sekarang</span>
-                      </button>
-                    </div>
+                    )}
                     {/* Mobile & Tablet Bottom Close Action Bar */}
                     <div className="lg:hidden p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0">
                       <button

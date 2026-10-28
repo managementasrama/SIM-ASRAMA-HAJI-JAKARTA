@@ -73,6 +73,8 @@ export interface AppSettings {
   appLogo?: string;
   appFavicon?: string;
   tagTitle?: string;
+  autoCheckoutOnEndDateEnabled?: boolean;
+  autoCheckoutTime?: string;
   updatedAt?: string;
 }
 
