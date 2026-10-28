@@ -562,12 +562,58 @@ export class DataStorageService {
   }
 
   /**
-   * Pindai dan pulihkan data HANYA jika dipanggil secara eksplisit oleh pengguna.
-   * Tidak pernah memulihkan data secara otomatis di latar belakang agar data yang sengaja
-   * dihapus oleh pengguna tidak bangkit kembali.
+   * Pemindaian dan pemulihan darurat seluruh data dari cadangan lokal dan server cache
    */
   public tryRecoverLostData(): { recovered: boolean; message: string; recoveredDb?: CompleteStorageDatabase } {
-    return { recovered: false, message: 'Pemulihan otomatis dinonaktifkan agar data yang dihapus tetap terhapus secara permanen.' };
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return { recovered: false, message: 'LocalStorage tidak tersedia di browser ini.' };
+    }
+
+    let bestDb: CompleteStorageDatabase | null = null;
+    let maxScore = -1;
+
+    const candidateKeys = [
+      LOCAL_STORAGE_BACKUP_KEY,
+      LOCAL_STORAGE_KEY,
+      'UPT_ASRAMA_HAJI_DATABASE_V4_CLEAN',
+      'UPT_ASRAMA_HAJI_AUTO_BACKUP_LATEST',
+      'UPT_ASRAMA_HAJI_DATABASE_V3_CLEAN',
+      'UPT_ASRAMA_HAJI_LOCAL_DATABASE_V1'
+    ];
+
+    for (const key of candidateKeys) {
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rooms)) {
+            const txCount = Array.isArray(parsed.transactions) ? parsed.transactions.length : 0;
+            const roomCount = Array.isArray(parsed.rooms) ? parsed.rooms.length : 0;
+            const score = txCount * 10 + roomCount;
+            if (score > maxScore) {
+              maxScore = score;
+              bestDb = parsed;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (bestDb && maxScore > 0) {
+      const current = this.cache || generateInitialDatabase(false);
+      const merged = this.mergeDatabases(current, bestDb, true);
+      this.cache = merged;
+      this.saveToStorage(merged);
+      const txCount = Array.isArray(merged.transactions) ? merged.transactions.length : 0;
+      const roomCount = Array.isArray(merged.rooms) ? merged.rooms.length : 0;
+      return {
+        recovered: true,
+        message: `Berhasil memulihkan ${txCount} data transaksi, ${roomCount} kamar, dan seluruh master data dari cadangan sistem!`,
+        recoveredDb: merged
+      };
+    }
+
+    return { recovered: false, message: 'Tidak ditemukan cadangan data yang tersimpan di memori lokal.' };
   }
 
   public async hydrateFromServer(_ns?: any): Promise<CompleteStorageDatabase | null> {

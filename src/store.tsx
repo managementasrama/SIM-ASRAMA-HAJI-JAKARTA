@@ -334,6 +334,7 @@ interface AppContextType {
   dataStorage: DataStorageService;
   exportDatabaseBackup: () => void;
   importDatabaseBackup: (jsonString: string) => boolean;
+  emergencyRecoverData: () => boolean;
   resetDatabase: () => void;
   clearChatHistory: (channelId?: string) => void;
   addChatChannel: (channel: ChatChannel) => void;
@@ -4636,6 +4637,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const emergencyRecoverData = (): boolean => {
+    try {
+      const res = dataStorage.tryRecoverLostData();
+      if (res.recovered && res.recoveredDb) {
+        const db = res.recoveredDb;
+        setUsers(db.users || []);
+        setBuildings(db.buildings || []);
+        setMeetingRooms(db.meetingRooms || []);
+        const { nextRooms } = validateAndSyncRoomStates(db.rooms || [], db.transactions || [], db.maintenances || []);
+        setRooms(nextRooms);
+        setTransactions(db.transactions || []);
+        setMaintenances(db.maintenances || []);
+        setAuditLogs(db.auditLogs || []);
+        setQcInspections(db.qcInspections || []);
+        setBreakfastMenuItems(db.breakfastMenuItems || []);
+        setBreakfastOrders(db.breakfastOrders || []);
+        if (db.roomCapacityRates) setRoomCapacityRates(db.roomCapacityRates);
+        if (db.appSettings) setAppSettings(db.appSettings);
+        showToast(res.message, 'success');
+        logAudit('Pemulihan Darurat Data', res.message);
+        return true;
+      } else {
+        showToast(res.message, 'warning');
+        return false;
+      }
+    } catch (err: any) {
+      showToast(`Gagal memulihkan data: ${err?.message || 'Error'}`, 'error');
+      return false;
+    }
+  };
+
   const resetDatabase = async () => {
     // Reset pangkalan data lokal dan pastikan HANYA akun Super Admin dan Admin yang tersisa
     // Default kosongkan data aktivitas, shift, dan QC
@@ -5312,7 +5344,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login, logout, clearWorkSessions, deleteWorkSession, deleteWorkSessionsBatch, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
-      dataStorage, exportDatabaseBackup, importDatabaseBackup, resetDatabase
+      dataStorage, exportDatabaseBackup, importDatabaseBackup, emergencyRecoverData, resetDatabase
     }}>
       {children}
     </AppContext.Provider>
