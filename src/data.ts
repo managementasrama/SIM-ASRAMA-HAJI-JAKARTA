@@ -1,5 +1,6 @@
 import { User, Room, Transaction, Maintenance, AuditLog, WorkSession, QcInspection, BreakfastMenuItem, BreakfastOrder, Building, MeetingRoom, RoomCapacityRate } from './types';
 import { getRealTodayDate } from './lib/utils';
+import { officialHistoricalTransactions } from './initialTransactionsData';
 
 export const OFFICIAL_TARIFFS: Record<string, any> = {
     "Gedung A (Arafah)": { category: "KAMAR", capacity: "Superior & Standar (Double / 2-4 Single Bed)", desc: "Superior & Standar Arafah" },
@@ -698,8 +699,8 @@ export function getInitialRooms(): Room[] {
     return getCleanRooms();
 }
 
-// Data Dummy Dikosongkan: Bersih untuk operasional riil
-export const initialTransactions: Transaction[] = [];
+// Data Transaksi Resmi Hunian Kamar & Reservasi
+export const initialTransactions: Transaction[] = [...officialHistoricalTransactions];
 export const initialMaintenances: Maintenance[] = [];
 export const initialQcInspections: QcInspection[] = [];
 export const initialWorkSessions: WorkSession[] = [];

@@ -132,7 +132,7 @@ export function generateInitialDatabase(onlyAdmin: boolean = false): CompleteSto
     buildings: [...initialBuildings],
     meetingRooms: [...initialMeetingRooms],
     rooms: getInitialRooms(),
-    transactions: [],
+    transactions: [...initialTransactions],
     maintenances: [],
     qcInspections: [],
     workSessions: [],
@@ -187,6 +187,9 @@ export class DataStorageService {
         if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rooms) && parsed.rooms.length > 0) {
           if (Array.isArray(parsed.workSessions)) {
             parsed.workSessions = parsed.workSessions.filter((s: any) => s && s.id && !this.deletedWorkSessionIds.has(s.id));
+          }
+          if (!Array.isArray(parsed.transactions) || parsed.transactions.length === 0) {
+            parsed.transactions = [...initialTransactions];
           }
           return parsed;
         }
@@ -599,6 +602,14 @@ export class DataStorageService {
           }
         }
       } catch (_) {}
+    }
+
+    if (!bestDb || !Array.isArray(bestDb.transactions) || bestDb.transactions.length === 0) {
+      const fallback = generateInitialDatabase(false);
+      if (Array.isArray(fallback.transactions) && fallback.transactions.length > 0) {
+        bestDb = fallback;
+        maxScore = fallback.transactions.length * 10 + fallback.rooms.length;
+      }
     }
 
     if (bestDb && maxScore > 0) {
