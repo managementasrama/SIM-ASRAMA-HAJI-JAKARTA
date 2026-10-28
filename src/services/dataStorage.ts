@@ -394,7 +394,7 @@ export class DataStorageService {
     function mergeEntityList<T extends { id?: string; updatedAt?: string; [key: string]: any }>(
       localList: T[],
       cloudList: T[],
-      isPreferCloud: boolean = false
+      _isPreferCloud: boolean = false
     ): T[] {
       const map = new Map<string, T>();
       // 1. Masukkan seluruh item dari cloud terlebih dahulu
@@ -404,21 +404,17 @@ export class DataStorageService {
           map.set(idKey, item);
         }
       }
-      // 2. Gabungkan dari lokal
-      // Jika isPreferCloud = true, cloud adalah sumber terpercaya. Item lokal yang sudah dihapus di cloud
-      // TIDAK BOLEH dimasukkan kembali, dan hanya menimpa jika updatedAt lokal benar-benar lebih baru.
+      // 2. Gabungkan dari lokal — selalu pertahankan data lokal yang belum ada di cloud atau memiliki timestamp lebih baru
       for (const item of (localList || [])) {
         if (!item || (!item.id && !(item as any).code)) continue;
         const idKey = String(item.id || (item as any).code).trim();
         const existing = map.get(idKey);
         if (!existing) {
-          if (!isPreferCloud) {
-            map.set(idKey, item);
-          }
+          map.set(idKey, item);
         } else {
           const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
           const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-          if (localTime > cloudTime && localTime > 0) {
+          if (localTime >= cloudTime) {
             map.set(idKey, item);
           }
         }
