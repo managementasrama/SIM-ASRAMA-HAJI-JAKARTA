@@ -571,7 +571,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const runAutoCheckoutCheck = () => {
       const today = getRealTodayDate();
-      const nowTimeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const nowDate = new Date();
+      const nowTimeStr = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
       const targetTime = appSettings.autoCheckoutTime || '12:00';
 
       const activeTxs = transactions.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
