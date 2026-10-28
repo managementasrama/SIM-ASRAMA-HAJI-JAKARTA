@@ -1703,6 +1703,9 @@ export class DataStorageService {
     });
 
     this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
+    for (const txId of txIds) {
+      deleteRecordFromSpreadsheet('transactions', txId).catch(() => {});
+    }
     return { success: true, count: txIds.length };
   }
 
