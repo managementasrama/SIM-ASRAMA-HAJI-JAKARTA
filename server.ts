@@ -1322,10 +1322,11 @@ async function startServer() {
     // JIKA CACHE SERVER SUDAH ADA DAN TIDAK DIMINTA REFRESH:
     // Kembalikan langsung dari server cache dalam < 1ms agar respons instan dan tidak membebani limit Google Apps Script
     if (serverDatabaseCache && Array.isArray(serverDatabaseCache.buildings) && serverDatabaseCache.buildings.length > 0 && !forceRefresh) {
+      const fullFormatted = formatDatabaseForSpreadsheet(serverDatabaseCache);
       return res.json({
         status: "cached",
         message: "Data dimuat instan dari cache database server.",
-        data: serverDatabaseCache,
+        data: fullFormatted,
         source: "server_cache",
         updatedAt: new Date().toISOString(),
       });
@@ -1336,7 +1337,7 @@ async function startServer() {
         return res.json({
           status: "cached",
           message: "Google Spreadsheet belum terhubung. Menggunakan data tersimpan di server.",
-          data: serverDatabaseCache,
+          data: formatDatabaseForSpreadsheet(serverDatabaseCache),
         });
       }
       return res.status(200).json({
@@ -1762,6 +1763,182 @@ async function startServer() {
         error: err?.message || "Kesalahan koneksi saat mengeksekusi batch operations",
       });
     }
+  });
+
+  // Helper pemetaan kunci tabel untuk camelCase dan snake_case
+  function getTableKeys(rawSheet: string): { snakeKey: string; camelKey: string } {
+    const norm = String(rawSheet || "").trim();
+    const snake = norm.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`).replace(/__+/g, "_");
+    const camel = norm.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    return { snakeKey: snake, camelKey: camel };
+  }
+
+  function upsertRecordInCache(rawSheet: string, record: any): boolean {
+    if (!serverDatabaseCache || typeof serverDatabaseCache !== "object") {
+      serverDatabaseCache = {};
+    }
+    const { snakeKey, camelKey } = getTableKeys(rawSheet);
+    const id = record?.id || record?.code || record?.no_kamar || record?.roomNumber;
+    if (!id && !record) return false;
+
+    let list: any[] = [];
+    if (Array.isArray(serverDatabaseCache[snakeKey])) {
+      list = [...serverDatabaseCache[snakeKey]];
+    } else if (Array.isArray(serverDatabaseCache[camelKey])) {
+      list = [...serverDatabaseCache[camelKey]];
+    }
+
+    const idStr = String(id || "").trim();
+    const existingIndex = list.findIndex((item) => {
+      if (!item) return false;
+      const itemId = String(item.id || item.code || item.no_kamar || item.roomNumber || "").trim();
+      return itemId && idStr && itemId === idStr;
+    });
+
+    const normalizedRecord = normalizeItemsList([record])[0] || record;
+    if (existingIndex >= 0) {
+      list[existingIndex] = { ...list[existingIndex], ...normalizedRecord };
+    } else {
+      list = [normalizedRecord, ...list];
+    }
+
+    serverDatabaseCache[snakeKey] = list;
+    serverDatabaseCache[camelKey] = list;
+
+    try {
+      fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
+    } catch (_) {}
+
+    return true;
+  }
+
+  function deleteRecordInCache(rawSheet: string, recordId: string): boolean {
+    if (!serverDatabaseCache || typeof serverDatabaseCache !== "object") return false;
+    const { snakeKey, camelKey } = getTableKeys(rawSheet);
+    const idStr = String(recordId || "").trim();
+    if (!idStr) return false;
+
+    let list: any[] = [];
+    if (Array.isArray(serverDatabaseCache[snakeKey])) {
+      list = [...serverDatabaseCache[snakeKey]];
+    } else if (Array.isArray(serverDatabaseCache[camelKey])) {
+      list = [...serverDatabaseCache[camelKey]];
+    } else {
+      return false;
+    }
+
+    const initialLen = list.length;
+    list = list.filter((item) => {
+      if (!item) return false;
+      const itemId = String(item.id || item.code || item.no_kamar || item.roomNumber || "").trim();
+      return itemId !== idStr;
+    });
+
+    serverDatabaseCache[snakeKey] = list;
+    serverDatabaseCache[camelKey] = list;
+
+    try {
+      fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
+    } catch (_) {}
+
+    return list.length !== initialLen;
+  }
+
+  // 6. Endpoint UPSERT SATU REKAMAN LANGSUNG (POST /api/sheets/upsert)
+  app.post("/api/sheets/upsert", async (req, res) => {
+    const rawSheet = req.body?.sheet || req.body?.table || "";
+    const record = req.body?.record || req.body?.data?.[0] || req.body?.data;
+    const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+
+    if (!rawSheet || !record) {
+      return res.status(400).json({ ok: false, error: "Nama lembar (sheet) dan data record diperlukan" });
+    }
+
+    // 1. Simpan ke database server cache secara instan (0ms)
+    upsertRecordInCache(rawSheet, record);
+
+    // 2. Siarkan pembaruan database seketika ke seluruh perangkat & akun yang sedang login via SSE
+    broadcastRealtimeEvent("database:sync", {
+      action: "upsert",
+      sheet: rawSheet,
+      record,
+      timestamp: Date.now(),
+      db: serverDatabaseCache,
+    }, req.body?.clientId);
+
+    // 3. Teruskan secara asinkron ke Google Apps Script di latar belakang
+    if (targetUrl) {
+      const payload = {
+        action: "UPSERT_RECORD",
+        sheet: rawSheet,
+        table: rawSheet,
+        record,
+        data: [record],
+        timestamp: new Date().toISOString(),
+      };
+      fetchGoogleAppsScript(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      }).catch((err) => {
+        console.warn("[Google Sheets Upsert] Latar belakang peringatan:", err?.message || err);
+      });
+    }
+
+    res.json({
+      ok: true,
+      status: "success",
+      message: "Data berhasil disimpan instan di server dan disinkronkan ke seluruh perangkat",
+      record,
+    });
+  });
+
+  // 7. Endpoint DELETE SATU REKAMAN LANGSUNG (POST /api/sheets/delete)
+  app.post("/api/sheets/delete", async (req, res) => {
+    const rawSheet = req.body?.sheet || req.body?.table || "";
+    const recordId = req.body?.id || req.body?.record?.id || "";
+    const targetUrl = (req.body?.webAppUrl || activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || "").trim();
+
+    if (!rawSheet || !recordId) {
+      return res.status(400).json({ ok: false, error: "Nama lembar (sheet) dan ID record diperlukan" });
+    }
+
+    // 1. Hapus dari database server cache secara instan (0ms)
+    deleteRecordInCache(rawSheet, recordId);
+
+    // 2. Siarkan penghapusan seketika ke seluruh perangkat & akun yang sedang login via SSE
+    broadcastRealtimeEvent("database:sync", {
+      action: "delete",
+      sheet: rawSheet,
+      id: recordId,
+      timestamp: Date.now(),
+      db: serverDatabaseCache,
+    }, req.body?.clientId);
+
+    // 3. Teruskan secara asinkron ke Google Apps Script di latar belakang
+    if (targetUrl) {
+      const payload = {
+        action: "DELETE_RECORD",
+        sheet: rawSheet,
+        table: rawSheet,
+        id: recordId,
+        timestamp: new Date().toISOString(),
+      };
+      fetchGoogleAppsScript(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      }).catch((err) => {
+        console.warn("[Google Sheets Delete] Latar belakang peringatan:", err?.message || err);
+      });
+    }
+
+    res.json({
+      ok: true,
+      status: "success",
+      message: "Data berhasil dihapus dari database server dan disinkronkan ke seluruh perangkat",
+      id: recordId,
+    });
   });
 
   // Server-Sent Events (SSE) Stream for instant real-time updates

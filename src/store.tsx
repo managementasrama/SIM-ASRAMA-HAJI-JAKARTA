@@ -1162,6 +1162,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
           setRoomCapacityRates(cloudDb.roomCapacityRates);
         }
+        if (cloudDb.cleaningLogs && Array.isArray(cloudDb.cleaningLogs)) {
+          setCleaningLogs(cloudDb.cleaningLogs);
+        }
         if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
           setPasswordResetRequests(cloudDb.passwordResetRequests);
         }
@@ -1207,6 +1210,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setQcInspections(cloudDb.qcInspections || []);
         setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
         setBreakfastOrders(cloudDb.breakfastOrders || []);
+        if (cloudDb.cleaningLogs && Array.isArray(cloudDb.cleaningLogs)) {
+          setCleaningLogs(cloudDb.cleaningLogs);
+        }
         if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
           setRoomCapacityRates(cloudDb.roomCapacityRates);
         }
@@ -1725,32 +1731,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
           dataStorage.hydrateFromPayload(payloadDb);
 
           // Update seluruh state React seketika agar User B langsung melihat perubahan User A tanpa jeda
-          if (Array.isArray(payloadDb.buildings) && payloadDb.buildings.length > 0) setBuildings(payloadDb.buildings);
-          if (Array.isArray(payloadDb.rooms) && payloadDb.rooms.length > 0) setRooms(payloadDb.rooms);
-          if (Array.isArray(payloadDb.meetingRooms) && payloadDb.meetingRooms.length > 0) setMeetingRooms(payloadDb.meetingRooms);
+          if (Array.isArray(payloadDb.buildings)) setBuildings(payloadDb.buildings);
+          if (Array.isArray(payloadDb.meetingRooms)) setMeetingRooms(payloadDb.meetingRooms);
           if (Array.isArray(payloadDb.transactions)) setTransactions(payloadDb.transactions);
           if (Array.isArray(payloadDb.maintenances)) setMaintenances(payloadDb.maintenances);
           if (Array.isArray(payloadDb.qcInspections)) setQcInspections(payloadDb.qcInspections);
-          if (Array.isArray(payloadDb.roomCapacityRates) && payloadDb.roomCapacityRates.length > 0) setRoomCapacityRates(payloadDb.roomCapacityRates);
-          if (Array.isArray(payloadDb.breakfastMenuItems) && payloadDb.breakfastMenuItems.length > 0) setBreakfastMenuItems(payloadDb.breakfastMenuItems);
+          if (Array.isArray(payloadDb.roomCapacityRates)) setRoomCapacityRates(payloadDb.roomCapacityRates);
+          if (Array.isArray(payloadDb.breakfastMenuItems)) setBreakfastMenuItems(payloadDb.breakfastMenuItems);
           if (Array.isArray(payloadDb.breakfastOrders)) setBreakfastOrders(payloadDb.breakfastOrders);
-          if (Array.isArray(payloadDb.users) && payloadDb.users.length > 0) setUsers(payloadDb.users);
+          if (Array.isArray(payloadDb.users)) setUsers(payloadDb.users);
+          if (Array.isArray(payloadDb.cleaningLogs)) setCleaningLogs(payloadDb.cleaningLogs);
+          if (Array.isArray(payloadDb.rooms)) {
+            const { nextRooms } = validateAndSyncRoomStates(
+              payloadDb.rooms,
+              Array.isArray(payloadDb.transactions) ? payloadDb.transactions : transactions,
+              Array.isArray(payloadDb.maintenances) ? payloadDb.maintenances : maintenances
+            );
+            setRooms(nextRooms);
+          }
+          if (payloadDb.appSettings) setAppSettings(payloadDb.appSettings);
           return;
         }
 
         // Fallback cepat via server cache jika payload tidak menyertakan db utuh
         dataStorage.hydrateFromSpreadsheet(false).then((freshDb) => {
           if (freshDb) {
-            if (Array.isArray(freshDb.buildings) && freshDb.buildings.length > 0) setBuildings(freshDb.buildings);
-            if (Array.isArray(freshDb.rooms) && freshDb.rooms.length > 0) setRooms(freshDb.rooms);
-            if (Array.isArray(freshDb.meetingRooms) && freshDb.meetingRooms.length > 0) setMeetingRooms(freshDb.meetingRooms);
+            if (Array.isArray(freshDb.buildings)) setBuildings(freshDb.buildings);
+            if (Array.isArray(freshDb.meetingRooms)) setMeetingRooms(freshDb.meetingRooms);
             if (Array.isArray(freshDb.transactions)) setTransactions(freshDb.transactions);
             if (Array.isArray(freshDb.maintenances)) setMaintenances(freshDb.maintenances);
             if (Array.isArray(freshDb.qcInspections)) setQcInspections(freshDb.qcInspections);
-            if (Array.isArray(freshDb.roomCapacityRates) && freshDb.roomCapacityRates.length > 0) setRoomCapacityRates(freshDb.roomCapacityRates);
-            if (Array.isArray(freshDb.breakfastMenuItems) && freshDb.breakfastMenuItems.length > 0) setBreakfastMenuItems(freshDb.breakfastMenuItems);
+            if (Array.isArray(freshDb.roomCapacityRates)) setRoomCapacityRates(freshDb.roomCapacityRates);
+            if (Array.isArray(freshDb.breakfastMenuItems)) setBreakfastMenuItems(freshDb.breakfastMenuItems);
             if (Array.isArray(freshDb.breakfastOrders)) setBreakfastOrders(freshDb.breakfastOrders);
-            if (Array.isArray(freshDb.users) && freshDb.users.length > 0) setUsers(freshDb.users);
+            if (Array.isArray(freshDb.users)) setUsers(freshDb.users);
+            if (Array.isArray(freshDb.cleaningLogs)) setCleaningLogs(freshDb.cleaningLogs);
+            if (Array.isArray(freshDb.rooms)) {
+              const { nextRooms } = validateAndSyncRoomStates(
+                freshDb.rooms,
+                freshDb.transactions || transactions,
+                freshDb.maintenances || maintenances
+              );
+              setRooms(nextRooms);
+            }
+            if (freshDb.appSettings) setAppSettings(freshDb.appSettings);
           }
         }).catch(() => {});
       }
@@ -2239,16 +2263,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Tarik data terbaru dari Google Spreadsheet saat berhasil masuk (login) agar aplikasi selalu sinkron
     dataStorage.hydrateFromSpreadsheet(true).then(cloudDb => {
       if (cloudDb) {
-        setUsers(cloudDb.users || users);
-        setBuildings(cloudDb.buildings || buildings);
-        setMeetingRooms(cloudDb.meetingRooms || meetingRooms);
-        setRooms(cloudDb.rooms || rooms);
-        setTransactions(cloudDb.transactions || transactions);
-        setMaintenances(cloudDb.maintenances || maintenances);
-        setAuditLogs(cloudDb.auditLogs || auditLogs);
-        setQcInspections(cloudDb.qcInspections || qcInspections);
-        setBreakfastMenuItems(cloudDb.breakfastMenuItems || breakfastMenuItems);
-        setBreakfastOrders(cloudDb.breakfastOrders || breakfastOrders);
+        if (Array.isArray(cloudDb.users)) {
+          setUsers(cloudDb.users);
+          const freshUser = cloudDb.users.find(u => u.id === user.id || u.username === user.username);
+          if (freshUser) {
+            setCurrentUser(freshUser);
+            try {
+              sessionStorage.setItem('sim_haji_current_user', JSON.stringify(freshUser));
+              if (rememberDevice) {
+                localStorage.setItem('sim_haji_current_user', JSON.stringify(freshUser));
+              }
+            } catch (_) {}
+          }
+        }
+        if (Array.isArray(cloudDb.buildings)) setBuildings(cloudDb.buildings);
+        if (Array.isArray(cloudDb.meetingRooms)) setMeetingRooms(cloudDb.meetingRooms);
+        if (Array.isArray(cloudDb.transactions)) setTransactions(cloudDb.transactions);
+        if (Array.isArray(cloudDb.maintenances)) setMaintenances(cloudDb.maintenances);
+        if (Array.isArray(cloudDb.auditLogs)) setAuditLogs(cloudDb.auditLogs);
+        if (Array.isArray(cloudDb.qcInspections)) setQcInspections(cloudDb.qcInspections);
+        if (Array.isArray(cloudDb.breakfastMenuItems)) setBreakfastMenuItems(cloudDb.breakfastMenuItems);
+        if (Array.isArray(cloudDb.breakfastOrders)) setBreakfastOrders(cloudDb.breakfastOrders);
+        if (Array.isArray(cloudDb.cleaningLogs)) setCleaningLogs(cloudDb.cleaningLogs);
+        if (Array.isArray(cloudDb.roomCapacityRates)) setRoomCapacityRates(cloudDb.roomCapacityRates);
+        if (Array.isArray(cloudDb.passwordResetRequests)) setPasswordResetRequests(cloudDb.passwordResetRequests);
+        if (Array.isArray(cloudDb.rooms)) {
+          const { nextRooms, hasChanges } = validateAndSyncRoomStates(
+            cloudDb.rooms,
+            cloudDb.transactions || transactions,
+            cloudDb.maintenances || maintenances
+          );
+          setRooms(nextRooms);
+          if (hasChanges) {
+            dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
+          }
+        }
         if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
       }
     }).catch(() => {});

@@ -106,8 +106,9 @@ export function SpreadsheetIntegrationView() {
   } | null>(null);
   
   const [activePreviewTab, setActivePreviewTab] = useState<
-    'BUILDINGS' | 'ROOMS' | 'ROOM_RATES' | 'MEETING_ROOMS' | 'BREAKFAST_MENUS' | 'TRANSACTIONS' | 'USERS' | 'QC' | 'MAINTENANCES' | 'ORDERS' | 'CLEANING_LOGS' | 'WORK_SESSIONS' | 'RAW'
+    'BUILDINGS' | 'ROOMS' | 'ROOM_RATES' | 'MEETING_ROOMS' | 'BREAKFAST_MENUS' | 'TRANSACTIONS' | 'USERS' | 'QC' | 'MAINTENANCES' | 'ORDERS' | 'CLEANING_LOGS' | 'WORK_SESSIONS' | 'SETTINGS' | 'LOGS' | 'RAW'
   >('ROOM_RATES');
+  const [previewSearch, setPreviewSearch] = useState<string>('');
   const [activeGuideTab, setActiveGuideTab] = useState<'AUTO' | 'STEP1' | 'STEP2' | 'STEP3' | 'SCRIPT'>('AUTO');
   const [copiedScript, setCopiedScript] = useState(false);
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
@@ -989,6 +990,10 @@ function doPost(e) {
     if (payload.breakfastOrders !== undefined || payload.breakfast_orders !== undefined) {
       var bOrders = payload.breakfastOrders || payload.breakfast_orders || [];
       writeObjectsToSheet(ss, "breakfast_orders", Array.isArray(bOrders) ? bOrders : [], defaultSchema.breakfast_orders.headers);
+    }
+    if (payload.cleaningLogs !== undefined || payload.cleaning_logs !== undefined) {
+      var cLogs = payload.cleaningLogs || payload.cleaning_logs || [];
+      writeObjectsToSheet(ss, "cleaning_logs", Array.isArray(cLogs) ? cLogs : [], defaultSchema.cleaning_logs.headers);
     }
     if (payload.workSessions !== undefined || payload.work_sessions !== undefined) {
       var wSessions = payload.workSessions || payload.work_sessions || [];
@@ -2454,6 +2459,30 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
             </button>
             <button
               type="button"
+              onClick={() => setActivePreviewTab('SETTINGS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'SETTINGS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-sliders"></i>
+              <span>Profil Instansi ({fetchedData.app_settings?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePreviewTab('LOGS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
+                activePreviewTab === 'LOGS' 
+                  ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <i className="fa-solid fa-clock-rotate-left"></i>
+              <span>Log Sistem ({fetchedData.system_logs?.length || 0})</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActivePreviewTab('RAW')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 ${
                 activePreviewTab === 'RAW' 
@@ -2464,6 +2493,32 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
               <i className="fa-solid fa-code"></i>
               <span>JSON Raw</span>
             </button>
+          </div>
+
+          {/* Search Filter Bar */}
+          <div className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center space-x-2 flex-1 max-w-md">
+              <i className="fa-solid fa-magnifying-glass text-slate-400 text-xs"></i>
+              <input
+                type="text"
+                value={previewSearch}
+                onChange={(e) => setPreviewSearch(e.target.value)}
+                placeholder="Cari data pada tabel yang aktif..."
+                className="w-full bg-transparent border-none text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder-slate-400"
+              />
+              {previewSearch && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewSearch('')}
+                  className="text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              )}
+            </div>
+            <div className="text-[11px] text-slate-500 font-medium">
+              Mode Pratinjau Tabel Real-Time
+            </div>
           </div>
 
           {/* Preview Content */}
@@ -2929,6 +2984,72 @@ function deleteObjectFromSheet(ss, sheetName, recordId) {
                   {(!fetchedData.work_sessions || fetchedData.work_sessions.length === 0) && (
                     <tr>
                       <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris sesi kerja di sheet 'work_sessions'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'SETTINGS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Nama Instansi</th>
+                    <th className="p-2">Sub-Judul</th>
+                    <th className="p-2">Kementerian</th>
+                    <th className="p-2">Alamat</th>
+                    <th className="p-2">Telepon</th>
+                    <th className="p-2">Email</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.app_settings || []).map((s: any, i: number) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{s.organization_name || s.organizationName}</td>
+                      <td className="p-2 text-slate-600 dark:text-slate-300">{s.sub_title || s.subTitle}</td>
+                      <td className="p-2">{s.ministry_name || s.ministryName}</td>
+                      <td className="p-2 text-slate-500 truncate max-w-xs">{s.address}</td>
+                      <td className="p-2 font-mono text-[11px]">{s.phone}</td>
+                      <td className="p-2 font-mono text-[11px] text-emerald-600">{s.email}</td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.app_settings || fetchedData.app_settings.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris pengaturan instansi di sheet 'app_settings'.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+
+            {activePreviewTab === 'LOGS' && (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold">
+                    <th className="p-2">Waktu Log</th>
+                    <th className="p-2">Petugas / Aktor</th>
+                    <th className="p-2">Peran</th>
+                    <th className="p-2">Aksi</th>
+                    <th className="p-2">Rincian Aktivitas</th>
+                    <th className="p-2">Kode Dokumen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(fetchedData.system_logs || []).map((l: any, i: number) => (
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800">
+                      <td className="p-2 font-mono text-[11px] text-slate-500">{l.timestamp}</td>
+                      <td className="p-2 font-bold text-slate-800 dark:text-slate-200">{l.user}</td>
+                      <td className="p-2">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700">{l.role}</span>
+                      </td>
+                      <td className="p-2 font-bold text-emerald-700 dark:text-emerald-400">{l.action}</td>
+                      <td className="p-2 text-slate-600 dark:text-slate-300 max-w-xs truncate">{l.details}</td>
+                      <td className="p-2 font-mono text-[11px] text-slate-400">{l.verification_code || l.verificationCode || '-'}</td>
+                    </tr>
+                  ))}
+                  {(!fetchedData.system_logs || fetchedData.system_logs.length === 0) && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-slate-400">Tidak ada baris riwayat audit di sheet 'system_logs'.</td>
                     </tr>
                   )}
                 </tbody>

@@ -389,12 +389,12 @@ export class DataStorageService {
   /**
    * Penggabungan cerdas antara database lokal dan cloud (prioritas data termutakhir berbasis timestamp dan proteksi edit pengguna)
    */
-  public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, _preferCloud: boolean = false): CompleteStorageDatabase {
+  public mergeDatabases(local: CompleteStorageDatabase, cloud: CompleteStorageDatabase, preferCloud: boolean = false): CompleteStorageDatabase {
     // Helper generik untuk menggabungkan entitas dengan identifikasi ID & timestamp updatedAt
     function mergeEntityList<T extends { id?: string; updatedAt?: string; [key: string]: any }>(
       localList: T[],
       cloudList: T[],
-      _preferCloud: boolean = false
+      isPreferCloud: boolean = false
     ): T[] {
       const map = new Map<string, T>();
       // 1. Masukkan seluruh item dari cloud terlebih dahulu
@@ -404,17 +404,21 @@ export class DataStorageService {
           map.set(idKey, item);
         }
       }
-      // 2. Gabungkan/perbarui atau tambahkan dari lokal jika belum ada atau lebih baru
+      // 2. Gabungkan dari lokal
+      // Jika isPreferCloud = true, cloud adalah sumber terpercaya. Item lokal yang sudah dihapus di cloud
+      // TIDAK BOLEH dimasukkan kembali, dan hanya menimpa jika updatedAt lokal benar-benar lebih baru.
       for (const item of (localList || [])) {
         if (!item || (!item.id && !(item as any).code)) continue;
         const idKey = String(item.id || (item as any).code).trim();
         const existing = map.get(idKey);
         if (!existing) {
-          map.set(idKey, item);
+          if (!isPreferCloud) {
+            map.set(idKey, item);
+          }
         } else {
           const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
           const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-          if (localTime >= cloudTime) {
+          if (localTime > cloudTime && localTime > 0) {
             map.set(idKey, item);
           }
         }
@@ -423,22 +427,22 @@ export class DataStorageService {
     }
 
     // 1. Transactions
-    const mergedTransactions = mergeEntityList(local.transactions || [], cloud.transactions || [], _preferCloud);
+    const mergedTransactions = mergeEntityList(local.transactions || [], cloud.transactions || [], preferCloud);
 
     // 2. Users
-    const mergedUsers = mergeEntityList(local.users || [], cloud.users || [], _preferCloud);
+    const mergedUsers = mergeEntityList(local.users || [], cloud.users || [], preferCloud);
 
     // 3. Maintenances
-    const mergedMaintenances = mergeEntityList(local.maintenances || [], cloud.maintenances || [], _preferCloud);
+    const mergedMaintenances = mergeEntityList(local.maintenances || [], cloud.maintenances || [], preferCloud);
 
     // 4. QC Inspections
-    const mergedQc = mergeEntityList(local.qcInspections || [], cloud.qcInspections || [], _preferCloud);
+    const mergedQc = mergeEntityList(local.qcInspections || [], cloud.qcInspections || [], preferCloud);
 
     // 5. Breakfast Orders
-    const mergedBreakfastOrders = mergeEntityList(local.breakfastOrders || [], cloud.breakfastOrders || [], _preferCloud);
+    const mergedBreakfastOrders = mergeEntityList(local.breakfastOrders || [], cloud.breakfastOrders || [], preferCloud);
 
     // 6. Meeting Rooms
-    const mergedMeetingRooms = mergeEntityList(local.meetingRooms || [], cloud.meetingRooms || [], _preferCloud);
+    const mergedMeetingRooms = mergeEntityList(local.meetingRooms || [], cloud.meetingRooms || [], preferCloud);
 
     // 7. Buildings (Gedung) - Gabungkan ID dan Normalisasi Nama
     const bldByIdMap = new Map<string, Building>();
@@ -453,13 +457,15 @@ export class DataStorageService {
       } else {
         const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         const exTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-        if (bTime > exTime || (bTime === exTime && isLocal)) {
+        if (bTime > exTime || (bTime === exTime && isLocal && !preferCloud)) {
           bldByIdMap.set(idKey, { ...existing, ...b, name: normName });
         }
       }
     };
     (cloud.buildings || []).forEach(b => processBuilding(b, false));
-    (local.buildings || []).forEach(b => processBuilding(b, true));
+    if (!preferCloud) {
+      (local.buildings || []).forEach(b => processBuilding(b, true));
+    }
 
     const bldByNameMap = new Map<string, Building>();
     Array.from(bldByIdMap.values()).forEach(b => {
@@ -468,7 +474,7 @@ export class DataStorageService {
     let mergedBuildings = Array.from(bldByNameMap.values());
 
     // 8. Rooms (Master Unit Kamar Hunian Murni - Tidak mencakup Ruang Pertemuan / Aula yang memiliki sheet tersendiri)
-    const rawMergedRooms = mergeEntityList(local.rooms || [], cloud.rooms || [], _preferCloud);
+    const rawMergedRooms = mergeEntityList(local.rooms || [], cloud.rooms || [], preferCloud);
     const normalizedSourceRooms = rawMergedRooms
       .filter(r => {
         if (!r || !r.id) return false;
@@ -511,20 +517,20 @@ export class DataStorageService {
     });
 
     // 9. Room Capacity Rates (Katalog Tipe Kamar & Tarif Kapasitas)
-    const mergedRates = mergeEntityList(local.roomCapacityRates || [], cloud.roomCapacityRates || [], _preferCloud);
+    const mergedRates = mergeEntityList(local.roomCapacityRates || [], cloud.roomCapacityRates || [], preferCloud);
 
     // 10. Breakfast Menu Items
-    const mergedMenuItems = mergeEntityList(local.breakfastMenuItems || [], cloud.breakfastMenuItems || [], _preferCloud);
+    const mergedMenuItems = mergeEntityList(local.breakfastMenuItems || [], cloud.breakfastMenuItems || [], preferCloud);
 
     // appSettings: Utamakan cloud jika dikonfigurasi, atau local jika diubah admin
     const localSettings = local.appSettings || defaultAppSettings;
     const cloudSettings = cloud.appSettings || defaultAppSettings;
     
-    const mergedAppSettings: AppSettings = _preferCloud && cloud.appSettings
+    const mergedAppSettings: AppSettings = preferCloud && cloud.appSettings
       ? { ...defaultAppSettings, ...localSettings, ...cloudSettings }
       : { ...defaultAppSettings, ...cloudSettings, ...localSettings };
 
-    if (cloudSettings.appLogo && cloudSettings.appLogo.length > 20 && _preferCloud) {
+    if (cloudSettings.appLogo && cloudSettings.appLogo.length > 20 && preferCloud) {
       mergedAppSettings.appLogo = cloudSettings.appLogo;
     } else if (localSettings.appLogo && localSettings.appLogo.length > 20) {
       mergedAppSettings.appLogo = localSettings.appLogo;
@@ -533,7 +539,7 @@ export class DataStorageService {
     }
 
     // 11. Cleaning Logs
-    const mergedCleaningLogs = mergeEntityList(local.cleaningLogs || [], cloud.cleaningLogs || [], _preferCloud);
+    const mergedCleaningLogs = mergeEntityList(local.cleaningLogs || [], cloud.cleaningLogs || [], preferCloud);
 
     return {
       schemaVersion: 4,
@@ -779,7 +785,7 @@ export class DataStorageService {
       updatedUsers = [userWithTime, ...db.users];
     }
 
-    this.saveDatabase({ ...db, users: updatedUsers }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, users: updatedUsers });
     // Kirim upsert langsung agar data akun baru tidak pernah hilang dari spreadsheet
     upsertRecordToSpreadsheet('users', userWithTime).catch(() => {});
     return userWithTime;
@@ -794,7 +800,7 @@ export class DataStorageService {
     const newUsers = [...db.users];
     newUsers[idx] = updatedUser;
 
-    this.saveDatabase({ ...db, users: newUsers }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, users: newUsers });
     upsertRecordToSpreadsheet('users', updatedUser).catch(() => {});
     return updatedUser;
   }
@@ -811,7 +817,7 @@ export class DataStorageService {
     const newUsers = [...db.users];
     newUsers[idx] = updatedUser;
 
-    this.saveDatabase({ ...db, users: newUsers }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, users: newUsers });
     upsertRecordToSpreadsheet('users', updatedUser).catch(() => {});
     return updatedUser;
   }
@@ -823,7 +829,7 @@ export class DataStorageService {
 
     if (newUsers.length === initialLen) return false;
 
-    this.saveDatabase({ ...db, users: newUsers }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, users: newUsers });
     deleteRecordFromSpreadsheet('users', userId).catch(() => {});
     return true;
   }
@@ -1196,7 +1202,7 @@ export class DataStorageService {
       qcInspections, 
       users,
       meetingRooms
-    }, { skipCloudSync: true });
+    });
     updateBuildingInSpreadsheetDirect(buildingWithId, previousBuildingName).catch(() => {});
     upsertRecordToSpreadsheet('buildings', buildingWithId).catch(() => {});
     return buildingWithId;
@@ -1246,7 +1252,7 @@ export class DataStorageService {
       buildings: updatedBuildings, 
       rooms: updatedRooms, 
       meetingRooms: updatedMeetingRooms 
-    }, { skipCloudSync: true });
+    });
     deleteBuildingInSpreadsheetDirect(buildingId, bld.name).catch(() => {});
     deleteRecordFromSpreadsheet('buildings', buildingId).catch(() => {});
     return { 
@@ -1289,7 +1295,7 @@ export class DataStorageService {
     // Pastikan rooms tidak terkontaminasi oleh fasilitas Ruang Pertemuan / Aula yang memiliki sheet tersendiri (meeting_rooms)
     const rooms = (db.rooms || []).filter(r => r.id !== mrWithId.id && r.roomNumber !== mrWithId.name);
 
-    this.saveDatabase({ ...db, meetingRooms: updated, rooms }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, meetingRooms: updated, rooms });
     upsertRecordToSpreadsheet('meeting_rooms', mrWithId).catch(() => {});
     return mrWithId;
   }
@@ -1323,7 +1329,7 @@ export class DataStorageService {
       return b;
     });
 
-    this.saveDatabase({ ...db, meetingRooms: updatedMR, rooms: updatedRooms, buildings }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, meetingRooms: updatedMR, rooms: updatedRooms, buildings });
     deleteRecordFromSpreadsheet('meeting_rooms', meetingRoomId).catch(() => {});
     return { success: true, message: `Ruang Pertemuan '${mr.name}' berhasil dihapus dari database.` };
   }
@@ -1452,7 +1458,7 @@ export class DataStorageService {
       maintenances, 
       qcInspections, 
       meetingRooms
-    }, { skipCloudSync: true });
+    });
     upsertRecordToSpreadsheet('rooms', roomWithId).catch(() => {});
     return roomWithId;
   }
@@ -1494,7 +1500,7 @@ export class DataStorageService {
       !(String(m.name || '').toLowerCase() === String(room.roomNumber || '').toLowerCase() && String(m.building || '').toLowerCase() === String(room.building || '').toLowerCase())
     );
 
-    this.saveDatabase({ ...db, rooms: updatedRooms, buildings, meetingRooms: updatedMeetingRooms }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, rooms: updatedRooms, buildings, meetingRooms: updatedMeetingRooms });
     deleteRecordFromSpreadsheet('rooms', roomId).catch(() => {});
     return { success: true, message: `Kamar ${room.roomNumber} (${room.building}) berhasil dihapus.` };
   }
@@ -1546,7 +1552,7 @@ export class DataStorageService {
 
     const updatedRates = [...remainingRates, rateWithId];
 
-    this.saveDatabase({ ...db, roomCapacityRates: updatedRates }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
     upsertRecordToSpreadsheet('room_capacity_rates', rateWithId).catch(() => {});
     return rateWithId;
   }
@@ -1560,7 +1566,7 @@ export class DataStorageService {
     }
 
     const updatedRates = rates.filter(r => r.id !== rateId);
-    this.saveDatabase({ ...db, roomCapacityRates: updatedRates }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, roomCapacityRates: updatedRates });
     deleteRecordFromSpreadsheet('room_capacity_rates', rateId).catch(() => {});
     return { success: true, message: `Konfigurasi '${item.roomType} - ${item.bedType}' berhasil dihapus dari database.` };
   }
@@ -1733,7 +1739,7 @@ export class DataStorageService {
       updated = [mWithTime, ...db.maintenances];
     }
 
-    this.saveDatabase({ ...db, maintenances: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, maintenances: updated });
     upsertRecordToSpreadsheet('maintenances', mWithTime).catch(() => {});
     return mWithTime;
   }
@@ -1741,7 +1747,7 @@ export class DataStorageService {
   public deleteMaintenance(maintId: string): boolean {
     const db = this.getDatabase();
     const updated = (db.maintenances || []).filter(m => m.id !== maintId);
-    this.saveDatabase({ ...db, maintenances: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, maintenances: updated });
     deleteRecordFromSpreadsheet('maintenances', maintId).catch(() => {});
     return true;
   }
@@ -1927,7 +1933,7 @@ export class DataStorageService {
       updated = [qcWithTime, ...db.qcInspections];
     }
 
-    this.saveDatabase({ ...db, qcInspections: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, qcInspections: updated });
     upsertRecordToSpreadsheet('qc_inspections', qcWithTime).catch(() => {});
     return qcWithTime;
   }
@@ -1935,7 +1941,7 @@ export class DataStorageService {
   public deleteQcInspection(qcId: string): boolean {
     const db = this.getDatabase();
     const updated = (db.qcInspections || []).filter(q => q.id !== qcId);
-    this.saveDatabase({ ...db, qcInspections: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, qcInspections: updated });
     deleteRecordFromSpreadsheet('qc_inspections', qcId).catch(() => {});
     return true;
   }
@@ -2202,7 +2208,7 @@ export class DataStorageService {
     } else {
       updated = [...items, itemWithTime];
     }
-    this.saveDatabase({ ...db, breakfastMenuItems: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, breakfastMenuItems: updated });
     upsertRecordToSpreadsheet('breakfast_menu_items', itemWithTime).catch(() => {});
     return itemWithTime;
   }
@@ -2211,7 +2217,7 @@ export class DataStorageService {
     const db = this.getDatabase();
     const items = db.breakfastMenuItems || [];
     const filtered = items.filter(m => m.id !== itemId);
-    this.saveDatabase({ ...db, breakfastMenuItems: filtered }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, breakfastMenuItems: filtered });
     deleteRecordFromSpreadsheet('breakfast_menu_items', itemId).catch(() => {});
     return true;
   }
@@ -2236,7 +2242,7 @@ export class DataStorageService {
     } else {
       updated = [orderWithTime, ...orders];
     }
-    this.saveDatabase({ ...db, breakfastOrders: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, breakfastOrders: updated });
     upsertRecordToSpreadsheet('breakfast_orders', orderWithTime).catch(() => {});
     return orderWithTime;
   }
@@ -2274,7 +2280,7 @@ export class DataStorageService {
       ...db, 
       breakfastOrders: filtered,
       transactions: txUpdated ? updatedTxs : db.transactions
-    }, { skipCloudSync: true });
+    });
     deleteRecordFromSpreadsheet('breakfast_orders', orderId).catch(() => {});
     return true;
   }
@@ -2304,7 +2310,7 @@ export class DataStorageService {
         ...db, 
         breakfastOrders: updated,
         transactions: txUpdated ? updatedTxs : db.transactions
-      }, { skipCloudSync: true });
+      });
       upsertRecordToSpreadsheet('breakfast_orders', updated[idx]).catch(() => {});
       return true;
     } else {
@@ -2337,7 +2343,7 @@ export class DataStorageService {
           ...db, 
           breakfastOrders: [newOrder, ...orders.filter(o => o.id !== orderId)],
           transactions: updatedTxs
-        }, { skipCloudSync: true });
+        });
         upsertRecordToSpreadsheet('breakfast_orders', newOrder).catch(() => {});
         return true;
       }
