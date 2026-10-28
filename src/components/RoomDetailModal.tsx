@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAppContext, isSuperAdmin, isRecepRole } from '../store';
 import { Transaction, Room } from '../types';
 import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatRupiah, isMeetingFacility, normalizeBuildingName } from '../lib/utils';
@@ -30,6 +30,8 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   } = useAppContext();
 
   const canManageRooms = currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin' || isRecepRole(currentUser.role) || currentUser.role === 'Manager');
+
+  const [cancelTxTarget, setCancelTxTarget] = useState<Transaction | null>(null);
 
   const handleOpenGroupEdit = (tx: Transaction) => {
     onClose();
@@ -855,12 +857,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm(`Yakin ingin membatalkan reservasi booking atas nama "${tx.guestName}"? Status reservasi akan diperbarui menjadi DIBATALKAN dan tetap tersimpan dalam laporan.`)) {
-                            cancelBooking(room.id, tx.id, 'Dibatalkan oleh Pengguna');
-                            onClose();
-                          }
-                        }}
+                        onClick={() => setCancelTxTarget(tx)}
                         className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-lg text-xs border border-red-200 flex items-center space-x-1.5 transition cursor-pointer"
                         title="Batalkan reservasi ini"
                       >
@@ -1032,6 +1029,62 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
         </div>
 
       </div>
+
+      {/* Custom Popup Modal for Booking Cancellation */}
+      {cancelTxTarget && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4"
+          onClick={() => setCancelTxTarget(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-rose-200 animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 bg-rose-50 border-b border-rose-100 flex items-center space-x-3 text-rose-800">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-lg font-bold shrink-0">
+                <i className="fa-solid fa-ban text-rose-600"></i>
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-rose-950">Konfirmasi Pembatalan Booking</h4>
+                <p className="text-[11px] text-rose-600 font-medium">Pembatalan Reservasi Kamar / Ruang</p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Apakah Anda yakin ingin membatalkan reservasi booking atas nama <strong>&quot;{cancelTxTarget.guestName}&quot;</strong>?
+              </p>
+              <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200 text-[11px] text-rose-800 font-medium leading-relaxed">
+                <i className="fa-solid fa-triangle-exclamation mr-1.5 text-rose-600"></i>
+                Status reservasi akan diperbarui menjadi <strong>DIBATALKAN</strong> dan kamar akan kembali berstatus <strong>READY</strong>. Data transaksi tetap tersimpan sebagai arsip laporan.
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setCancelTxTarget(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  cancelBooking(room.id, cancelTxTarget.id, 'Dibatalkan oleh Pengguna');
+                  showToast(`Reservasi booking atas nama ${cancelTxTarget.guestName} berhasil dibatalkan.`, 'success');
+                  setCancelTxTarget(null);
+                  onClose();
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <i className="fa-solid fa-ban"></i>
+                <span>Ya, Batalkan Booking</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
