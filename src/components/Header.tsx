@@ -6,7 +6,7 @@ import { useBodyScrollLock } from '../lib/scrollLock';
 export function Header() {
   const { 
     currentUser, login, logout, activeTab, setActiveTab, openModal, users, showToast, isDarkMode, toggleDarkMode, appSettings,
-    supabaseSyncState, manualSyncSupabase, emergencyRecoverData
+    supabaseSyncState, manualSyncSupabase, emergencyRecoverData, manualAutoCheckout
   } = useAppContext();
   const [isSwitchOpen, setIsSwitchOpen] = useState(false);
   const switchRef = useRef<HTMLDivElement>(null);
@@ -416,6 +416,36 @@ export function Header() {
                         >
                           <i className="fa-solid fa-clock-rotate-left"></i>
                           <span>Pulihkan Data Hilang Sekarang</span>
+                        </button>
+                      </div>
+                    )}
+                    {/* 3e. Auto Check-Out Manual - Strict Admin & Super Admin Only */}
+                    {currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin') && (
+                      <div className="p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-600/70 rounded-xl space-y-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 flex items-center justify-center text-xs shrink-0">
+                              <i className="fa-solid fa-right-from-bracket"></i>
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Auto Check-Out</span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Check-out tamu yang telah mencapai tanggal berakhir</span>
+                            </div>
+                          </div>
+                          <span className="text-[9px] bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded font-bold border border-amber-300 dark:border-amber-700">
+                            Auto
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSwitchOpen(false);
+                            manualAutoCheckout();
+                          }}
+                          className="w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
+                        >
+                          <i className="fa-solid fa-person-walking-luggage"></i>
+                          <span>Jalankan Auto Check-Out Sekarang</span>
                         </button>
                       </div>
                     )}

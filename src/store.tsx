@@ -335,6 +335,7 @@ interface AppContextType {
   exportDatabaseBackup: () => void;
   importDatabaseBackup: (jsonString: string) => boolean;
   emergencyRecoverData: () => boolean;
+  manualAutoCheckout: () => number;
   resetDatabase: () => void;
   clearChatHistory: (channelId?: string) => void;
   addChatChannel: (channel: ChatChannel) => void;
@@ -569,71 +570,83 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const autoCheckoutDataRef = useRef({ transactions, rooms });
   autoCheckoutDataRef.current = { transactions, rooms };
 
-  useEffect(() => {
-    if (!appSettings?.autoCheckoutOnEndDateEnabled) return;
+  // Menjalankan auto check-out. force=true (manual): semua tamu yang tanggal berakhirnya hari ini atau sudah lewat diproses tanpa menunggu jam.
+  const runAutoCheckout = (targetTime: string, force: boolean = false, notify: boolean = true): number => {
+    const today = getRealTodayDate();
+    const nowDate = new Date();
+    const nowTimeStr = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
 
-    const runAutoCheckoutCheck = () => {
-      const today = getRealTodayDate();
-      const nowDate = new Date();
-      const nowTimeStr = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
-      const targetTime = appSettings.autoCheckoutTime || '12:00';
+    const { transactions: curTxs, rooms: curRooms } = autoCheckoutDataRef.current;
+    const activeTxs = curTxs.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
+    if (activeTxs.length === 0) return 0;
 
-      const { transactions: curTxs, rooms: curRooms } = autoCheckoutDataRef.current;
-      const activeTxs = curTxs.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
-      if (activeTxs.length === 0) return;
+    let count = 0;
+    const updatedTxs = [...curTxs];
+    const updatedRooms = [...curRooms];
 
-      let hasAutoCheckoutOccurred = false;
-      const updatedTxs = [...curTxs];
-      const updatedRooms = [...curRooms];
+    activeTxs.forEach(tx => {
+      const durDays = getTxDays(tx);
+      const endDate = addDaysToDateStr(tx.startDate, Math.max(0, durDays - 1));
 
-      activeTxs.forEach(tx => {
-        const durDays = getTxDays(tx);
-        const endDate = addDaysToDateStr(tx.startDate, Math.max(0, durDays - 1));
+      const shouldCheckout =
+        today > endDate ||
+        (today === endDate && (force || nowTimeStr >= targetTime));
+      if (!shouldCheckout) return;
 
-        let shouldCheckout = false;
-        if (today > endDate) {
-          shouldCheckout = true;
-        } else if (today === endDate) {
-          if (nowTimeStr >= targetTime) {
-            shouldCheckout = true;
-          }
-        }
+      count++;
+      const txIdx = updatedTxs.findIndex(t => t.id === tx.id);
+      if (txIdx >= 0) {
+        updatedTxs[txIdx] = { ...updatedTxs[txIdx], status: 'SELESAI', checkOutTime: getRealLocalDateTimeStr() };
+      }
 
-        if (shouldCheckout) {
-          hasAutoCheckoutOccurred = true;
-          const txIdx = updatedTxs.findIndex(t => t.id === tx.id);
-          if (txIdx >= 0) {
-            updatedTxs[txIdx] = { ...updatedTxs[txIdx], status: 'SELESAI', checkOutTime: getRealLocalDateTimeStr() };
-          }
+      const roomIdx = updatedRooms.findIndex(r => r.id === tx.roomId || (r.roomNumber === tx.roomNumber && r.building === tx.building));
+      if (roomIdx >= 0) {
+        updatedRooms[roomIdx] = {
+          ...updatedRooms[roomIdx],
+          status: 'READY',
+          activeTxId: null,
+          qcStatus: 'PERLU_INSPEKSI'
+        };
+      }
 
-          const roomIdx = updatedRooms.findIndex(r => r.id === tx.roomId || (r.roomNumber === tx.roomNumber && r.building === tx.building));
-          if (roomIdx >= 0) {
-            updatedRooms[roomIdx] = {
-              ...updatedRooms[roomIdx],
-              status: 'READY',
-              activeTxId: null,
-              qcStatus: 'PERLU_INSPEKSI'
-            };
-          }
+      logAudit(
+        force ? 'Auto Check-Out Manual' : 'Auto Check-Out Otomatis',
+        `[${force ? 'Admin' : 'Sistem'} Auto Cekout] Tamu ${tx.guestName} kamar ${tx.roomNumber} (${tx.building}) di-check-out sesuai tanggal berakhir (${endDate}). Status kamar: Perlu Inspeksi QC.`
+      );
+    });
 
-          logAudit(
-            'Auto Check-Out Otomatis',
-            `[Sistem Auto Cekout] Tamu ${tx.guestName} kamar ${tx.roomNumber} (${tx.building}) otomatis di-check-out sesuai tanggal berakhir (${endDate}). Status kamar: Perlu Inspeksi QC.`
-          );
-        }
-      });
-
-      if (hasAutoCheckoutOccurred) {
-        setTransactions(updatedTxs);
-        dataStorage.saveTransactions(updatedTxs);
-        setRooms(updatedRooms);
-        dataStorage.saveRooms(updatedRooms);
+    if (count > 0) {
+      autoCheckoutDataRef.current = { transactions: updatedTxs, rooms: updatedRooms };
+      setTransactions(updatedTxs);
+      dataStorage.saveTransactions(updatedTxs);
+      setRooms(updatedRooms);
+      dataStorage.saveRooms(updatedRooms);
+      if (notify) {
         showToast('Sistem menjalankan Auto Check-Out otomatis untuk kamar yang telah melewati tanggal berakhir.', 'info');
       }
-    };
+    }
+    return count;
+  };
 
-    runAutoCheckoutCheck();
-    const interval = setInterval(runAutoCheckoutCheck, 45000);
+  // Tombol manual Auto Check-Out (hanya Admin & Super Admin)
+  const manualAutoCheckout = (): number => {
+    if (!currentUser || (!isSuperAdmin(currentUser.role) && currentUser.role !== 'Admin')) {
+      showToast('Akses Ditolak: Fitur Auto Check-Out hanya dapat dijalankan oleh Admin dan Super Admin.', 'error');
+      return 0;
+    }
+    const n = runAutoCheckout(appSettings?.autoCheckoutTime || '12:00', true, false);
+    showToast(
+      n > 0 ? `Auto Check-Out berhasil: ${n} reservasi diselesaikan dan kamar diset Perlu Inspeksi QC.` : 'Tidak ada reservasi yang sudah mencapai tanggal berakhir.',
+      n > 0 ? 'success' : 'info'
+    );
+    return n;
+  };
+
+  useEffect(() => {
+    if (!appSettings?.autoCheckoutOnEndDateEnabled) return;
+    const targetTime = appSettings.autoCheckoutTime || '12:00';
+    runAutoCheckout(targetTime);
+    const interval = setInterval(() => runAutoCheckout(targetTime), 45000);
     return () => clearInterval(interval);
   }, [appSettings?.autoCheckoutOnEndDateEnabled, appSettings?.autoCheckoutTime]);
 
@@ -5420,7 +5433,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login, logout, clearWorkSessions, deleteWorkSession, deleteWorkSessionsBatch, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
-      dataStorage, exportDatabaseBackup, importDatabaseBackup, emergencyRecoverData, resetDatabase
+      dataStorage, exportDatabaseBackup, importDatabaseBackup, emergencyRecoverData, manualAutoCheckout, resetDatabase
     }}>
       {children}
     </AppContext.Provider>
