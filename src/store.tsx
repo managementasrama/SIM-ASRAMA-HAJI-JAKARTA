@@ -2851,6 +2851,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast("Akses Ditolak: Hanya staf Resepsionis yang berwenang memproses Check-In & Booking!", "error");
       return;
     }
+
+    const txStart = tx.startDate;
+    const txDuration = tx.duration || 1;
+    const isAula = tx.building === 'Ruang Pertemuan';
+    const txNights = isAula ? Math.max(1, Math.ceil(txDuration / 24)) : txDuration;
+    const txEnd = addDaysToDateStr(txStart, txNights);
+
+    const conflictingTx = transactions.find(other => {
+      if (other.status === 'DIBATALKAN' || other.status === 'SELESAI') return false;
+      const isSameRoom = (tx.roomId && other.roomId === tx.roomId) || 
+                         (tx.roomNumber && other.roomNumber === tx.roomNumber && (!tx.building || normalizeBuildingName(tx.building) === normalizeBuildingName(other.building)));
+      if (!isSameRoom) return false;
+
+      const otherDuration = other.durationUnit === 'Malam' ? other.duration : Math.max(1, Math.ceil((other.duration || 1) / 24));
+      const otherEnd = addDaysToDateStr(other.startDate, otherDuration);
+
+      return other.startDate < txEnd && otherEnd > txStart;
+    });
+
+    if (conflictingTx) {
+      showToast(`Gagal: Kamar ${tx.roomNumber} (${tx.building}) sudah terisi atau memiliki reservasi aktif oleh "${conflictingTx.guestName || conflictingTx.groupName}" pada rentang tanggal tersebut (${formatIndonesianDate(conflictingTx.startDate)} s.d. ${formatIndonesianDate(addDaysToDateStr(conflictingTx.startDate, conflictingTx.duration))}). Satu kamar tidak dapat dipesan ganda!`, "error");
+      return;
+    }
+
     const stampedTx: Transaction = {
       ...tx,
       createdAt: tx.createdAt || new Date().toISOString()
@@ -3805,6 +3829,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const targetTx = transactions.find(t => t.id === txIdToActivate);
     const guestName = targetTx?.guestName || 'Tamu';
+
+    // Cek apakah kamar sudah berstatus TERISI oleh tamu lain
+    const alreadyTerisi = transactions.find(t => 
+      t.id !== txIdToActivate &&
+      t.status === 'TERISI' &&
+      (t.roomId === room.id || (t.roomNumber === room.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(room.building))))
+    );
+    if (alreadyTerisi) {
+      showToast(`Gagal Check-In: Kamar ${room.roomNumber} saat ini sudah berstatus Terisi oleh tamu lain (${alreadyTerisi.guestName}). Satu kamar tidak boleh memiliki 2 tamu check-in secara bersamaan!`, "error");
+      return;
+    }
 
     const updatedTxs = transactions.map(t => t.id === txIdToActivate ? { ...t, status: "TERISI" as const } : t);
     setTransactions(updatedTxs);
