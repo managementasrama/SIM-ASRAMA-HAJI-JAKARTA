@@ -1,5 +1,5 @@
 import { User, Room, Transaction, Maintenance, AuditLog, WorkSession, QcInspection, BreakfastMenuItem, BreakfastOrder, Building, MeetingRoom, RoomCapacityRate } from './types';
-import { getRealTodayDate } from './lib/utils';
+import { getRealTodayDate, normalizeBuildingName } from './lib/utils';
 import { officialHistoricalTransactions } from './initialTransactionsData';
 
 export const OFFICIAL_TARIFFS: Record<string, any> = {
@@ -694,9 +694,25 @@ export function getCleanRooms(): Room[] {
     return rooms;
 }
 
-// Initial rooms sama dengan clean rooms (tanpa transaksi dummy)
+// Initial rooms diselaraskan dengan transaksi resmi (TERISI / BOOKED)
 export function getInitialRooms(): Room[] {
-    return getCleanRooms();
+    const rooms = getCleanRooms();
+    const activeTxs = officialHistoricalTransactions.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
+    return rooms.map(r => {
+        const match = activeTxs.find(t => 
+            t.roomId === r.id || 
+            (t.roomNumber === r.roomNumber && (!t.building || normalizeBuildingName(t.building) === normalizeBuildingName(r.building)))
+        );
+        if (match) {
+            return {
+                ...r,
+                status: match.status === 'TERISI' ? 'TERISI' : 'BOOKED',
+                activeTxId: match.id,
+                qcStatus: match.status === 'TERISI' ? 'LOLOS_QC' : 'PERLU_INSPEKSI'
+            };
+        }
+        return r;
+    });
 }
 
 // Data Transaksi Resmi Hunian Kamar & Reservasi
