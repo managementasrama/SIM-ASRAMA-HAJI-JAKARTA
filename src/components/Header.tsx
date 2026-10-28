@@ -2,13 +2,15 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppContext, isSuperAdmin, isKeuanganRole } from '../store';
 import { OperationalNotifications, OperationalSummaryRibbon } from './OperationalNotifications';
 import { useBodyScrollLock } from '../lib/scrollLock';
+import { getRealTodayDate, getTxDays, addDaysToDateStr } from '../lib/utils';
 
 export function Header() {
   const { 
     currentUser, login, logout, activeTab, setActiveTab, openModal, users, showToast, isDarkMode, toggleDarkMode, appSettings,
-    supabaseSyncState, manualSyncSupabase, emergencyRecoverData
+    supabaseSyncState, manualSyncSupabase, emergencyRecoverData, updateAppSettings, runManualAutoCheckout, transactions
   } = useAppContext();
   const [isSwitchOpen, setIsSwitchOpen] = useState(false);
+  const [isExecutingAutoCheckout, setIsExecutingAutoCheckout] = useState(false);
   const switchRef = useRef<HTMLDivElement>(null);
 
   const [isMobile, setIsMobile] = useState(false);
@@ -32,6 +34,27 @@ export function Header() {
   }, []);
 
   if (!currentUser) return null;
+
+  const dueCheckoutCount = (transactions || []).filter(t => {
+    if (t.status !== 'TERISI' && t.status !== 'BOOKED') return false;
+    try {
+      const today = getRealTodayDate();
+      const durDays = getTxDays(t);
+      const endDate = addDaysToDateStr(t.startDate, Math.max(0, durDays - 1));
+      return today >= endDate;
+    } catch {
+      return false;
+    }
+  }).length;
+
+  const handleTriggerAutoCheckout = () => {
+    setIsExecutingAutoCheckout(true);
+    try {
+      runManualAutoCheckout(true);
+    } finally {
+      setTimeout(() => setIsExecutingAutoCheckout(false), 600);
+    }
+  };
 
   const ALL_TABS_CONFIG = [
     { 
@@ -416,6 +439,95 @@ export function Header() {
                         >
                           <i className="fa-solid fa-clock-rotate-left"></i>
                           <span>Pulihkan Data Hilang Sekarang</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 3e. Auto Cekout Kamar Otomatis - Strict Super Admin & Admin Only */}
+                    {currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin') && (
+                      <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-2.5 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/80 text-indigo-800 dark:text-indigo-300 flex items-center justify-center text-xs shrink-0">
+                              <i className="fa-solid fa-calendar-check"></i>
+                            </div>
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Auto Cekout Otomatis</span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Cekout kamar sesuai batas tanggal inap</span>
+                            </div>
+                          </div>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                            appSettings?.autoCheckoutOnEndDateEnabled 
+                              ? 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' 
+                              : 'bg-amber-100 dark:bg-amber-900/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                          }`}>
+                            {appSettings?.autoCheckoutOnEndDateEnabled ? '● Aktif' : 'Nonaktif'}
+                          </span>
+                        </div>
+
+                        {/* Controls & Configuration */}
+                        <div className="p-2 bg-slate-50 dark:bg-slate-700/60 rounded-lg border border-slate-200 dark:border-slate-600/50 space-y-2 text-[11px]">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-700 dark:text-slate-200 font-medium">Sistem Rutin Otomatis:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextVal = !appSettings?.autoCheckoutOnEndDateEnabled;
+                                updateAppSettings({ autoCheckoutOnEndDateEnabled: nextVal });
+                                showToast(`Auto Cekout otomatis ${nextVal ? 'Diaktifkan' : 'Dinonaktifkan'}.`, 'info');
+                              }}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                                appSettings?.autoCheckoutOnEndDateEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'
+                              }`}
+                              title={appSettings?.autoCheckoutOnEndDateEnabled ? 'Nonaktifkan Auto Cekout' : 'Aktifkan Auto Cekout'}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                  appSettings?.autoCheckoutOnEndDateEnabled ? 'translate-x-4' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-200/80 dark:border-slate-600/40">
+                            <span className="text-slate-700 dark:text-slate-200 font-medium">Batas Jam Cekout:</span>
+                            <div className="flex items-center space-x-1">
+                              <input
+                                type="time"
+                                value={appSettings?.autoCheckoutTime || '12:00'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val) {
+                                    updateAppSettings({ autoCheckoutTime: val });
+                                  }
+                                }}
+                                className="px-1.5 py-0.5 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                              />
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">WIB</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-200/80 dark:border-slate-600/40 text-[10px]">
+                            <span className="text-slate-500 dark:text-slate-400">Kamar jatuh tempo hari ini:</span>
+                            <span className={`font-bold px-1.5 py-0.5 rounded ${
+                              dueCheckoutCount > 0 
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300' 
+                                : 'bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-300'
+                            }`}>
+                              {dueCheckoutCount} Kamar
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Jalankan Auto Cekout Sekarang Action Button */}
+                        <button
+                          type="button"
+                          disabled={isExecutingAutoCheckout}
+                          onClick={handleTriggerAutoCheckout}
+                          className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs disabled:opacity-50"
+                        >
+                          <i className={`fa-solid ${isExecutingAutoCheckout ? 'fa-spinner fa-spin' : 'fa-bolt'} text-indigo-200`}></i>
+                          <span>{isExecutingAutoCheckout ? 'Memproses Cekout...' : 'Jalankan Auto Cekout Sekarang'}</span>
                         </button>
                       </div>
                     )}

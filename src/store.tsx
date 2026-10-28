@@ -335,6 +335,7 @@ interface AppContextType {
   exportDatabaseBackup: () => void;
   importDatabaseBackup: (jsonString: string) => boolean;
   emergencyRecoverData: () => boolean;
+  runManualAutoCheckout: (forceCheckoutDueToday?: boolean) => { success: boolean; count: number; message: string };
   resetDatabase: () => void;
   clearChatHistory: (channelId?: string) => void;
   addChatChannel: (channel: ChatChannel) => void;
@@ -4739,6 +4740,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const runManualAutoCheckout = (forceCheckoutDueToday: boolean = false): { success: boolean; count: number; message: string } => {
+    if (!currentUser || (!isSuperAdmin(currentUser.role) && currentUser.role !== 'Admin')) {
+      showToast('Akses Ditolak: Fitur Auto Cekout hanya dapat diakses oleh Admin dan Super Admin.', 'error');
+      return { success: false, count: 0, message: 'Akses ditolak.' };
+    }
+
+    const today = getRealTodayDate();
+    const nowTimeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const targetTime = appSettings?.autoCheckoutTime || '12:00';
+
+    const activeTxs = transactions.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
+    if (activeTxs.length === 0) {
+      showToast('Tidak ada transaksi sewa/kamar yang sedang aktif saat ini.', 'info');
+      return { success: true, count: 0, message: 'Tidak ada transaksi kamar aktif.' };
+    }
+
+    let checkedOutCount = 0;
+    const updatedTxs = [...transactions];
+    const updatedRooms = [...rooms];
+    const checkedOutGuests: string[] = [];
+
+    activeTxs.forEach(tx => {
+      const durDays = getTxDays(tx);
+      const endDate = addDaysToDateStr(tx.startDate, Math.max(0, durDays - 1));
+
+      let shouldCheckout = false;
+      if (today > endDate) {
+        shouldCheckout = true;
+      } else if (today === endDate) {
+        if (forceCheckoutDueToday || nowTimeStr >= targetTime) {
+          shouldCheckout = true;
+        }
+      }
+
+      if (shouldCheckout) {
+        checkedOutCount++;
+        checkedOutGuests.push(`${tx.guestName} (${tx.building} ${tx.roomNumber})`);
+        const txIdx = updatedTxs.findIndex(t => t.id === tx.id);
+        if (txIdx >= 0) {
+          updatedTxs[txIdx] = { ...updatedTxs[txIdx], status: 'SELESAI', checkOutTime: getRealLocalDateTimeStr() };
+        }
+
+        const roomIdx = updatedRooms.findIndex(r => r.id === tx.roomId || (r.roomNumber === tx.roomNumber && r.building === tx.building));
+        if (roomIdx >= 0) {
+          updatedRooms[roomIdx] = {
+            ...updatedRooms[roomIdx],
+            status: 'READY',
+            activeTxId: null,
+            qcStatus: 'PERLU_INSPEKSI'
+          };
+        }
+      }
+    });
+
+    if (checkedOutCount > 0) {
+      setTransactions(updatedTxs);
+      dataStorage.saveTransactions(updatedTxs);
+      setRooms(updatedRooms);
+      dataStorage.saveRooms(updatedRooms);
+      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push auto checkout ke spreadsheet:', e));
+
+      logAudit(
+        'Manual Trigger Auto Cekout',
+        `Admin ${currentUser.fullName} menjalankan Auto Cekout manual. Berhasil checkout ${checkedOutCount} kamar: ${checkedOutGuests.slice(0, 3).join(', ')}${checkedOutGuests.length > 3 ? '...' : ''}.`
+      );
+      showToast(`Auto Cekout Berhasil! Sebanyak ${checkedOutCount} kamar yang masa inapnya telah berakhir berhasil di-check-out.`, 'success');
+      return {
+        success: true,
+        count: checkedOutCount,
+        message: `Berhasil checkout ${checkedOutCount} kamar.`
+      };
+    } else {
+      showToast(`Tidak ada kamar aktif yang melewati batas tanggal berakhir atau jam ${targetTime} WIB saat ini.`, 'info');
+      return {
+        success: true,
+        count: 0,
+        message: 'Tidak ada transaksi kamar yang telah melewati batas tanggal berakhir.'
+      };
+    }
+  };
+
   const resetDatabase = async () => {
     // Reset pangkalan data lokal dan pastikan HANYA akun Super Admin dan Admin yang tersisa
     // Default kosongkan data aktivitas, shift, dan QC
@@ -5415,7 +5497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login, logout, clearWorkSessions, deleteWorkSession, deleteWorkSessionsBatch, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
       supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
-      dataStorage, exportDatabaseBackup, importDatabaseBackup, emergencyRecoverData, resetDatabase
+      dataStorage, exportDatabaseBackup, importDatabaseBackup, emergencyRecoverData, runManualAutoCheckout, resetDatabase
     }}>
       {children}
     </AppContext.Provider>
