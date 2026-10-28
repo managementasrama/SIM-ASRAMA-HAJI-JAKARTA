@@ -498,6 +498,18 @@ export function RoomsView() {
     }
   });
 
+  // Urutkan kamar per gedung secara numerik natural (101, 102, 103, dst)
+  Object.keys(grouped).forEach(bName => {
+    if (grouped[bName]) {
+      grouped[bName].sort((a, b) => {
+        const flA = a.floor || extractFloorFromRoomNumber(a.roomNumber) || 1;
+        const flB = b.floor || extractFloorFromRoomNumber(b.roomNumber) || 1;
+        if (flA !== flB) return flA - flB;
+        return String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''), undefined, { numeric: true });
+      });
+    }
+  });
+
   // Daftar Gedung Penginapan: Menyesuaikan dengan filter aktif (tipe kamar, status, kapasitas bed, pencarian)
   const buildingNames = useMemo(() => {
     const list: string[] = [];
