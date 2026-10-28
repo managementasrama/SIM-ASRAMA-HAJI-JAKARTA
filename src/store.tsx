@@ -566,6 +566,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Auto-checkout background routine based on registered end date (Admin & Super Admin setting)
+  const autoCheckoutDataRef = useRef({ transactions, rooms });
+  autoCheckoutDataRef.current = { transactions, rooms };
+
   useEffect(() => {
     if (!appSettings?.autoCheckoutOnEndDateEnabled) return;
 
@@ -575,12 +578,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const nowTimeStr = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
       const targetTime = appSettings.autoCheckoutTime || '12:00';
 
-      const activeTxs = transactions.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
+      const { transactions: curTxs, rooms: curRooms } = autoCheckoutDataRef.current;
+      const activeTxs = curTxs.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
       if (activeTxs.length === 0) return;
 
       let hasAutoCheckoutOccurred = false;
-      const updatedTxs = [...transactions];
-      const updatedRooms = [...rooms];
+      const updatedTxs = [...curTxs];
+      const updatedRooms = [...curRooms];
 
       activeTxs.forEach(tx => {
         const durDays = getTxDays(tx);
@@ -631,7 +635,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     runAutoCheckoutCheck();
     const interval = setInterval(runAutoCheckoutCheck, 45000);
     return () => clearInterval(interval);
-  }, [appSettings?.autoCheckoutOnEndDateEnabled, appSettings?.autoCheckoutTime, transactions, rooms]);
+  }, [appSettings?.autoCheckoutOnEndDateEnabled, appSettings?.autoCheckoutTime]);
 
   // Breakfast Orders & Menu Catalog Database States
   const [breakfastMenuItems, setBreakfastMenuItems] = useState<BreakfastMenuItem[]>(() => dataStorage.getBreakfastMenuItems());
