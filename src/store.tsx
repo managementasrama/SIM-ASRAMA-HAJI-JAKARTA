@@ -571,16 +571,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   autoCheckoutDataRef.current = { transactions, rooms };
 
   // Menjalankan auto check-out. force=true (manual): semua tamu yang tanggal berakhirnya hari ini atau sudah lewat diproses tanpa menunggu jam.
-  const runAutoCheckout = (targetTime: string, force: boolean = false, notify: boolean = true): number => {
+  const runAutoCheckout = (targetTime: string, force: boolean = false, notify: boolean = true): { count: number; orphans: number } => {
     const today = getRealTodayDate();
     const nowDate = new Date();
     const nowTimeStr = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
 
     const { transactions: curTxs, rooms: curRooms } = autoCheckoutDataRef.current;
     const activeTxs = curTxs.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
-    if (activeTxs.length === 0) return 0;
+    if (activeTxs.length === 0 && !force) return { count: 0, orphans: 0 };
 
     let count = 0;
+    let orphans = 0;
     const updatedTxs = [...curTxs];
     const updatedRooms = [...curRooms];
 
@@ -615,7 +616,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     });
 
-    if (count > 0) {
+    // Mode manual: bersihkan kamar TERISI/BOOKED yatim (tidak punya reservasi aktif)
+    if (force) {
+      const stillActive = updatedTxs.filter(t => t.status === 'TERISI' || t.status === 'BOOKED');
+      const norm = (v: any) => String(v || '').trim().toUpperCase();
+      const isCovered = (r: any) => stillActive.some(t =>
+        (t.roomId && t.roomId === r.id) ||
+        (norm(t.roomNumber) === norm(r.roomNumber) && norm(t.building) === norm(r.building)) ||
+        (norm(t.building) === norm(r.building) && (t.allocatedRoomNumbers || []).some((n: any) => norm(n) === norm(r.roomNumber)))
+      );
+      updatedRooms.forEach((r, i) => {
+        if ((r.status === 'TERISI' || r.status === 'BOOKED') && !isCovered(r)) {
+          orphans++;
+          updatedRooms[i] = { ...r, status: 'READY', activeTxId: null, qcStatus: 'PERLU_INSPEKSI' };
+          logAudit('Auto Check-Out Manual', `[Admin Auto Cekout] Kamar ${r.roomNumber} (${r.building}) berstatus ${r.status} tanpa reservasi aktif, dikosongkan dan diset Perlu Inspeksi QC.`);
+        }
+      });
+    }
+
+    if (count > 0 || orphans > 0) {
       autoCheckoutDataRef.current = { transactions: updatedTxs, rooms: updatedRooms };
       setTransactions(updatedTxs);
       dataStorage.saveTransactions(updatedTxs);
@@ -625,7 +644,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast('Sistem menjalankan Auto Check-Out otomatis untuk kamar yang telah melewati tanggal berakhir.', 'info');
       }
     }
-    return count;
+    return { count, orphans };
   };
 
   // Tombol manual Auto Check-Out (hanya Admin & Super Admin)
@@ -634,12 +653,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Akses Ditolak: Fitur Auto Check-Out hanya dapat dijalankan oleh Admin dan Super Admin.', 'error');
       return 0;
     }
-    const n = runAutoCheckout(appSettings?.autoCheckoutTime || '12:00', true, false);
+    const { count, orphans } = runAutoCheckout(appSettings?.autoCheckoutTime || '12:00', true, false);
+    const total = count + orphans;
     showToast(
-      n > 0 ? `Auto Check-Out berhasil: ${n} reservasi diselesaikan dan kamar diset Perlu Inspeksi QC.` : 'Tidak ada reservasi yang sudah mencapai tanggal berakhir.',
-      n > 0 ? 'success' : 'info'
+      total > 0
+        ? `Auto Check-Out berhasil: ${count} reservasi diselesaikan, ${orphans} kamar tanpa reservasi dikosongkan (Perlu Inspeksi QC).`
+        : 'Tidak ada reservasi yang sudah mencapai tanggal berakhir dan tidak ada kamar yatim.',
+      total > 0 ? 'success' : 'info'
     );
-    return n;
+    return total;
   };
 
   useEffect(() => {
