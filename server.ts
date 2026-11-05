@@ -400,7 +400,7 @@ async function startServer() {
         ssl: {
           rejectUnauthorized: false
         },
-        connectionTimeoutMillis: 8000,
+        connectionTimeoutMillis: 20000,
         idleTimeoutMillis: 15000,
         max: 8
       });
@@ -670,6 +670,216 @@ async function startServer() {
     `
   };
 
+  async function ensureTableColumns(client: any) {
+    const alterations = [
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS name VARCHAR(255);`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS code VARCHAR(50);`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS floors INT DEFAULT 1;`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS total_rooms INT DEFAULT 0;`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS capacity_desc TEXT;`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT 'PENGINAPAN';`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'AKTIF';`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS description TEXT;`,
+      `ALTER TABLE buildings ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_number VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS building_id VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor INT DEFAULT 1;`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS type VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_type VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS capacity VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS capacity_number INT;`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS price_per_night NUMERIC DEFAULT 0;`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS facilities JSONB DEFAULT '[]';`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS qc_status VARCHAR(50);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_qc_date VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_qc_by VARCHAR(255);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_qc_notes TEXT;`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS active_tx_id VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS active_maint_id VARCHAR(100);`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE rooms ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS room_id VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS room_number VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT 'UMUM';`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS guest_name VARCHAR(255);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS guest_type VARCHAR(50) DEFAULT 'INDIVIDU';`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS nik_ktp VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS kloter VARCHAR(50);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS start_date VARCHAR(50);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS duration INT DEFAULT 1;`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS duration_unit VARCHAR(50) DEFAULT 'Malam';`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS phone VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'BOOKED';`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_user VARCHAR(255);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_group BOOLEAN DEFAULT FALSE;`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_type VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_name VARCHAR(255);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_id VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS total_pax INT;`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'BELUM_LUNAS';`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_method VARCHAR(100);`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS paid_amount NUMERIC DEFAULT 0;`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS total_price NUMERIC DEFAULT 0;`,
+      `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(100);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(100);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_building VARCHAR(255);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(100);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS nip VARCHAR(100);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}';`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS signature_url TEXT;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS qr_code_url TEXT;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS name VARCHAR(255);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS code VARCHAR(50);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS capacity VARCHAR(100);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS capacity_number INT;`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS category VARCHAR(100);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS daily_rate NUMERIC DEFAULT 0;`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS session_rate NUMERIC DEFAULT 0;`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS facilities JSONB DEFAULT '[]';`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS description TEXT;`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS qc_status VARCHAR(50);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS active_tx_id VARCHAR(100);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS active_maint_id VARCHAR(100);`,
+      `ALTER TABLE meeting_rooms ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS room_type VARCHAR(100);`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS bed_type VARCHAR(100);`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS capacity_pax INT;`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS price_per_night NUMERIC DEFAULT 0;`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS description TEXT;`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS facilities JSONB DEFAULT '[]';`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;`,
+      `ALTER TABLE room_capacity_rates ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS name VARCHAR(255);`,
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS category VARCHAR(100);`,
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT 25000;`,
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS description TEXT;`,
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS allergens TEXT;`,
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;`,
+      `ALTER TABLE breakfast_menu_items ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS room_id VARCHAR(100);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS room_number VARCHAR(100);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS category VARCHAR(100);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS issue VARCHAR(255);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS description TEXT;`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS urgency VARCHAR(50);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS technician VARCHAR(255);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS report_time VARCHAR(100);`,
+      `ALTER TABLE maintenances ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS room_id VARCHAR(100);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS room_number VARCHAR(100);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS inspector_id VARCHAR(100);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS inspector_name VARCHAR(255);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS inspection_date VARCHAR(100);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS cleanliness VARCHAR(50);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS linen_bed VARCHAR(50);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS ac_electricity VARCHAR(50);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS plumbing_water VARCHAR(50);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS amenities VARCHAR(50);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS result VARCHAR(100);`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE qc_inspections ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS room_number VARCHAR(100);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS guest_name VARCHAR(255);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS phone VARCHAR(100);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS transaction_id VARCHAR(100);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS menu_name VARCHAR(255);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS portions INT DEFAULT 1;`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS days INT DEFAULT 1;`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS start_date VARCHAR(100);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS total_price NUMERIC DEFAULT 0;`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;`,
+      `ALTER TABLE breakfast_orders ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS room_id VARCHAR(100);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS room_number VARCHAR(100);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS building VARCHAR(255);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS petugas_name VARCHAR(255);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS timestamp VARCHAR(100);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS photo_url TEXT;`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(100);`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS user_name VARCHAR(255);`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS user_role VARCHAR(100);`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS login_time VARCHAR(100);`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS logout_time VARCHAR(100);`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS duration_seconds INT DEFAULT 0;`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS timestamp VARCHAR(100);`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_name VARCHAR(255);`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS role VARCHAR(100);`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action VARCHAR(100);`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details TEXT;`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
+
+      `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS key VARCHAR(100);`,
+      `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS value JSONB;`,
+      `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`
+    ];
+
+    for (const alt of alterations) {
+      try {
+        await client.query(alt);
+      } catch (_) {}
+    }
+
+    const pkConstraints = [
+      `ALTER TABLE buildings DROP CONSTRAINT IF EXISTS buildings_pkey; ALTER TABLE buildings ADD PRIMARY KEY (id);`,
+      `ALTER TABLE rooms DROP CONSTRAINT IF EXISTS rooms_pkey; ALTER TABLE rooms ADD PRIMARY KEY (id);`,
+      `ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_pkey; ALTER TABLE transactions ADD PRIMARY KEY (id);`,
+      `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_pkey; ALTER TABLE users ADD PRIMARY KEY (id);`,
+      `ALTER TABLE meeting_rooms DROP CONSTRAINT IF EXISTS meeting_rooms_pkey; ALTER TABLE meeting_rooms ADD PRIMARY KEY (id);`,
+      `ALTER TABLE room_capacity_rates DROP CONSTRAINT IF EXISTS room_capacity_rates_pkey; ALTER TABLE room_capacity_rates ADD PRIMARY KEY (id);`,
+      `ALTER TABLE breakfast_menu_items DROP CONSTRAINT IF EXISTS breakfast_menu_items_pkey; ALTER TABLE breakfast_menu_items ADD PRIMARY KEY (id);`,
+      `ALTER TABLE maintenances DROP CONSTRAINT IF EXISTS maintenances_pkey; ALTER TABLE maintenances ADD PRIMARY KEY (id);`,
+      `ALTER TABLE qc_inspections DROP CONSTRAINT IF EXISTS qc_inspections_pkey; ALTER TABLE qc_inspections ADD PRIMARY KEY (id);`,
+      `ALTER TABLE breakfast_orders DROP CONSTRAINT IF EXISTS breakfast_orders_pkey; ALTER TABLE breakfast_orders ADD PRIMARY KEY (id);`,
+      `ALTER TABLE cleaning_logs DROP CONSTRAINT IF EXISTS cleaning_logs_pkey; ALTER TABLE cleaning_logs ADD PRIMARY KEY (id);`,
+      `ALTER TABLE work_sessions DROP CONSTRAINT IF EXISTS work_sessions_pkey; ALTER TABLE work_sessions ADD PRIMARY KEY (id);`,
+      `ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_pkey; ALTER TABLE audit_logs ADD PRIMARY KEY (id);`,
+      `ALTER TABLE app_settings DROP CONSTRAINT IF EXISTS app_settings_pkey; ALTER TABLE app_settings ADD PRIMARY KEY (key);`
+    ];
+
+    for (const pk of pkConstraints) {
+      try {
+        await client.query(pk);
+      } catch (_) {}
+    }
+  }
+
   // Helper untuk push dataset ke Aiven
   async function pushDatasetToAiven(dataset: any): Promise<{ ok: boolean; counts: Record<string, number>; error?: string }> {
     const pool = getActiveAivenPool();
@@ -678,17 +888,29 @@ async function startServer() {
     }
 
     const counts: Record<string, number> = {};
-    const client = await pool.connect();
+    let client: any = null;
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        client = await pool.connect();
+        break;
+      } catch (connErr: any) {
+        attempts++;
+        if (attempts >= 3) {
+          return { ok: false, counts: {}, error: `Gagal terhubung ke Aiven setelah 3 percobaan (Timeout/Koneksi): ${connErr?.message || String(connErr)}` };
+        }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
     try {
       await client.query("BEGIN");
 
-      // 1. Ensure tables exist and include raw_data column
+      // 1. Ensure tables exist
       for (const [tName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
         await client.query(ddl);
-        if (tName !== 'app_settings') {
-          await client.query(`ALTER TABLE ${tName} ADD COLUMN IF NOT EXISTS raw_data JSONB;`).catch(() => {});
-        }
       }
+      await ensureTableColumns(client);
 
       // 2. Upsert buildings
       if (Array.isArray(dataset.buildings)) {
@@ -1215,16 +1437,27 @@ async function startServer() {
     }
 
     try {
-      const client = await pool.connect();
+      let client: any = null;
+      let attempts = 0;
+      while (attempts < 3) {
+        try {
+          client = await pool.connect();
+          break;
+        } catch (connErr: any) {
+          attempts++;
+          if (attempts >= 3) {
+            return res.status(500).json({ ok: false, error: `Gagal terhubung ke Aiven setelah 3 percobaan: ${connErr?.message || String(connErr)}` });
+          }
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
       const createdTables: string[] = [];
       try {
         for (const [tableName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
           await client.query(ddl);
-          if (tableName !== 'app_settings') {
-            await client.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS raw_data JSONB;`).catch(() => {});
-          }
           createdTables.push(tableName);
         }
+        await ensureTableColumns(client);
       } finally {
         client.release();
       }
