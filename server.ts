@@ -325,7 +325,11 @@ async function startServer() {
     }
   }
 
+  const DEFAULT_AIVEN_URI = "";
+
   const envAiven = parseEnvForAiven();
+  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || DEFAULT_AIVEN_URI;
+
   let activeAivenConfig: {
     serviceUri?: string;
     host?: string;
@@ -341,14 +345,14 @@ async function startServer() {
     pgVersion?: string | null;
     updatedAt: string;
   } = {
-    serviceUri: envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || "",
+    serviceUri: initialAivenUri,
     host: "",
-    port: 5432,
+    port: 22170,
     database: "defaultdb",
     user: "avnadmin",
     password: "",
     ssl: true,
-    isConfigured: false,
+    isConfigured: true,
     lastConnectedAt: null,
     lastError: null,
     latencyMs: null,
@@ -364,7 +368,8 @@ async function startServer() {
         activeAivenConfig = {
           ...activeAivenConfig,
           ...parsed,
-          isConfigured: Boolean(parsed.serviceUri || (parsed.host && parsed.password))
+          serviceUri: parsed.serviceUri || initialAivenUri,
+          isConfigured: true
         };
       }
     }
@@ -372,16 +377,17 @@ async function startServer() {
     console.warn("Failed to load aiven_database_config.json:", err);
   }
 
-  if (activeAivenConfig.serviceUri && (!activeAivenConfig.host || !activeAivenConfig.password)) {
-    const parsed = parseAivenUri(activeAivenConfig.serviceUri);
-    if (parsed) {
-      activeAivenConfig.host = parsed.host;
-      activeAivenConfig.port = parsed.port;
-      activeAivenConfig.user = parsed.user;
-      activeAivenConfig.password = parsed.password;
-      activeAivenConfig.database = parsed.database;
-      activeAivenConfig.isConfigured = true;
-    }
+  // Parse URI to populate host, port, user, password, database
+  const uriToParse = activeAivenConfig.serviceUri || initialAivenUri;
+  const parsedUri = parseAivenUri(uriToParse);
+  if (parsedUri) {
+    activeAivenConfig.serviceUri = uriToParse;
+    activeAivenConfig.host = parsedUri.host;
+    activeAivenConfig.port = parsedUri.port;
+    activeAivenConfig.user = parsedUri.user;
+    activeAivenConfig.password = parsedUri.password;
+    activeAivenConfig.database = parsedUri.database;
+    activeAivenConfig.isConfigured = true;
   }
 
   let aivenPool: Pool | null = null;
@@ -390,20 +396,24 @@ async function startServer() {
     const cfg = connUriOrConfig || activeAivenConfig;
     const uri = typeof cfg === 'string' 
       ? cfg 
-      : (cfg?.serviceUri || (cfg?.host ? `postgres://${encodeURIComponent(cfg.user || 'avnadmin')}:${encodeURIComponent(cfg.password || '')}@${cfg.host}:${cfg.port || 5432}/${cfg.database || 'defaultdb'}?sslmode=require` : null));
+      : (cfg?.serviceUri || (cfg?.host ? `postgres://${encodeURIComponent(cfg.user || 'avnadmin')}:${encodeURIComponent(cfg.password || '')}@${cfg.host}:${cfg.port || 22170}/${cfg.database || 'defaultdb'}?sslmode=no-verify` : DEFAULT_AIVEN_URI));
 
     if (!uri) return null;
 
     try {
-      return new Pool({
+      const p = new Pool({
         connectionString: uri,
         ssl: {
           rejectUnauthorized: false
         },
-        connectionTimeoutMillis: 20000,
-        idleTimeoutMillis: 15000,
-        max: 8
+        connectionTimeoutMillis: 15000,
+        idleTimeoutMillis: 30000,
+        max: 20
       });
+      p.on('error', (err: any) => {
+        console.warn('Aiven PG Pool error:', err?.message || err);
+      });
+      return p;
     } catch (e) {
       console.warn("Error creating Aiven Pool:", e);
       return null;
@@ -412,7 +422,7 @@ async function startServer() {
 
   function getActiveAivenPool(): Pool | null {
     if (aivenPool) return aivenPool;
-    if (activeAivenConfig.isConfigured) {
+    if (activeAivenConfig.isConfigured || activeAivenConfig.serviceUri) {
       aivenPool = createAivenPoolInstance(activeAivenConfig);
     }
     return aivenPool;
@@ -912,12 +922,24 @@ async function startServer() {
       }
       await ensureTableColumns(client);
 
+      async function safeUpsert(sql: string, params: any[]) {
+        try {
+          await client.query("SAVEPOINT item_sp;");
+          await client.query(sql, params);
+          await client.query("RELEASE SAVEPOINT item_sp;");
+          return true;
+        } catch (e) {
+          await client.query("ROLLBACK TO item_sp;").catch(() => {});
+          return false;
+        }
+      }
+
       // 2. Upsert buildings
       if (Array.isArray(dataset.buildings)) {
         let cnt = 0;
         for (const b of dataset.buildings) {
           if (!b || !b.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO buildings (id, name, code, floors, total_rooms, capacity_desc, category, status, description, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -932,7 +954,7 @@ async function startServer() {
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
           `, [b.id, b.name || '', b.code || '', b.floors || 1, b.totalRooms || 0, b.capacityDesc || '', b.category || 'PENGINAPAN', b.status || 'AKTIF', b.description || '', JSON.stringify(b)]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.buildings = cnt;
       }
@@ -942,7 +964,7 @@ async function startServer() {
         let cnt = 0;
         for (const r of dataset.rooms) {
           if (!r || !r.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO rooms (id, room_number, building, building_id, floor, type, bed_type, capacity, capacity_number, status, price_per_night, facilities, qc_status, last_qc_date, last_qc_by, last_qc_notes, active_tx_id, active_maint_id, notes, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -973,7 +995,7 @@ async function startServer() {
             r.lastQcDate || null, r.lastQcBy || null, r.lastQcNotes || null, r.activeTxId || null,
             r.activeMaintId || null, r.notes || null, JSON.stringify(r)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.rooms = cnt;
       }
@@ -984,7 +1006,7 @@ async function startServer() {
         let cnt = 0;
         for (const mr of mrs) {
           if (!mr || !mr.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO meeting_rooms (id, name, code, building, capacity, capacity_number, category, daily_rate, session_rate, facilities, description, status, qc_status, active_tx_id, active_maint_id, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1010,7 +1032,7 @@ async function startServer() {
             JSON.stringify(mr.facilities || []), mr.description || '', mr.status || 'TERSEDIA',
             mr.qcStatus || 'LOLOS_QC', mr.activeTxId || null, mr.activeMaintId || null, JSON.stringify(mr)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.meeting_rooms = cnt;
       }
@@ -1021,7 +1043,7 @@ async function startServer() {
         let cnt = 0;
         for (const r of rates) {
           if (!r || !r.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO room_capacity_rates (id, room_type, bed_type, capacity_pax, price_per_night, description, facilities, is_active, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1039,7 +1061,7 @@ async function startServer() {
             r.pricePerNight || 0, r.description || '', JSON.stringify(r.facilities || []),
             r.isActive !== false, JSON.stringify(r)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.room_capacity_rates = cnt;
       }
@@ -1050,7 +1072,7 @@ async function startServer() {
         let cnt = 0;
         for (const m of menus) {
           if (!m || !m.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO breakfast_menu_items (id, name, category, price, description, allergens, is_available, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1066,7 +1088,7 @@ async function startServer() {
             m.id, m.name || '', m.category || 'MAKANAN_BERAT', m.price || 25000,
             m.description || '', m.allergens || '', m.isAvailable !== false, JSON.stringify(m)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.breakfast_menu_items = cnt;
       }
@@ -1076,7 +1098,7 @@ async function startServer() {
         let cnt = 0;
         for (const t of dataset.transactions) {
           if (!t || !t.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO transactions (id, room_id, building, room_number, category, guest_name, guest_type, nik_ktp, kloter, start_date, duration, duration_unit, phone, notes, status, created_user, is_group, group_type, group_name, group_id, total_pax, payment_status, payment_method, paid_amount, total_price, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1115,7 +1137,7 @@ async function startServer() {
             t.paymentStatus || 'BELUM_LUNAS', t.paymentMethod || '', t.paidAmount || 0,
             t.totalPrice || 0, JSON.stringify(t)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.transactions = cnt;
       }
@@ -1125,7 +1147,7 @@ async function startServer() {
         let cnt = 0;
         for (const u of dataset.users) {
           if (!u || !u.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO users (id, username, full_name, role, department, assigned_building, phone, email, nip, status, password, permissions, signature_url, qr_code_url, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1150,7 +1172,7 @@ async function startServer() {
             u.status || 'active', u.password || '', JSON.stringify(u.permissions || {}),
             u.signatureUrl || null, u.qrCodeUrl || null, JSON.stringify(u)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.users = cnt;
       }
@@ -1160,7 +1182,7 @@ async function startServer() {
         let cnt = 0;
         for (const m of dataset.maintenances) {
           if (!m || !m.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO maintenances (id, room_id, room_number, building, category, issue, description, urgency, status, technician, report_time, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1181,7 +1203,7 @@ async function startServer() {
             m.issue || '', m.description || '', m.urgency || 'Sedang', m.status || 'PROSES',
             m.technician || '', m.reportTime || '', JSON.stringify(m)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.maintenances = cnt;
       }
@@ -1192,7 +1214,7 @@ async function startServer() {
         let cnt = 0;
         for (const q of qcs) {
           if (!q || !q.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO qc_inspections (id, room_id, building, room_number, inspector_id, inspector_name, inspection_date, cleanliness, linen_bed, ac_electricity, plumbing_water, amenities, result, notes, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1217,7 +1239,7 @@ async function startServer() {
             q.acElectricity || '', q.plumbingWater || '', q.amenities || '', q.result || 'LOLOS_QC',
             q.notes || '', JSON.stringify(q)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.qc_inspections = cnt;
       }
@@ -1228,7 +1250,7 @@ async function startServer() {
         let cnt = 0;
         for (const o of bos) {
           if (!o || !o.id) continue;
-          await client.query(`
+          const ok = await safeUpsert(`
             INSERT INTO breakfast_orders (id, room_number, building, guest_name, phone, transaction_id, menu_name, portions, days, start_date, status, total_price, notes, cancel_reason, raw_data, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -1253,14 +1275,14 @@ async function startServer() {
             o.startDate || '', o.status || 'MENUNGGU', o.totalPrice || 0, o.notes || '',
             o.cancelReason || '', JSON.stringify(o)
           ]);
-          cnt++;
+          if (ok) cnt++;
         }
         counts.breakfast_orders = cnt;
       }
 
       // 12. App Settings
       if (dataset.appSettings) {
-        await client.query(`
+        await safeUpsert(`
           INSERT INTO app_settings (key, value, updated_at)
           VALUES ('general', $1, NOW())
           ON CONFLICT (key) DO UPDATE SET
@@ -1273,11 +1295,301 @@ async function startServer() {
       await client.query("COMMIT");
       return { ok: true, counts };
     } catch (err: any) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       console.error("Gagal push ke Aiven PostgreSQL:", err);
       return { ok: false, counts, error: err?.message || String(err) };
     } finally {
       client.release();
+    }
+  }
+
+  // Helper untuk UPSERT satu rekaman langsung ke Aiven PostgreSQL
+  async function upsertSingleRecordToAiven(rawSheet: string, record: any): Promise<boolean> {
+    const pool = getActiveAivenPool();
+    if (!pool || !record) return false;
+
+    const { snakeKey } = getTableKeys(rawSheet);
+    let table = snakeKey;
+    if (table === "system_logs") table = "audit_logs";
+
+    let client: any = null;
+    try {
+      client = await pool.connect();
+      if (table === "transactions" && record.id) {
+        await client.query(`
+          INSERT INTO transactions (id, room_id, building, room_number, category, guest_name, guest_type, nik_ktp, kloter, start_date, duration, duration_unit, phone, notes, status, created_user, is_group, group_type, group_name, group_id, total_pax, payment_status, payment_method, paid_amount, total_price, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            room_id = EXCLUDED.room_id,
+            building = EXCLUDED.building,
+            room_number = EXCLUDED.room_number,
+            category = EXCLUDED.category,
+            guest_name = EXCLUDED.guest_name,
+            guest_type = EXCLUDED.guest_type,
+            nik_ktp = EXCLUDED.nik_ktp,
+            kloter = EXCLUDED.kloter,
+            start_date = EXCLUDED.start_date,
+            duration = EXCLUDED.duration,
+            duration_unit = EXCLUDED.duration_unit,
+            phone = EXCLUDED.phone,
+            notes = EXCLUDED.notes,
+            status = EXCLUDED.status,
+            created_user = EXCLUDED.created_user,
+            is_group = EXCLUDED.is_group,
+            group_type = EXCLUDED.group_type,
+            group_name = EXCLUDED.group_name,
+            group_id = EXCLUDED.group_id,
+            total_pax = EXCLUDED.total_pax,
+            payment_status = EXCLUDED.payment_status,
+            payment_method = EXCLUDED.payment_method,
+            paid_amount = EXCLUDED.paid_amount,
+            total_price = EXCLUDED.total_price,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.roomId || '', record.building || '', record.roomNumber || '', record.category || 'UMUM',
+          record.guestName || '', record.guestType || 'INDIVIDU', record.nikKtp || '', record.kloter || '',
+          record.startDate || '', record.duration || 1, record.durationUnit || 'Malam', record.phone || '',
+          record.notes || '', record.status || 'BOOKED', record.createdUser || '', record.isGroup || false,
+          record.groupType || '', record.groupName || '', record.groupId || '', record.totalPax || 1,
+          record.paymentStatus || 'BELUM_LUNAS', record.paymentMethod || '', record.paidAmount || 0,
+          record.totalPrice || 0, JSON.stringify(record)
+        ]);
+      } else if (table === "rooms" && record.id) {
+        await client.query(`
+          INSERT INTO rooms (id, room_number, building, building_id, floor, type, bed_type, capacity, capacity_number, status, price_per_night, facilities, qc_status, last_qc_date, last_qc_by, last_qc_notes, active_tx_id, active_maint_id, notes, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            room_number = EXCLUDED.room_number,
+            building = EXCLUDED.building,
+            building_id = EXCLUDED.building_id,
+            floor = EXCLUDED.floor,
+            type = EXCLUDED.type,
+            bed_type = EXCLUDED.bed_type,
+            capacity = EXCLUDED.capacity,
+            capacity_number = EXCLUDED.capacity_number,
+            status = EXCLUDED.status,
+            price_per_night = EXCLUDED.price_per_night,
+            facilities = EXCLUDED.facilities,
+            qc_status = EXCLUDED.qc_status,
+            last_qc_date = EXCLUDED.last_qc_date,
+            last_qc_by = EXCLUDED.last_qc_by,
+            last_qc_notes = EXCLUDED.last_qc_notes,
+            active_tx_id = EXCLUDED.active_tx_id,
+            active_maint_id = EXCLUDED.active_maint_id,
+            notes = EXCLUDED.notes,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.roomNumber || '', record.building || '', record.buildingId || '', record.floor || 1,
+          record.type || 'Standar', record.bedType || '4 Single Bed', record.capacity || '4 Orang',
+          record.capacityNumber || 4, record.status || 'READY', record.pricePerNight || 0,
+          JSON.stringify(record.facilities || []), record.qcStatus || 'LOLOS_QC', record.lastQcDate || null,
+          record.lastQcBy || null, record.lastQcNotes || null, record.activeTxId || null,
+          record.activeMaintId || null, record.notes || null, JSON.stringify(record)
+        ]);
+      } else if (table === "users" && record.id) {
+        await client.query(`
+          INSERT INTO users (id, username, full_name, role, department, assigned_building, phone, email, nip, status, password, permissions, signature_url, qr_code_url, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            username = EXCLUDED.username,
+            full_name = EXCLUDED.full_name,
+            role = EXCLUDED.role,
+            department = EXCLUDED.department,
+            assigned_building = EXCLUDED.assigned_building,
+            phone = EXCLUDED.phone,
+            email = EXCLUDED.email,
+            nip = EXCLUDED.nip,
+            status = EXCLUDED.status,
+            password = EXCLUDED.password,
+            permissions = EXCLUDED.permissions,
+            signature_url = EXCLUDED.signature_url,
+            qr_code_url = EXCLUDED.qr_code_url,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.username || '', record.fullName || record.full_name || '', record.role || 'Resepsionis',
+          record.department || '', record.assignedBuilding || record.assigned_building || '',
+          record.phone || '', record.email || '', record.nip || '', record.status || 'active',
+          record.password || '', JSON.stringify(record.permissions || {}), record.signatureUrl || null,
+          record.qrCodeUrl || null, JSON.stringify(record)
+        ]);
+      } else if (table === "buildings" && record.id) {
+        await client.query(`
+          INSERT INTO buildings (id, name, code, floors, total_rooms, capacity_desc, category, status, description, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            code = EXCLUDED.code,
+            floors = EXCLUDED.floors,
+            total_rooms = EXCLUDED.total_rooms,
+            capacity_desc = EXCLUDED.capacity_desc,
+            category = EXCLUDED.category,
+            status = EXCLUDED.status,
+            description = EXCLUDED.description,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.name || '', record.code || '', record.floors || 1, record.totalRooms || 0,
+          record.capacityDesc || '', record.category || 'PENGINAPAN', record.status || 'AKTIF',
+          record.description || '', JSON.stringify(record)
+        ]);
+      } else if (table === "work_sessions" && record.id) {
+        await client.query(`
+          INSERT INTO work_sessions (id, user_id, user_name, user_role, login_time, logout_time, duration_seconds, status, notes, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            user_name = EXCLUDED.user_name,
+            user_role = EXCLUDED.user_role,
+            login_time = EXCLUDED.login_time,
+            logout_time = EXCLUDED.logout_time,
+            duration_seconds = EXCLUDED.duration_seconds,
+            status = EXCLUDED.status,
+            notes = EXCLUDED.notes,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.userId || '', record.userName || '', record.userRole || '',
+          record.loginTime || '', record.logoutTime || null, record.durationSeconds || 0,
+          record.status || 'AKTIF', record.notes || '', JSON.stringify(record)
+        ]);
+      } else if (table === "audit_logs" && record.id) {
+        await client.query(`
+          INSERT INTO audit_logs (id, timestamp, user_name, role, action, details, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            timestamp = EXCLUDED.timestamp,
+            user_name = EXCLUDED.user_name,
+            role = EXCLUDED.role,
+            action = EXCLUDED.action,
+            details = EXCLUDED.details,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.timestamp || '', record.userName || '', record.role || '',
+          record.action || '', record.details || '', JSON.stringify(record)
+        ]);
+      } else if (table === "maintenances" && record.id) {
+        await client.query(`
+          INSERT INTO maintenances (id, room_id, room_number, building, category, issue, description, urgency, status, technician, report_time, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            room_id = EXCLUDED.room_id,
+            room_number = EXCLUDED.room_number,
+            building = EXCLUDED.building,
+            category = EXCLUDED.category,
+            issue = EXCLUDED.issue,
+            description = EXCLUDED.description,
+            urgency = EXCLUDED.urgency,
+            status = EXCLUDED.status,
+            technician = EXCLUDED.technician,
+            report_time = EXCLUDED.report_time,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.roomId || '', record.roomNumber || '', record.building || '', record.category || '',
+          record.issue || '', record.description || '', record.urgency || 'Sedang', record.status || 'PROSES',
+          record.technician || '', record.reportTime || '', JSON.stringify(record)
+        ]);
+      } else if (table === "qc_inspections" && record.id) {
+        await client.query(`
+          INSERT INTO qc_inspections (id, room_id, building, room_number, inspector_id, inspector_name, inspection_date, cleanliness, linen_bed, ac_electricity, plumbing_water, amenities, result, notes, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            room_id = EXCLUDED.room_id,
+            building = EXCLUDED.building,
+            room_number = EXCLUDED.room_number,
+            inspector_id = EXCLUDED.inspector_id,
+            inspector_name = EXCLUDED.inspector_name,
+            inspection_date = EXCLUDED.inspection_date,
+            cleanliness = EXCLUDED.cleanliness,
+            linen_bed = EXCLUDED.linen_bed,
+            ac_electricity = EXCLUDED.ac_electricity,
+            plumbing_water = EXCLUDED.plumbing_water,
+            amenities = EXCLUDED.amenities,
+            result = EXCLUDED.result,
+            notes = EXCLUDED.notes,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.roomId || '', record.building || '', record.roomNumber || '', record.inspectorId || '',
+          record.inspectorName || '', record.inspectionDate || '', record.cleanliness || '', record.linenBed || '',
+          record.acElectricity || '', record.plumbingWater || '', record.amenities || '', record.result || 'LOLOS_QC',
+          record.notes || '', JSON.stringify(record)
+        ]);
+      } else if (table === "breakfast_orders" && record.id) {
+        await client.query(`
+          INSERT INTO breakfast_orders (id, room_number, building, guest_name, phone, transaction_id, menu_name, portions, days, start_date, status, total_price, notes, cancel_reason, raw_data, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            room_number = EXCLUDED.room_number,
+            building = EXCLUDED.building,
+            guest_name = EXCLUDED.guest_name,
+            phone = EXCLUDED.phone,
+            transaction_id = EXCLUDED.transaction_id,
+            menu_name = EXCLUDED.menu_name,
+            portions = EXCLUDED.portions,
+            days = EXCLUDED.days,
+            start_date = EXCLUDED.start_date,
+            status = EXCLUDED.status,
+            total_price = EXCLUDED.total_price,
+            notes = EXCLUDED.notes,
+            cancel_reason = EXCLUDED.cancel_reason,
+            raw_data = EXCLUDED.raw_data,
+            updated_at = NOW();
+        `, [
+          record.id, record.roomNumber || '', record.building || '', record.guestName || '', record.phone || '',
+          record.transactionId || '', record.menuName || '', record.portions || 1, record.days || 1,
+          record.startDate || '', record.status || 'MENUNGGU', record.totalPrice || 0, record.notes || '',
+          record.cancelReason || '', JSON.stringify(record)
+        ]);
+      } else if (table === "app_settings") {
+        const key = record.key || 'general';
+        const val = record.value || record;
+        await client.query(`
+          INSERT INTO app_settings (key, value, updated_at)
+          VALUES ($1, $2, NOW())
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+        `, [key, JSON.stringify(val)]);
+      } else if (record.id) {
+        try {
+          await client.query(`
+            INSERT INTO ${table} (id, raw_data, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (id) DO UPDATE SET raw_data = EXCLUDED.raw_data, updated_at = NOW();
+          `, [record.id, JSON.stringify(record)]);
+        } catch (_) {}
+      }
+      return true;
+    } catch (err) {
+      console.warn(`[Aiven Single Upsert Error on ${rawSheet}]:`, err);
+      return false;
+    } finally {
+      if (client) client.release();
+    }
+  }
+
+  // Helper untuk DELETE satu rekaman langsung dari Aiven PostgreSQL
+  async function deleteSingleRecordFromAiven(rawSheet: string, recordId: string): Promise<boolean> {
+    const pool = getActiveAivenPool();
+    if (!pool || !recordId) return false;
+
+    const { snakeKey } = getTableKeys(rawSheet);
+    let table = snakeKey;
+    if (table === "system_logs") table = "audit_logs";
+
+    let client: any = null;
+    try {
+      client = await pool.connect();
+      await client.query(`DELETE FROM ${table} WHERE id = $1;`, [String(recordId).trim()]);
+      return true;
+    } catch (err) {
+      console.warn(`[Aiven Single Delete Error on ${table}]:`, err);
+      return false;
+    } finally {
+      if (client) client.release();
     }
   }
 
@@ -1500,21 +1812,19 @@ async function startServer() {
     }
 
     try {
-      const client = await pool.connect();
       const resultData: any = {};
-      try {
-        // Query tables
-        const tableList = [
-          'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
-          'breakfast_menu_items', 'transactions', 'users', 'maintenances',
-          'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
-          'audit_logs'
-        ];
+      const tableList = [
+        'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
+        'breakfast_menu_items', 'transactions', 'users', 'maintenances',
+        'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
+        'audit_logs'
+      ];
 
-        for (const t of tableList) {
+      await Promise.all([
+        ...tableList.map(async (t) => {
           try {
-            const qr = await client.query(`SELECT * FROM ${t};`);
-            resultData[t] = qr.rows.map(row => {
+            const qr = await pool.query(`SELECT * FROM ${t};`);
+            resultData[t] = qr.rows.map((row: any) => {
               let parsedRaw: any = {};
               if (row.raw_data) {
                 if (typeof row.raw_data === 'object') {
@@ -1539,19 +1849,16 @@ async function startServer() {
           } catch (_) {
             resultData[t] = [];
           }
-        }
-
-        // Settings
-        try {
-          const setQr = await client.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
-          if (setQr.rows.length > 0 && setQr.rows[0].value) {
-            resultData.appSettings = setQr.rows[0].value;
-          }
-        } catch (_) {}
-
-      } finally {
-        client.release();
-      }
+        }),
+        (async () => {
+          try {
+            const setQr = await pool.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
+            if (setQr.rows.length > 0 && setQr.rows[0].value) {
+              resultData.appSettings = setQr.rows[0].value;
+            }
+          } catch (_) {}
+        })()
+      ]);
 
       // Update server local cache
       if (resultData.buildings?.length > 0 || resultData.rooms?.length > 0) {
@@ -2189,6 +2496,11 @@ async function startServer() {
     if (sessionSyncTimeout) clearTimeout(sessionSyncTimeout);
     sessionSyncTimeout = setTimeout(async () => {
       try {
+        // Sync to Aiven PostgreSQL as primary database
+        if (Array.isArray(realtimeState.workSessions) && realtimeState.workSessions.length > 0) {
+          pushDatasetToAiven({ workSessions: realtimeState.workSessions }).catch(() => {});
+        }
+
         const payload = {
           action: "BATCH_OPERATIONS",
           timestamp: new Date().toISOString(),
@@ -2712,63 +3024,62 @@ async function startServer() {
     const pool = getActiveAivenPool();
     if (pool) {
       try {
-        const client = await pool.connect();
-        try {
-          const tableList = [
-            'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
-            'breakfast_menu_items', 'transactions', 'users', 'maintenances',
-            'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
-            'audit_logs'
-          ];
-          const aivenData: any = {};
-          for (const t of tableList) {
+        const tableList = [
+          'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
+          'breakfast_menu_items', 'transactions', 'users', 'maintenances',
+          'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
+          'audit_logs'
+        ];
+        const aivenData: any = {};
+        await Promise.all([
+          ...tableList.map(async (t) => {
             try {
-              const qr = await client.query(`SELECT * FROM ${t};`);
+              const qr = await pool.query(`SELECT * FROM ${t};`);
               aivenData[t] = qr.rows.map(row => (row.raw_data && typeof row.raw_data === 'object' ? { ...row.raw_data, ...row } : row));
             } catch (_) {
               aivenData[t] = [];
             }
-          }
+          }),
+          (async () => {
+            try {
+              const setQr = await pool.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
+              if (setQr.rows.length > 0 && setQr.rows[0].value) {
+                aivenData.appSettings = setQr.rows[0].value;
+              }
+            } catch (_) {}
+          })()
+        ]);
+
+        if (aivenData.buildings?.length > 0 || aivenData.rooms?.length > 0) {
+          serverDatabaseCache = {
+            ...serverDatabaseCache,
+            buildings: aivenData.buildings || [],
+            rooms: aivenData.rooms || [],
+            meetingRooms: aivenData.meeting_rooms || [],
+            roomCapacityRates: aivenData.room_capacity_rates || [],
+            breakfastMenuItems: aivenData.breakfast_menu_items || [],
+            transactions: aivenData.transactions || [],
+            users: aivenData.users || [],
+            maintenances: aivenData.maintenances || [],
+            qcInspections: aivenData.qc_inspections || [],
+            breakfastOrders: aivenData.breakfast_orders || [],
+            cleaningLogs: aivenData.cleaning_logs || [],
+            workSessions: aivenData.work_sessions || [],
+            auditLogs: aivenData.audit_logs || [],
+            appSettings: aivenData.appSettings || serverDatabaseCache?.appSettings
+          };
           try {
-            const setQr = await client.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
-            if (setQr.rows.length > 0 && setQr.rows[0].value) {
-              aivenData.appSettings = setQr.rows[0].value;
-            }
+            fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
           } catch (_) {}
 
-          if (aivenData.buildings?.length > 0 || aivenData.rooms?.length > 0) {
-            serverDatabaseCache = {
-              ...serverDatabaseCache,
-              buildings: aivenData.buildings || [],
-              rooms: aivenData.rooms || [],
-              meetingRooms: aivenData.meeting_rooms || [],
-              roomCapacityRates: aivenData.room_capacity_rates || [],
-              breakfastMenuItems: aivenData.breakfast_menu_items || [],
-              transactions: aivenData.transactions || [],
-              users: aivenData.users || [],
-              maintenances: aivenData.maintenances || [],
-              qcInspections: aivenData.qc_inspections || [],
-              breakfastOrders: aivenData.breakfast_orders || [],
-              cleaningLogs: aivenData.cleaning_logs || [],
-              workSessions: aivenData.work_sessions || [],
-              auditLogs: aivenData.audit_logs || [],
-              appSettings: aivenData.appSettings || serverDatabaseCache?.appSettings
-            };
-            try {
-              fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
-            } catch (_) {}
-
-            const fullFormatted = formatDatabaseForSpreadsheet(serverDatabaseCache);
-            return res.json({
-              status: "success",
-              message: "Data dimuat langsung dari Basis Data Utama Aiven Cloud (PostgreSQL).",
-              data: fullFormatted,
-              source: "aiven_cloud_postgres",
-              updatedAt: new Date().toISOString(),
-            });
-          }
-        } finally {
-          client.release();
+          const fullFormatted = formatDatabaseForSpreadsheet(serverDatabaseCache);
+          return res.json({
+            status: "success",
+            message: "Data dimuat langsung dari Basis Data Utama Aiven Cloud (PostgreSQL).",
+            data: fullFormatted,
+            source: "aiven_cloud_postgres",
+            updatedAt: new Date().toISOString(),
+          });
         }
       } catch (aivenErr: any) {
         console.warn("Gagal membaca langsung dari Aiven, fallback ke server cache:", aivenErr?.message || aivenErr);
@@ -3057,20 +3368,22 @@ async function startServer() {
     // 1. PRIORITAS UTAMA: SIMPAN KE BASIS DATA UTAMA AIVEN CLOUD POSTGRESQL
     const pool = getActiveAivenPool();
     if (pool) {
-      pushDatasetToAiven(payload).then(resAiven => {
+      try {
+        const resAiven = await pushDatasetToAiven(payload);
         if (resAiven.ok) {
           console.log("[Aiven Push] Data berhasil disimpan ke Aiven PostgreSQL!");
         } else {
           console.warn("[Aiven Push] Gagal push ke Aiven:", resAiven.error);
         }
-      }).catch(err => {
+        return res.json({
+          ok: true,
+          status: "saved_aiven",
+          message: "Database berhasil disimpan ke Basis Data Utama Aiven Cloud (PostgreSQL).",
+          counts: resAiven.counts,
+        });
+      } catch (err: any) {
         console.warn("[Aiven Push] Error:", err);
-      });
-      return res.json({
-        ok: true,
-        status: "saved_aiven",
-        message: "Database berhasil disimpan ke Basis Data Utama Aiven Cloud (PostgreSQL).",
-      });
+      }
     }
 
     if (!targetUrl) {
@@ -3332,7 +3645,12 @@ async function startServer() {
     // 1. Simpan ke database server cache secara instan (0ms)
     upsertRecordInCache(rawSheet, record);
 
-    // 2. Siarkan pembaruan database seketika ke seluruh perangkat & akun yang sedang login via SSE
+    // 2. Simpan seketika ke Basis Data Utama Aiven Cloud (PostgreSQL)
+    upsertSingleRecordToAiven(rawSheet, record).catch((err) => {
+      console.warn(`[Aiven Upsert] Gagal menyimpan ke Aiven: ${err?.message || err}`);
+    });
+
+    // 3. Siarkan pembaruan database seketika ke seluruh perangkat & akun yang sedang login via SSE
     broadcastRealtimeEvent("database:sync", {
       action: "upsert",
       sheet: rawSheet,
@@ -3341,7 +3659,7 @@ async function startServer() {
       db: serverDatabaseCache,
     }, req.body?.clientId);
 
-    // 3. Teruskan secara asinkron ke Google Apps Script di latar belakang
+    // 4. Teruskan secara asinkron ke Google Apps Script di latar belakang
     if (targetUrl) {
       const payload = {
         action: "UPSERT_RECORD",
@@ -3363,7 +3681,7 @@ async function startServer() {
     res.json({
       ok: true,
       status: "success",
-      message: "Data berhasil disimpan instan di server dan disinkronkan ke seluruh perangkat",
+      message: "Data berhasil disimpan di Aiven PostgreSQL dan server cache",
       record,
     });
   });
@@ -3381,7 +3699,12 @@ async function startServer() {
     // 1. Hapus dari database server cache secara instan (0ms)
     deleteRecordInCache(rawSheet, recordId);
 
-    // 2. Siarkan penghapusan seketika ke seluruh perangkat & akun yang sedang login via SSE
+    // 2. Hapus seketika dari Basis Data Utama Aiven Cloud (PostgreSQL)
+    deleteSingleRecordFromAiven(rawSheet, recordId).catch((err) => {
+      console.warn(`[Aiven Delete] Gagal menghapus dari Aiven: ${err?.message || err}`);
+    });
+
+    // 3. Siarkan penghapusan seketika ke seluruh perangkat & akun yang sedang login via SSE
     broadcastRealtimeEvent("database:sync", {
       action: "delete",
       sheet: rawSheet,
@@ -3390,7 +3713,7 @@ async function startServer() {
       db: serverDatabaseCache,
     }, req.body?.clientId);
 
-    // 3. Teruskan secara asinkron ke Google Apps Script di latar belakang
+    // 4. Teruskan secara asinkron ke Google Apps Script di latar belakang
     if (targetUrl) {
       const payload = {
         action: "DELETE_RECORD",
@@ -3627,6 +3950,10 @@ async function startServer() {
       triggerAsyncWorkSessionSpreadsheetSync();
     } else if (type === "session:clear") {
       realtimeState.workSessions = [];
+      const pool = getActiveAivenPool();
+      if (pool) {
+        pool.query("DELETE FROM work_sessions;").catch(() => {});
+      }
       triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:clear", {}, clientId);
     } else if (type === "session:delete" && (payload?.id || payload?.ids)) {
@@ -3636,6 +3963,9 @@ async function startServer() {
       realtimeState.workSessions = realtimeState.workSessions.filter((s: any) => !idsToDelete.has(s.id));
       if (serverDatabaseCache && Array.isArray(serverDatabaseCache.workSessions)) {
         serverDatabaseCache.workSessions = serverDatabaseCache.workSessions.filter((s: any) => !idsToDelete.has(s.id));
+      }
+      for (const delId of idsToDelete) {
+        deleteSingleRecordFromAiven("work_sessions", delId).catch(() => {});
       }
       triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:delete", payload, clientId);
@@ -3890,6 +4220,98 @@ async function startServer() {
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+
+    // Self-boot initial connection & table sync with Aiven PostgreSQL
+    (async () => {
+      try {
+        const pool = getActiveAivenPool();
+        if (!pool) return;
+        const start = Date.now();
+        const client = await pool.connect();
+        try {
+          const vQr = await client.query("SELECT NOW(), version();");
+          const latency = Date.now() - start;
+          activeAivenConfig.lastConnectedAt = new Date().toISOString();
+          activeAivenConfig.lastError = null;
+          activeAivenConfig.latencyMs = latency;
+          activeAivenConfig.pgVersion = vQr.rows[0]?.version || null;
+
+          // Ensure tables and columns exist
+          for (const [tName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
+            await client.query(ddl);
+          }
+          await ensureTableColumns(client);
+
+          // Check if Aiven has records
+          const countQr = await client.query("SELECT COUNT(*) FROM buildings;");
+          const bldCount = Number(countQr.rows[0]?.count || 0);
+
+          if (bldCount > 0) {
+            console.log(`[Aiven Init] Terhubung ke Aiven Cloud PostgreSQL (${latency}ms). Memuat ${bldCount} gedung...`);
+            // Load fresh data from Aiven into serverDatabaseCache
+            const tableList = [
+              'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
+              'breakfast_menu_items', 'transactions', 'users', 'maintenances',
+              'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
+              'audit_logs'
+            ];
+            const aivenData: any = {};
+            for (const t of tableList) {
+              try {
+                const qr = await client.query(`SELECT * FROM ${t};`);
+                aivenData[t] = qr.rows.map(row => (row.raw_data && typeof row.raw_data === 'object' ? { ...row.raw_data, ...row } : row));
+              } catch (_) {
+                aivenData[t] = [];
+              }
+            }
+            try {
+              const setQr = await client.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
+              if (setQr.rows.length > 0 && setQr.rows[0].value) {
+                aivenData.appSettings = setQr.rows[0].value;
+              }
+            } catch (_) {}
+
+            serverDatabaseCache = {
+              ...serverDatabaseCache,
+              buildings: aivenData.buildings || [],
+              rooms: aivenData.rooms || [],
+              meetingRooms: aivenData.meeting_rooms || [],
+              roomCapacityRates: aivenData.room_capacity_rates || [],
+              breakfastMenuItems: aivenData.breakfast_menu_items || [],
+              transactions: aivenData.transactions || [],
+              users: aivenData.users || [],
+              maintenances: aivenData.maintenances || [],
+              qcInspections: aivenData.qc_inspections || [],
+              breakfastOrders: aivenData.breakfast_orders || [],
+              cleaningLogs: aivenData.cleaning_logs || [],
+              workSessions: aivenData.work_sessions || [],
+              auditLogs: aivenData.audit_logs || [],
+              appSettings: aivenData.appSettings || serverDatabaseCache?.appSettings
+            };
+
+            try {
+              fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
+            } catch (_) {}
+
+            if (Array.isArray(serverDatabaseCache.workSessions) && serverDatabaseCache.workSessions.length > 0 && realtimeState.workSessions.length === 0) {
+              realtimeState.workSessions = serverDatabaseCache.workSessions;
+            }
+          } else if (serverDatabaseCache && Array.isArray(serverDatabaseCache.buildings) && serverDatabaseCache.buildings.length > 0) {
+            console.log("[Aiven Init] Database Aiven baru/kosong. Menginisialisasi data awal dari server cache...");
+            await pushDatasetToAiven(serverDatabaseCache);
+          }
+
+          try {
+            fs.writeFileSync(aivenConfigFilePath, JSON.stringify(activeAivenConfig, null, 2), "utf-8");
+          } catch (_) {}
+        } finally {
+          client.release();
+        }
+      } catch (err: any) {
+        console.warn("[Aiven Init] Gagal inisialisasi awal ke Aiven PostgreSQL:", err?.message || err);
+        activeAivenConfig.lastError = err?.message || String(err);
+      }
+    })();
   });
 }
 

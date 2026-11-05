@@ -437,8 +437,12 @@ export class DataStorageService {
     function mergeEntityList<T extends { id?: string; updatedAt?: string; [key: string]: any }>(
       localList: T[],
       cloudList: T[],
-      _isPreferCloud: boolean = false
+      isPreferCloud: boolean = false
     ): T[] {
+      // Jika preferCloud aktif dan cloudList tersedia, prioritaskan penuh cloudList sebagai data terotorisasi
+      if (isPreferCloud && Array.isArray(cloudList) && cloudList.length > 0) {
+        return [...cloudList];
+      }
       const map = new Map<string, T>();
       // 1. Masukkan seluruh item dari cloud terlebih dahulu
       for (const item of (cloudList || [])) {
@@ -447,17 +451,19 @@ export class DataStorageService {
           map.set(idKey, item);
         }
       }
-      // 2. Gabungkan dari lokal — selalu pertahankan data lokal yang belum ada di cloud atau memiliki timestamp lebih baru
+      // 2. Gabungkan dari lokal jika belum ada di cloud
       for (const item of (localList || [])) {
         if (!item || (!item.id && !(item as any).code)) continue;
         const idKey = String(item.id || (item as any).code).trim();
         const existing = map.get(idKey);
         if (!existing) {
-          map.set(idKey, item);
+          if (!isPreferCloud) {
+            map.set(idKey, item);
+          }
         } else {
           const localTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
           const cloudTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-          if (localTime >= cloudTime) {
+          if (localTime > cloudTime && !isPreferCloud) {
             map.set(idKey, item);
           }
         }
@@ -1744,7 +1750,7 @@ export class DataStorageService {
       updatedTxs = [txWithTime, ...db.transactions];
     }
 
-    this.saveDatabase({ ...db, transactions: updatedTxs }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, transactions: updatedTxs });
     upsertRecordToSpreadsheet('transactions', txWithTime).catch(() => {});
     return txWithTime;
   }
@@ -1752,7 +1758,7 @@ export class DataStorageService {
   public saveTransactions(txs: Transaction[]): void {
     const db = this.getDatabase();
     const withTime = txs.map(t => ({ ...t, updatedAt: t.updatedAt || new Date().toISOString() }));
-    this.saveDatabase({ ...db, transactions: withTime }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, transactions: withTime });
     for (const t of withTime) {
       upsertRecordToSpreadsheet('transactions', t).catch(() => {});
     }
@@ -1787,7 +1793,7 @@ export class DataStorageService {
     // Hapus juga pesanan sarapan terkait jika ada
     const updatedOrders = (db.breakfastOrders || []).filter(o => o.transactionId !== txId && o.id !== `BO-TX-${txId}`);
 
-    this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, transactions: updatedTxs, rooms: updatedRooms, breakfastOrders: updatedOrders });
     deleteRecordFromSpreadsheet('transactions', txId).catch(() => {});
     return { success: true, message: `Transaksi '${targetTx.guestName}' (${txId}) berhasil dihapus secara permanen.` };
   }
@@ -1967,7 +1973,7 @@ export class DataStorageService {
       updated = [sessionWithId, ...db.workSessions];
     }
 
-    this.saveDatabase({ ...db, workSessions: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, workSessions: updated });
     upsertRecordToSpreadsheet('work_sessions', sessionWithId).catch(() => {});
     return sessionWithId;
   }
@@ -1981,7 +1987,7 @@ export class DataStorageService {
     const updated = (db.workSessions || []).filter(s => s.id !== sessionId);
     this.cache = { ...db, workSessions: updated };
     this.saveToStorage(this.cache);
-    this.saveDatabase({ ...db, workSessions: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, workSessions: updated });
     deleteRecordFromSpreadsheet('work_sessions', sessionId).catch(() => {});
     return true;
   }
@@ -1998,7 +2004,7 @@ export class DataStorageService {
     const updated = (db.workSessions || []).filter(s => !idSet.has(s.id));
     this.cache = { ...db, workSessions: updated };
     this.saveToStorage(this.cache);
-    this.saveDatabase({ ...db, workSessions: updated }, { skipCloudSync: true });
+    this.saveDatabase({ ...db, workSessions: updated });
 
     sessionIds.forEach(id => {
       deleteRecordFromSpreadsheet('work_sessions', id).catch(() => {});
