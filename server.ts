@@ -682,9 +682,12 @@ async function startServer() {
     try {
       await client.query("BEGIN");
 
-      // 1. Ensure tables exist
+      // 1. Ensure tables exist and include raw_data column
       for (const [tName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
         await client.query(ddl);
+        if (tName !== 'app_settings') {
+          await client.query(`ALTER TABLE ${tName} ADD COLUMN IF NOT EXISTS raw_data JSONB;`).catch(() => {});
+        }
       }
 
       // 2. Upsert buildings
@@ -1217,6 +1220,9 @@ async function startServer() {
       try {
         for (const [tableName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
           await client.query(ddl);
+          if (tableName !== 'app_settings') {
+            await client.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS raw_data JSONB;`).catch(() => {});
+          }
           createdTables.push(tableName);
         }
       } finally {

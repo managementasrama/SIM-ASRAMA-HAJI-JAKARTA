@@ -281,24 +281,31 @@ export function FloatingChatPanel() {
     const seenDirectPartners = new Set<string>();
     const list: ChatChannel[] = [];
 
+    const safeChannels = Array.isArray(chatChannels) ? chatChannels.filter(Boolean) : [];
     // Sort channels so ones with recent messages come first among direct chats, while keeping primary groups accessible
-    const sorted = [...chatChannels].sort((a, b) => {
-      if (a.id === 'channel-all-managers') return -1;
-      if (b.id === 'channel-all-managers') return 1;
-      if (a.type !== b.type) return a.type === 'GROUP' ? -1 : 1;
+    const sorted = [...safeChannels].sort((a, b) => {
+      if (!a || !b) return 0;
+      const aId = String(a.id || '');
+      const bId = String(b.id || '');
+      if (aId === 'channel-all-managers') return -1;
+      if (bId === 'channel-all-managers') return 1;
+      const aType = String(a.type || 'GROUP');
+      const bType = String(b.type || 'GROUP');
+      if (aType !== bType) return aType === 'GROUP' ? -1 : 1;
       return String(b.lastMessageTime || '').localeCompare(String(a.lastMessageTime || ''));
     });
 
     for (const c of sorted) {
-      if (seenIds.has(c.id)) continue;
+      if (!c || !c.id || seenIds.has(c.id)) continue;
 
       if (c.type === 'GROUP') {
         seenIds.add(c.id);
         list.push(c);
       } else if (c.type === 'DIRECT') {
+        const participantIds = Array.isArray(c.participantIds) ? c.participantIds : [];
         const isParticipant =
-          c.participantIds.includes(currentUser.id) ||
-          c.id.includes(currentUser.id);
+          participantIds.includes(currentUser.id) ||
+          String(c.id || '').includes(currentUser.id);
         if (!isParticipant) continue;
 
         const partner = getDirectChatPartner(c);
@@ -316,6 +323,7 @@ export function FloatingChatPanel() {
   const getChannelUnread = (channelId: string): number => {
     return chatMessages.filter(
       m =>
+        m &&
         m.channelId === channelId &&
         m.senderId !== currentUser.id &&
         !(m.readBy || []).includes(currentUser.id)
@@ -324,18 +332,19 @@ export function FloatingChatPanel() {
 
   const groupUnreadTotal = useMemo(() => {
     return accessibleChannels
-      .filter(c => c.type === 'GROUP')
+      .filter(c => c && c.type === 'GROUP')
       .reduce((acc, c) => acc + getChannelUnread(c.id), 0);
   }, [accessibleChannels, chatMessages, currentUser.id]);
 
   const directUnreadTotal = useMemo(() => {
     return accessibleChannels
-      .filter(c => c.type === 'DIRECT')
+      .filter(c => c && c.type === 'DIRECT')
       .reduce((acc, c) => acc + getChannelUnread(c.id), 0);
   }, [accessibleChannels, chatMessages, currentUser.id]);
 
   const filteredChannels = useMemo(() => {
     return accessibleChannels.filter(c => {
+      if (!c) return false;
       if (chatSubFilter === 'GROUP' && c.type !== 'GROUP') return false;
       if (chatSubFilter === 'DIRECT' && c.type !== 'DIRECT') return false;
       if (searchQuery && String(searchQuery).trim()) {
@@ -351,13 +360,15 @@ export function FloatingChatPanel() {
 
   // All other active accounts for quick 1-click personal chat bar
   const otherColleagues = useMemo(() => {
-    return users
-      .filter(u => u.id !== currentUser.id && u.status === 'Aktif')
+    const safeUsers = Array.isArray(users) ? users.filter(Boolean) : [];
+    return safeUsers
+      .filter(u => u && u.id !== currentUser.id && (u.status === 'Aktif' || !u.status))
       .sort((a, b) => {
+        if (!a || !b) return 0;
         const aOnline = isUserOnline(a.id) ? 1 : 0;
         const bOnline = isUserOnline(b.id) ? 1 : 0;
         if (aOnline !== bOnline) return bOnline - aOnline;
-        return a.fullName.localeCompare(b.fullName);
+        return String(a.fullName || '').localeCompare(String(b.fullName || ''));
       });
   }, [users, currentUser.id, onlinePresences, workSessions]);
 
