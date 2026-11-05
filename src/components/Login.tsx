@@ -103,14 +103,14 @@ export function Login() {
     const startMs = Date.now();
 
     try {
-      // 1. Tarik & sinkronkan data termutakhir dari basis data Spreadsheet agar data di setiap akun yang login identik
+      // 1. Tarik & sinkronkan data termutakhir dari Basis Data Utama Aiven PostgreSQL agar data di setiap akun yang login identik
       try {
         await Promise.race([
           pullFromCentralDatabase(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2800))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
         ]);
       } catch (_) {
-        // Fallback cepat jika timeout: tetap lanjutkan dengan data lokal tersimpan
+        // Fallback jika timeout / offline
       }
 
       // Berikan jeda halus minimal 400ms agar animasi titik berjalan terlihat jelas

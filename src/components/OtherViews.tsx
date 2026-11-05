@@ -4838,7 +4838,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 }`}
               >
                 <i className="fa-solid fa-server text-indigo-600"></i>
-                <span>Basis Data Cloud (Aiven)</span>
+                <span>Basis Data Cloud (Aiven PostgreSQL)</span>
               </button>
             </>
           )}
