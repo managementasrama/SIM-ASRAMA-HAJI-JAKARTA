@@ -807,25 +807,43 @@ export function getNextRoomNumber(
 }
 
 /**
- * Deduplikasi daftar konfigurasi tarif kapasitas kamar berdasarkan ID dan kombinasi roomType::bedType
+ * Deduplikasi dan sanitasi daftar konfigurasi tarif kapasitas kamar berdasarkan ID dan kombinasi roomType::bedType
  */
 export function deduplicateRoomCapacityRates(rates: RoomCapacityRate[]): RoomCapacityRate[] {
   if (!Array.isArray(rates)) return [];
   const seenIds = new Set<string>();
   const seenCombos = new Set<string>();
-  return rates.filter(r => {
-    if (!r) return false;
-    const idKey = String(r.id || '').trim();
-    const comboKey = `${String(r.roomType || '').trim().toLowerCase()}::${String(r.bedType || '').trim().toLowerCase()}`;
-    
+  const result: RoomCapacityRate[] = [];
+
+  for (let i = 0; i < rates.length; i++) {
+    const r = rates[i];
+    if (!r) continue;
+
+    const roomType = String(r.roomType || (r as any).room_type || 'Standar').trim();
+    const bedType = String(r.bedType || (r as any).bed_type || '4 Single Bed').trim();
+    const idKey = String(r.id || `rcr-${i + 1}`).trim();
+    const comboKey = `${roomType.toLowerCase()}::${bedType.toLowerCase()}`;
+
     // Cegah duplikasi ID ataupun duplikasi kombinasi roomType dan bedType
-    if (idKey && seenIds.has(idKey)) return false;
-    if (comboKey !== '::' && seenCombos.has(comboKey)) return false;
+    if (idKey && seenIds.has(idKey)) continue;
+    if (comboKey !== '::' && seenCombos.has(comboKey)) continue;
 
     if (idKey) seenIds.add(idKey);
     if (comboKey !== '::') seenCombos.add(comboKey);
-    return true;
-  });
+
+    result.push({
+      ...r,
+      id: idKey,
+      roomType,
+      bedType,
+      pricePerNight: Number(r.pricePerNight ?? (r as any).price_per_night ?? 400000),
+      capacityPax: Number(r.capacityPax ?? (r as any).capacity_pax ?? 4),
+      isActive: r.isActive !== false && (r as any).is_active !== false,
+      facilities: Array.isArray(r.facilities) ? r.facilities : []
+    });
+  }
+
+  return result;
 }
 
 /**

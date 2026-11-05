@@ -110,6 +110,12 @@ export function Header() {
       label: 'Kelola Anggota', 
       icon: 'fa-users-gear', 
       roles: ['Super Admin', 'Admin'] 
+    },
+    { 
+      id: 'spreadsheetSync', 
+      label: 'Basis Data Aiven', 
+      icon: 'fa-database', 
+      roles: ['Super Admin', 'Admin'] 
     }
   ];
 
@@ -332,16 +338,16 @@ export function Header() {
                       </button>
                     </div>
 
-                    {/* 3b. Status Sync dengan Database (Google Spreadsheet Utama) */}
-                    <div className="p-3 bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-600/70 rounded-xl space-y-1.5 shadow-2xs">
+                    {/* 3b. Status Sync dengan Database (Aiven PostgreSQL Cloud) */}
+                    <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-1.5 shadow-2xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center space-x-2">
-                          <div className="w-7 h-7 rounded-lg bg-sky-100 dark:bg-sky-900/80 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs shrink-0">
-                            <i className="fa-solid fa-cloud-bolt"></i>
+                          <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs shrink-0">
+                            <i className="fa-solid fa-server"></i>
                           </div>
                           <div>
-                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Sync Database</span>
-                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold block">Google Spreadsheet Utama</span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Basis Data Cloud</span>
+                            <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold block">Aiven PostgreSQL</span>
                           </div>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
@@ -363,14 +369,14 @@ export function Header() {
                               ? 'Menyinkronkan...'
                               : supabaseSyncState?.lastError
                               ? 'Gangguan Koneksi'
-                              : 'Terhubung Real-Time'}
+                              : 'Terhubung Cloud'}
                           </span>
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
-                        <span>Sinkronisasi instan otomatis</span>
+                        <span>Database PostgreSQL Aiven</span>
                         {supabaseSyncState?.lastSyncedAt && (
-                          <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                          <span className="font-mono font-bold text-indigo-700 dark:text-indigo-400">
                             {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
                               hour: '2-digit',
                               minute: '2-digit',
@@ -381,21 +387,21 @@ export function Header() {
                       </div>
                     </div>
 
-                    {/* 3c. Integrasi Google Spreadsheet (Khusus Admin & Super Admin) */}
+                    {/* 3c. Integrasi Basis Data Cloud Aiven (Khusus Admin & Super Admin) */}
                     {currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin') && (
-                      <div className="p-3 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-600/70 rounded-xl space-y-2 shadow-2xs">
+                      <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-2 shadow-2xs">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
-                            <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center text-xs shrink-0">
-                              <i className="fa-solid fa-file-excel"></i>
+                            <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/80 text-indigo-800 dark:text-indigo-300 flex items-center justify-center text-xs shrink-0">
+                              <i className="fa-solid fa-database"></i>
                             </div>
                             <div>
-                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Google Spreadsheet</span>
-                              <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Baca &amp; Sinkronisasi Data Sheet</span>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Basis Data Aiven</span>
+                              <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Koneksi PostgreSQL &amp; Skema Cloud</span>
                             </div>
                           </div>
-                          <span className="text-[9px] bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded font-bold border border-emerald-300 dark:border-emerald-700">
-                            Apps Script
+                          <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/80 text-indigo-800 dark:text-indigo-300 px-1.5 py-0.5 rounded font-bold border border-indigo-300 dark:border-indigo-700">
+                            Aiven Cloud
                           </span>
                         </div>
                         <button
@@ -404,10 +410,10 @@ export function Header() {
                             setIsSwitchOpen(false);
                             setActiveTab('spreadsheetSync');
                           }}
-                          className="w-full py-1.5 px-3 bg-emerald-50 dark:bg-slate-700 hover:bg-emerald-100 dark:hover:bg-slate-600 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
+                          className="w-full py-1.5 px-3 bg-indigo-50 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
                         >
-                          <i className="fa-solid fa-arrow-right-to-bracket text-emerald-600 dark:text-emerald-400"></i>
-                          <span>Buka Panel Google Spreadsheet</span>
+                          <i className="fa-solid fa-arrow-right-to-bracket text-indigo-600 dark:text-indigo-400"></i>
+                          <span>Buka Panel Aiven Database</span>
                         </button>
                       </div>
                     )}

@@ -32,6 +32,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   const canManageRooms = currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin' || isRecepRole(currentUser.role) || currentUser.role === 'Manager');
 
   const [cancelTxTarget, setCancelTxTarget] = useState<Transaction | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
 
   const handleOpenGroupEdit = (tx: Transaction) => {
     onClose();
@@ -857,7 +858,10 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => setCancelTxTarget(tx)}
+                        onClick={() => {
+                          setCancelTxTarget(tx);
+                          setCancelReason('');
+                        }}
                         className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-lg text-xs border border-red-200 flex items-center space-x-1.5 transition cursor-pointer"
                         title="Batalkan reservasi ini"
                       >
@@ -929,6 +933,12 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                         Jadwal: {formatIndonesianDate(cTx.startDate)} ({cTx.duration} {cTx.durationUnit || (isAula ? 'Jam' : 'Malam')})
                         {cTx.cancelledAt ? ` • Dibatalkan: ${cTx.cancelledAt.substring(0, 10)}` : ''}
                       </div>
+                      {cTx.cancelReason && (
+                        <div className="text-[10px] text-rose-700 bg-rose-100/70 px-2 py-0.5 rounded border border-rose-200 mt-1 inline-flex items-center gap-1 font-medium">
+                          <i className="fa-solid fa-circle-info text-[9px]"></i>
+                          <span>Alasan: {cTx.cancelReason}</span>
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -1033,37 +1043,142 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
       {/* Custom Popup Modal for Booking Cancellation */}
       {cancelTxTarget && (
         <div 
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[60] flex items-center justify-center p-4"
-          onClick={() => setCancelTxTarget(null)}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[60] flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => {
+            setCancelTxTarget(null);
+            setCancelReason('');
+          }}
         >
           <div 
-            className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-rose-200 animate-in fade-in zoom-in-95 duration-150"
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-rose-200 animate-in fade-in zoom-in-95 duration-150 my-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-4 bg-rose-50 border-b border-rose-100 flex items-center space-x-3 text-rose-800">
-              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-lg font-bold shrink-0">
-                <i className="fa-solid fa-ban text-rose-600"></i>
+            {/* Header Modal */}
+            <div className="p-4 bg-gradient-to-r from-rose-700 via-rose-800 to-rose-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center text-lg font-bold shrink-0 border border-white/20">
+                  <i className="fa-solid fa-ban text-white"></i>
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-white">Konfirmasi Pembatalan Booking</h4>
+                  <p className="text-[11px] text-rose-200 font-medium">Pembatalan Reservasi Kamar / Fasilitas</p>
+                </div>
               </div>
-              <div>
-                <h4 className="font-bold text-sm text-rose-950">Konfirmasi Pembatalan Booking</h4>
-                <p className="text-[11px] text-rose-600 font-medium">Pembatalan Reservasi Kamar / Ruang</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelTxTarget(null);
+                  setCancelReason('');
+                }}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
+                title="Tutup popup"
+              >
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
             </div>
 
-            <div className="p-5 space-y-3">
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
               <p className="text-xs text-slate-600 leading-relaxed">
-                Apakah Anda yakin ingin membatalkan reservasi booking atas nama <strong>&quot;{cancelTxTarget.guestName}&quot;</strong>?
+                Mohon periksa dan verifikasi rincian data pemesanan berikut sebelum membatalkan reservasi.
               </p>
+
+              {/* Ringkasan Detail Pemesanan */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-3.5 space-y-2.5 text-xs shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <i className="fa-solid fa-file-invoice text-rose-600"></i>
+                    <span>Ringkasan Detail Pemesanan</span>
+                  </span>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
+                    ID: {cancelTxTarget.id}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11.5px]">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/70 shadow-3xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Nama Tamu / Pemesan:</span>
+                    <strong className="text-slate-900 block truncate">{cancelTxTarget.guestName}</strong>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/70 shadow-3xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Nomor Kamar &amp; Lokasi:</span>
+                    <strong className="text-slate-900 block truncate">
+                      {isAula
+                        ? `${isSG ? 'Gedung Serbaguna' : 'Aula'}: ${cancelTxTarget.roomNumber || room.roomNumber}`
+                        : `Kamar ${cancelTxTarget.roomNumber || room.roomNumber} (${cancelTxTarget.building || room.building})`}
+                    </strong>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/70 shadow-3xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Tanggal Booking:</span>
+                    <strong className="text-slate-900 block">
+                      {formatIndonesianDate(cancelTxTarget.startDate)}
+                    </strong>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/70 shadow-3xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Durasi Sewa:</span>
+                    <strong className="text-slate-900 block">
+                      {cancelTxTarget.duration} {cancelTxTarget.durationUnit || (isAula ? 'Jam' : 'Malam')}
+                    </strong>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/70 shadow-3xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Kategori Tamu:</span>
+                    <span className="text-slate-800 font-semibold block truncate">
+                      {cancelTxTarget.category === 'JEMAAH'
+                        ? `Jemaah Kloter ${cancelTxTarget.kloter || '-'}`
+                        : (cancelTxTarget.category || 'Tamu Umum')}
+                    </span>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/70 shadow-3xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Nomor Kontak / Telepon:</span>
+                    <span className="text-slate-800 font-mono font-semibold block truncate">
+                      {cancelTxTarget.phone || '-'}
+                    </span>
+                  </div>
+                </div>
+
+                {cancelTxTarget.isGroup && (
+                  <div className="pt-2 border-t border-slate-200/70 text-[11px] text-amber-900 flex items-center gap-1.5 font-medium">
+                    <i className="fa-solid fa-users text-amber-600"></i>
+                    <span>Bagian dari rombongan: <strong>{cancelTxTarget.groupName || '-'}</strong></span>
+                  </div>
+                )}
+              </div>
+
+              {/* Kolom Textarea Alasan Pembatalan */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <i className="fa-solid fa-comment-dots text-slate-500"></i>
+                    <span>Alasan Pembatalan</span>
+                    <span className="text-rose-500">*</span>
+                  </span>
+                  <span className="text-[10.5px] font-normal text-slate-500">Dicatat ke database</span>
+                </label>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  rows={3}
+                  placeholder="Contoh: Tamu membatalkan jadwal karena perubahan agenda / reschedule kegiatan / kendala kedinasan..."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 transition resize-none shadow-3xs"
+                  required
+                />
+              </div>
+
+              {/* Catatan Dampak Sistem */}
               <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200 text-[11px] text-rose-800 font-medium leading-relaxed">
                 <i className="fa-solid fa-triangle-exclamation mr-1.5 text-rose-600"></i>
-                Status reservasi akan diperbarui menjadi <strong>DIBATALKAN</strong> dan kamar akan kembali berstatus <strong>READY</strong>. Data transaksi tetap tersimpan sebagai arsip laporan.
+                Status reservasi akan diubah menjadi <strong>DIBATALKAN</strong> dan alasan pembatalan ini akan disimpan ke database serta riwayat audit. Kamar/ruangan akan otomatis kembali berstatus <strong>READY</strong>.
               </div>
             </div>
 
+            {/* Modal Footer */}
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-2">
               <button
                 type="button"
-                onClick={() => setCancelTxTarget(null)}
+                onClick={() => {
+                  setCancelTxTarget(null);
+                  setCancelReason('');
+                }}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition cursor-pointer"
               >
                 Batal
@@ -1071,15 +1186,21 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  cancelBooking(room.id, cancelTxTarget.id, 'Dibatalkan oleh Pengguna');
+                  const finalReason = cancelReason.trim();
+                  if (!finalReason) {
+                    showToast('Harap isi alasan pembatalan terlebih dahulu!', 'warning');
+                    return;
+                  }
+                  cancelBooking(room.id, cancelTxTarget.id, finalReason);
                   showToast(`Reservasi booking atas nama ${cancelTxTarget.guestName} berhasil dibatalkan.`, 'success');
                   setCancelTxTarget(null);
+                  setCancelReason('');
                   onClose();
                 }}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5 cursor-pointer"
               >
                 <i className="fa-solid fa-ban"></i>
-                <span>Ya, Batalkan Booking</span>
+                <span>Ya, Batalkan</span>
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Room } from '../../types';
+import { formatIndonesianDate } from '../../lib/utils';
 
 interface GroupItem {
   id: string;
@@ -62,6 +63,9 @@ export function GroupManagementSection({
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(
     filteredGroups.length > 0 ? filteredGroups[0].id : null
   );
+
+  const [cancelGroupTarget, setCancelGroupTarget] = useState<GroupItem | null>(null);
+  const [groupCancelReason, setGroupCancelReason] = useState<string>('');
 
   const toggleGroupExpand = (id: string) => {
     setExpandedGroupId(prev => (prev === id ? null : id));
@@ -424,9 +428,8 @@ export function GroupManagementSection({
                           <button
                             type="button"
                             onClick={() => {
-                              if (confirm(`Batalkan seluruh reservasi untuk rombongan "${group.groupName}" (${bookedCount} kamar)? Status akan diubah menjadi DIBATALKAN dan tetap tercatat di laporan.`)) {
-                                batchCancelGroup(group.id, 'Dibatalkan oleh Pengguna');
-                              }
+                              setCancelGroupTarget(group);
+                              setGroupCancelReason('');
                             }}
                             className="py-1.5 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
                             title="Batalkan reservasi booking rombongan ini"
@@ -504,6 +507,160 @@ export function GroupManagementSection({
           </span>
         </div>
       </div>
+
+      {/* Modal Konfirmasi Pembatalan Booking Rombongan */}
+      {cancelGroupTarget && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[60] flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => {
+            setCancelGroupTarget(null);
+            setGroupCancelReason('');
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-rose-200 dark:border-rose-900 animate-in fade-in zoom-in-95 duration-150 my-auto text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal */}
+            <div className="p-4 bg-gradient-to-r from-rose-700 via-rose-800 to-rose-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center text-lg font-bold shrink-0 border border-white/20">
+                  <i className="fa-solid fa-users-slash text-white"></i>
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-white">Konfirmasi Pembatalan Rombongan</h4>
+                  <p className="text-[11px] text-rose-200 font-medium">Pembatalan Kolektif Booking Rombongan</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelGroupTarget(null);
+                  setGroupCancelReason('');
+                }}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Mohon periksa ringkasan rombongan berikut sebelum membatalkan seluruh reservasi booking rombongan ini.
+              </p>
+
+              {/* Ringkasan Detail Pemesanan Rombongan */}
+              <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/90 dark:border-slate-700 rounded-xl p-3.5 space-y-2.5 text-xs shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-700 pb-2">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <i className="fa-solid fa-users text-rose-600"></i>
+                    <span>Detail Rombongan</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                    {cancelGroupTarget.roomNumbers.length} Kamar
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-medium">Nama Rombongan:</span>
+                    <strong className="text-slate-900 dark:text-slate-100 block truncate">{cancelGroupTarget.groupName}</strong>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-medium">PIC &amp; Kontak:</span>
+                    <strong className="text-slate-900 dark:text-slate-100 block truncate">
+                      {cancelGroupTarget.picName} ({cancelGroupTarget.picPhone || '-'})
+                    </strong>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-medium">Tanggal Masuk:</span>
+                    <strong className="text-slate-900 dark:text-slate-100 block">
+                      {formatIndonesianDate(cancelGroupTarget.startDate)}
+                    </strong>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700">
+                    <span className="text-[10px] text-slate-400 block font-medium">Durasi Menginap:</span>
+                    <strong className="text-slate-900 dark:text-slate-100 block">
+                      {cancelGroupTarget.duration} Malam
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700 text-[11px]">
+                  <span className="text-[10px] text-slate-400 block font-medium mb-1">Daftar Kamar yang Dialokasikan:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {cancelGroupTarget.roomNumbers.map((rn, idx) => (
+                      <span key={idx} className="px-1.5 py-0.2 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded font-mono font-bold text-[10px]">
+                        {rn}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Kolom Textarea Alasan Pembatalan */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <i className="fa-solid fa-comment-dots text-slate-500"></i>
+                    <span>Alasan Pembatalan Rombongan</span>
+                    <span className="text-rose-500">*</span>
+                  </span>
+                  <span className="text-[10.5px] font-normal text-slate-500">Dicatat ke database</span>
+                </label>
+                <textarea
+                  value={groupCancelReason}
+                  onChange={(e) => setGroupCancelReason(e.target.value)}
+                  rows={3}
+                  placeholder="Contoh: Rombongan membatalkan kegiatan dinas / agenda dialihkan / perubahan jadwal panitia..."
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500 transition resize-none shadow-3xs"
+                  required
+                />
+              </div>
+
+              {/* Peringatan Sistem */}
+              <div className="bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl border border-rose-200 dark:border-rose-900 text-[11px] text-rose-800 dark:text-rose-300 font-medium leading-relaxed">
+                <i className="fa-solid fa-triangle-exclamation mr-1.5 text-rose-600"></i>
+                Seluruh {cancelGroupTarget.roomNumbers.length} kamar akan dilepas status booking-nya menjadi <strong>READY</strong>. Semua transaksi terkait akan diubah menjadi <strong>DIBATALKAN</strong> dan alasan pembatalan ini akan dicatat ke database Google Spreadsheet &amp; log audit.
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelGroupTarget(null);
+                  setGroupCancelReason('');
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const finalReason = groupCancelReason.trim();
+                  if (!finalReason) {
+                    alert('Harap isi alasan pembatalan rombongan terlebih dahulu!');
+                    return;
+                  }
+                  if (batchCancelGroup) {
+                    batchCancelGroup(cancelGroupTarget.id, finalReason);
+                  }
+                  setCancelGroupTarget(null);
+                  setGroupCancelReason('');
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <i className="fa-solid fa-ban"></i>
+                <span>Ya, Batalkan Rombongan</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createHttpServer } from "http";
+import { Pool } from "pg";
 
 async function startServer() {
   const app = express();
@@ -288,6 +289,1156 @@ async function startServer() {
 
     broadcastRealtimeEvent("config:sheets", activeSheetsConfig);
     res.json({ ok: true, config: activeSheetsConfig });
+  });
+
+  // =========================================================================
+  // AIVEN CLOUD DATABASE (POSTGRESQL) INTEGRATION & MANAGEMENT
+  // =========================================================================
+  const aivenConfigFilePath = path.join(process.cwd(), "aiven_database_config.json");
+
+  function parseEnvForAiven(): { serviceUri?: string } {
+    try {
+      if (fs.existsSync(envFilePath)) {
+        const raw = fs.readFileSync(envFilePath, "utf-8");
+        const uriMatch = raw.match(/(?:AIVEN_DATABASE_URL|DATABASE_URL|AIVEN_SERVICE_URI)\s*=\s*["']?([^\r\n"']+)["']?/);
+        if (uriMatch && uriMatch[1]) {
+          return { serviceUri: uriMatch[1].trim() };
+        }
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  function parseAivenUri(uriStr: string) {
+    try {
+      const parsed = new URL(uriStr.trim());
+      return {
+        host: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : 5432,
+        user: decodeURIComponent(parsed.username || 'avnadmin'),
+        password: decodeURIComponent(parsed.password || ''),
+        database: parsed.pathname ? parsed.pathname.replace(/^\//, '') : 'defaultdb',
+        ssl: true
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  const envAiven = parseEnvForAiven();
+  let activeAivenConfig: {
+    serviceUri?: string;
+    host?: string;
+    port?: number;
+    database?: string;
+    user?: string;
+    password?: string;
+    ssl?: boolean;
+    isConfigured: boolean;
+    lastConnectedAt?: string | null;
+    lastError?: string | null;
+    latencyMs?: number | null;
+    pgVersion?: string | null;
+    updatedAt: string;
+  } = {
+    serviceUri: envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || "",
+    host: "",
+    port: 5432,
+    database: "defaultdb",
+    user: "avnadmin",
+    password: "",
+    ssl: true,
+    isConfigured: false,
+    lastConnectedAt: null,
+    lastError: null,
+    latencyMs: null,
+    pgVersion: null,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    if (fs.existsSync(aivenConfigFilePath)) {
+      const rawCfg = fs.readFileSync(aivenConfigFilePath, "utf-8");
+      const parsed = JSON.parse(rawCfg);
+      if (parsed) {
+        activeAivenConfig = {
+          ...activeAivenConfig,
+          ...parsed,
+          isConfigured: Boolean(parsed.serviceUri || (parsed.host && parsed.password))
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to load aiven_database_config.json:", err);
+  }
+
+  if (activeAivenConfig.serviceUri && (!activeAivenConfig.host || !activeAivenConfig.password)) {
+    const parsed = parseAivenUri(activeAivenConfig.serviceUri);
+    if (parsed) {
+      activeAivenConfig.host = parsed.host;
+      activeAivenConfig.port = parsed.port;
+      activeAivenConfig.user = parsed.user;
+      activeAivenConfig.password = parsed.password;
+      activeAivenConfig.database = parsed.database;
+      activeAivenConfig.isConfigured = true;
+    }
+  }
+
+  let aivenPool: Pool | null = null;
+
+  function createAivenPoolInstance(connUriOrConfig?: any): Pool | null {
+    const cfg = connUriOrConfig || activeAivenConfig;
+    const uri = typeof cfg === 'string' 
+      ? cfg 
+      : (cfg?.serviceUri || (cfg?.host ? `postgres://${encodeURIComponent(cfg.user || 'avnadmin')}:${encodeURIComponent(cfg.password || '')}@${cfg.host}:${cfg.port || 5432}/${cfg.database || 'defaultdb'}?sslmode=require` : null));
+
+    if (!uri) return null;
+
+    try {
+      return new Pool({
+        connectionString: uri,
+        ssl: {
+          rejectUnauthorized: false
+        },
+        connectionTimeoutMillis: 8000,
+        idleTimeoutMillis: 15000,
+        max: 8
+      });
+    } catch (e) {
+      console.warn("Error creating Aiven Pool:", e);
+      return null;
+    }
+  }
+
+  function getActiveAivenPool(): Pool | null {
+    if (aivenPool) return aivenPool;
+    if (activeAivenConfig.isConfigured) {
+      aivenPool = createAivenPoolInstance(activeAivenConfig);
+    }
+    return aivenPool;
+  }
+
+  const AIVEN_TABLE_DEFS: Record<string, string> = {
+    buildings: `
+      CREATE TABLE IF NOT EXISTS buildings (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        code VARCHAR(50),
+        floors INT DEFAULT 1,
+        total_rooms INT DEFAULT 0,
+        capacity_desc TEXT,
+        category VARCHAR(100) DEFAULT 'PENGINAPAN',
+        status VARCHAR(50) DEFAULT 'AKTIF',
+        description TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    rooms: `
+      CREATE TABLE IF NOT EXISTS rooms (
+        id VARCHAR(100) PRIMARY KEY,
+        room_number VARCHAR(100) NOT NULL,
+        building VARCHAR(255) NOT NULL,
+        building_id VARCHAR(100),
+        floor INT DEFAULT 1,
+        type VARCHAR(100) DEFAULT 'Standar',
+        bed_type VARCHAR(100) DEFAULT '4 Single Bed',
+        capacity VARCHAR(100) DEFAULT '4 Orang',
+        capacity_number INT DEFAULT 4,
+        status VARCHAR(50) DEFAULT 'READY',
+        price_per_night NUMERIC DEFAULT 0,
+        facilities JSONB DEFAULT '[]',
+        qc_status VARCHAR(50) DEFAULT 'LOLOS_QC',
+        last_qc_date VARCHAR(100),
+        last_qc_by VARCHAR(255),
+        last_qc_notes TEXT,
+        active_tx_id VARCHAR(100),
+        active_maint_id VARCHAR(100),
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    meeting_rooms: `
+      CREATE TABLE IF NOT EXISTS meeting_rooms (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        code VARCHAR(50),
+        building VARCHAR(255),
+        capacity VARCHAR(100),
+        capacity_number INT,
+        category VARCHAR(100) DEFAULT 'AULA',
+        daily_rate NUMERIC DEFAULT 0,
+        session_rate NUMERIC DEFAULT 0,
+        facilities JSONB DEFAULT '[]',
+        description TEXT,
+        status VARCHAR(50) DEFAULT 'TERSEDIA',
+        qc_status VARCHAR(50) DEFAULT 'LOLOS_QC',
+        active_tx_id VARCHAR(100),
+        active_maint_id VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    room_capacity_rates: `
+      CREATE TABLE IF NOT EXISTS room_capacity_rates (
+        id VARCHAR(100) PRIMARY KEY,
+        room_type VARCHAR(100) NOT NULL,
+        bed_type VARCHAR(100) NOT NULL,
+        capacity_pax INT DEFAULT 4,
+        price_per_night NUMERIC DEFAULT 0,
+        description TEXT,
+        facilities JSONB DEFAULT '[]',
+        is_active BOOLEAN DEFAULT TRUE,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    breakfast_menu_items: `
+      CREATE TABLE IF NOT EXISTS breakfast_menu_items (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(100) DEFAULT 'MAKANAN_BERAT',
+        price NUMERIC DEFAULT 25000,
+        description TEXT,
+        allergens TEXT,
+        is_available BOOLEAN DEFAULT TRUE,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    transactions: `
+      CREATE TABLE IF NOT EXISTS transactions (
+        id VARCHAR(100) PRIMARY KEY,
+        room_id VARCHAR(100),
+        building VARCHAR(255),
+        room_number VARCHAR(100),
+        category VARCHAR(100) DEFAULT 'UMUM',
+        guest_name VARCHAR(255) NOT NULL,
+        guest_type VARCHAR(50) DEFAULT 'INDIVIDU',
+        nik_ktp VARCHAR(100),
+        kloter VARCHAR(50),
+        start_date VARCHAR(50) NOT NULL,
+        duration INT DEFAULT 1,
+        duration_unit VARCHAR(50) DEFAULT 'Malam',
+        phone VARCHAR(100),
+        notes TEXT,
+        status VARCHAR(50) DEFAULT 'BOOKED',
+        created_user VARCHAR(255),
+        is_group BOOLEAN DEFAULT FALSE,
+        group_type VARCHAR(100),
+        group_name VARCHAR(255),
+        group_id VARCHAR(100),
+        total_pax INT,
+        payment_status VARCHAR(50) DEFAULT 'BELUM_LUNAS',
+        payment_method VARCHAR(100),
+        paid_amount NUMERIC DEFAULT 0,
+        total_price NUMERIC DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    users: `
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(100) PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        role VARCHAR(100) NOT NULL,
+        department VARCHAR(100),
+        assigned_building VARCHAR(255),
+        phone VARCHAR(100),
+        email VARCHAR(255),
+        nip VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'active',
+        password VARCHAR(255),
+        permissions JSONB DEFAULT '{}',
+        signature_url TEXT,
+        qr_code_url TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    maintenances: `
+      CREATE TABLE IF NOT EXISTS maintenances (
+        id VARCHAR(100) PRIMARY KEY,
+        room_id VARCHAR(100),
+        room_number VARCHAR(100),
+        building VARCHAR(255),
+        category VARCHAR(100),
+        issue VARCHAR(255),
+        description TEXT,
+        urgency VARCHAR(50) DEFAULT 'Sedang',
+        status VARCHAR(50) DEFAULT 'PROSES',
+        technician VARCHAR(255),
+        report_time VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    qc_inspections: `
+      CREATE TABLE IF NOT EXISTS qc_inspections (
+        id VARCHAR(100) PRIMARY KEY,
+        room_id VARCHAR(100),
+        building VARCHAR(255),
+        room_number VARCHAR(100),
+        inspector_id VARCHAR(100),
+        inspector_name VARCHAR(255),
+        inspection_date VARCHAR(100),
+        cleanliness VARCHAR(50),
+        linen_bed VARCHAR(50),
+        ac_electricity VARCHAR(50),
+        plumbing_water VARCHAR(50),
+        amenities VARCHAR(50),
+        result VARCHAR(100) DEFAULT 'LOLOS_QC',
+        notes TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    breakfast_orders: `
+      CREATE TABLE IF NOT EXISTS breakfast_orders (
+        id VARCHAR(100) PRIMARY KEY,
+        room_number VARCHAR(100),
+        building VARCHAR(255),
+        guest_name VARCHAR(255),
+        phone VARCHAR(100),
+        transaction_id VARCHAR(100),
+        menu_name VARCHAR(255),
+        portions INT DEFAULT 1,
+        days INT DEFAULT 1,
+        start_date VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'MENUNGGU',
+        total_price NUMERIC DEFAULT 0,
+        notes TEXT,
+        cancel_reason TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    cleaning_logs: `
+      CREATE TABLE IF NOT EXISTS cleaning_logs (
+        id VARCHAR(100) PRIMARY KEY,
+        room_id VARCHAR(100),
+        room_number VARCHAR(100),
+        building VARCHAR(255),
+        petugas_name VARCHAR(255),
+        timestamp VARCHAR(100),
+        photo_url TEXT,
+        notes TEXT,
+        status VARCHAR(50),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        raw_data JSONB
+      );
+    `,
+    work_sessions: `
+      CREATE TABLE IF NOT EXISTS work_sessions (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id VARCHAR(100),
+        user_name VARCHAR(255),
+        user_role VARCHAR(100),
+        login_time VARCHAR(100),
+        logout_time VARCHAR(100),
+        duration_seconds INT DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'AKTIF',
+        notes TEXT,
+        raw_data JSONB
+      );
+    `,
+    audit_logs: `
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id VARCHAR(100) PRIMARY KEY,
+        timestamp VARCHAR(100),
+        user_name VARCHAR(255),
+        role VARCHAR(100),
+        action VARCHAR(100),
+        details TEXT,
+        raw_data JSONB
+      );
+    `,
+    app_settings: `
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value JSONB,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `
+  };
+
+  // Helper untuk push dataset ke Aiven
+  async function pushDatasetToAiven(dataset: any): Promise<{ ok: boolean; counts: Record<string, number>; error?: string }> {
+    const pool = getActiveAivenPool();
+    if (!pool) {
+      return { ok: false, counts: {}, error: "Aiven Database belum dikonfigurasi." };
+    }
+
+    const counts: Record<string, number> = {};
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // 1. Ensure tables exist
+      for (const [tName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
+        await client.query(ddl);
+      }
+
+      // 2. Upsert buildings
+      if (Array.isArray(dataset.buildings)) {
+        let cnt = 0;
+        for (const b of dataset.buildings) {
+          if (!b || !b.id) continue;
+          await client.query(`
+            INSERT INTO buildings (id, name, code, floors, total_rooms, capacity_desc, category, status, description, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              code = EXCLUDED.code,
+              floors = EXCLUDED.floors,
+              total_rooms = EXCLUDED.total_rooms,
+              capacity_desc = EXCLUDED.capacity_desc,
+              category = EXCLUDED.category,
+              status = EXCLUDED.status,
+              description = EXCLUDED.description,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [b.id, b.name || '', b.code || '', b.floors || 1, b.totalRooms || 0, b.capacityDesc || '', b.category || 'PENGINAPAN', b.status || 'AKTIF', b.description || '', JSON.stringify(b)]);
+          cnt++;
+        }
+        counts.buildings = cnt;
+      }
+
+      // 3. Upsert rooms
+      if (Array.isArray(dataset.rooms)) {
+        let cnt = 0;
+        for (const r of dataset.rooms) {
+          if (!r || !r.id) continue;
+          await client.query(`
+            INSERT INTO rooms (id, room_number, building, building_id, floor, type, bed_type, capacity, capacity_number, status, price_per_night, facilities, qc_status, last_qc_date, last_qc_by, last_qc_notes, active_tx_id, active_maint_id, notes, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              room_number = EXCLUDED.room_number,
+              building = EXCLUDED.building,
+              building_id = EXCLUDED.building_id,
+              floor = EXCLUDED.floor,
+              type = EXCLUDED.type,
+              bed_type = EXCLUDED.bed_type,
+              capacity = EXCLUDED.capacity,
+              capacity_number = EXCLUDED.capacity_number,
+              status = EXCLUDED.status,
+              price_per_night = EXCLUDED.price_per_night,
+              facilities = EXCLUDED.facilities,
+              qc_status = EXCLUDED.qc_status,
+              last_qc_date = EXCLUDED.last_qc_date,
+              last_qc_by = EXCLUDED.last_qc_by,
+              last_qc_notes = EXCLUDED.last_qc_notes,
+              active_tx_id = EXCLUDED.active_tx_id,
+              active_maint_id = EXCLUDED.active_maint_id,
+              notes = EXCLUDED.notes,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            r.id, r.roomNumber || '', r.building || '', r.buildingId || '', r.floor || 1, r.type || 'Standar',
+            r.bedType || '4 Single Bed', r.capacity || '4 Orang', r.capacityNumber || 4, r.status || 'READY',
+            r.pricePerNight || 0, JSON.stringify(r.facilities || []), r.qcStatus || 'LOLOS_QC',
+            r.lastQcDate || null, r.lastQcBy || null, r.lastQcNotes || null, r.activeTxId || null,
+            r.activeMaintId || null, r.notes || null, JSON.stringify(r)
+          ]);
+          cnt++;
+        }
+        counts.rooms = cnt;
+      }
+
+      // 4. Upsert meeting_rooms
+      if (Array.isArray(dataset.meetingRooms || dataset.meeting_rooms)) {
+        const mrs = dataset.meetingRooms || dataset.meeting_rooms;
+        let cnt = 0;
+        for (const mr of mrs) {
+          if (!mr || !mr.id) continue;
+          await client.query(`
+            INSERT INTO meeting_rooms (id, name, code, building, capacity, capacity_number, category, daily_rate, session_rate, facilities, description, status, qc_status, active_tx_id, active_maint_id, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              code = EXCLUDED.code,
+              building = EXCLUDED.building,
+              capacity = EXCLUDED.capacity,
+              capacity_number = EXCLUDED.capacity_number,
+              category = EXCLUDED.category,
+              daily_rate = EXCLUDED.daily_rate,
+              session_rate = EXCLUDED.session_rate,
+              facilities = EXCLUDED.facilities,
+              description = EXCLUDED.description,
+              status = EXCLUDED.status,
+              qc_status = EXCLUDED.qc_status,
+              active_tx_id = EXCLUDED.active_tx_id,
+              active_maint_id = EXCLUDED.active_maint_id,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            mr.id, mr.name || '', mr.code || '', mr.building || 'Ruang Pertemuan', mr.capacity || '500 Orang',
+            mr.capacityNumber || 500, mr.category || 'AULA', mr.dailyRate || 0, mr.sessionRate || 0,
+            JSON.stringify(mr.facilities || []), mr.description || '', mr.status || 'TERSEDIA',
+            mr.qcStatus || 'LOLOS_QC', mr.activeTxId || null, mr.activeMaintId || null, JSON.stringify(mr)
+          ]);
+          cnt++;
+        }
+        counts.meeting_rooms = cnt;
+      }
+
+      // 5. Upsert room_capacity_rates
+      if (Array.isArray(dataset.roomCapacityRates || dataset.room_capacity_rates)) {
+        const rates = dataset.roomCapacityRates || dataset.room_capacity_rates;
+        let cnt = 0;
+        for (const r of rates) {
+          if (!r || !r.id) continue;
+          await client.query(`
+            INSERT INTO room_capacity_rates (id, room_type, bed_type, capacity_pax, price_per_night, description, facilities, is_active, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              room_type = EXCLUDED.room_type,
+              bed_type = EXCLUDED.bed_type,
+              capacity_pax = EXCLUDED.capacity_pax,
+              price_per_night = EXCLUDED.price_per_night,
+              description = EXCLUDED.description,
+              facilities = EXCLUDED.facilities,
+              is_active = EXCLUDED.is_active,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            r.id, r.roomType || 'Standar', r.bedType || '4 Single Bed', r.capacityPax || 4,
+            r.pricePerNight || 0, r.description || '', JSON.stringify(r.facilities || []),
+            r.isActive !== false, JSON.stringify(r)
+          ]);
+          cnt++;
+        }
+        counts.room_capacity_rates = cnt;
+      }
+
+      // 6. Upsert breakfast_menu_items
+      if (Array.isArray(dataset.breakfastMenuItems || dataset.breakfast_menu_items)) {
+        const menus = dataset.breakfastMenuItems || dataset.breakfast_menu_items;
+        let cnt = 0;
+        for (const m of menus) {
+          if (!m || !m.id) continue;
+          await client.query(`
+            INSERT INTO breakfast_menu_items (id, name, category, price, description, allergens, is_available, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              category = EXCLUDED.category,
+              price = EXCLUDED.price,
+              description = EXCLUDED.description,
+              allergens = EXCLUDED.allergens,
+              is_available = EXCLUDED.is_available,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            m.id, m.name || '', m.category || 'MAKANAN_BERAT', m.price || 25000,
+            m.description || '', m.allergens || '', m.isAvailable !== false, JSON.stringify(m)
+          ]);
+          cnt++;
+        }
+        counts.breakfast_menu_items = cnt;
+      }
+
+      // 7. Upsert transactions
+      if (Array.isArray(dataset.transactions)) {
+        let cnt = 0;
+        for (const t of dataset.transactions) {
+          if (!t || !t.id) continue;
+          await client.query(`
+            INSERT INTO transactions (id, room_id, building, room_number, category, guest_name, guest_type, nik_ktp, kloter, start_date, duration, duration_unit, phone, notes, status, created_user, is_group, group_type, group_name, group_id, total_pax, payment_status, payment_method, paid_amount, total_price, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              room_id = EXCLUDED.room_id,
+              building = EXCLUDED.building,
+              room_number = EXCLUDED.room_number,
+              category = EXCLUDED.category,
+              guest_name = EXCLUDED.guest_name,
+              guest_type = EXCLUDED.guest_type,
+              nik_ktp = EXCLUDED.nik_ktp,
+              kloter = EXCLUDED.kloter,
+              start_date = EXCLUDED.start_date,
+              duration = EXCLUDED.duration,
+              duration_unit = EXCLUDED.duration_unit,
+              phone = EXCLUDED.phone,
+              notes = EXCLUDED.notes,
+              status = EXCLUDED.status,
+              created_user = EXCLUDED.created_user,
+              is_group = EXCLUDED.is_group,
+              group_type = EXCLUDED.group_type,
+              group_name = EXCLUDED.group_name,
+              group_id = EXCLUDED.group_id,
+              total_pax = EXCLUDED.total_pax,
+              payment_status = EXCLUDED.payment_status,
+              payment_method = EXCLUDED.payment_method,
+              paid_amount = EXCLUDED.paid_amount,
+              total_price = EXCLUDED.total_price,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            t.id, t.roomId || '', t.building || '', t.roomNumber || '', t.category || 'UMUM',
+            t.guestName || '', t.guestType || 'INDIVIDU', t.nikKtp || '', t.kloter || '',
+            t.startDate || '', t.duration || 1, t.durationUnit || 'Malam', t.phone || '',
+            t.notes || '', t.status || 'BOOKED', t.createdUser || '', Boolean(t.isGroup),
+            t.groupType || '', t.groupName || '', t.groupId || '', t.totalPax || 0,
+            t.paymentStatus || 'BELUM_LUNAS', t.paymentMethod || '', t.paidAmount || 0,
+            t.totalPrice || 0, JSON.stringify(t)
+          ]);
+          cnt++;
+        }
+        counts.transactions = cnt;
+      }
+
+      // 8. Upsert users
+      if (Array.isArray(dataset.users)) {
+        let cnt = 0;
+        for (const u of dataset.users) {
+          if (!u || !u.id) continue;
+          await client.query(`
+            INSERT INTO users (id, username, full_name, role, department, assigned_building, phone, email, nip, status, password, permissions, signature_url, qr_code_url, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              username = EXCLUDED.username,
+              full_name = EXCLUDED.full_name,
+              role = EXCLUDED.role,
+              department = EXCLUDED.department,
+              assigned_building = EXCLUDED.assigned_building,
+              phone = EXCLUDED.phone,
+              email = EXCLUDED.email,
+              nip = EXCLUDED.nip,
+              status = EXCLUDED.status,
+              password = EXCLUDED.password,
+              permissions = EXCLUDED.permissions,
+              signature_url = EXCLUDED.signature_url,
+              qr_code_url = EXCLUDED.qr_code_url,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            u.id, u.username || '', u.fullName || '', u.role || 'Staff', u.department || '',
+            u.assignedBuilding || '', u.phone || '', u.email || '', u.nip || '',
+            u.status || 'active', u.password || '', JSON.stringify(u.permissions || {}),
+            u.signatureUrl || null, u.qrCodeUrl || null, JSON.stringify(u)
+          ]);
+          cnt++;
+        }
+        counts.users = cnt;
+      }
+
+      // 9. Upsert maintenances
+      if (Array.isArray(dataset.maintenances)) {
+        let cnt = 0;
+        for (const m of dataset.maintenances) {
+          if (!m || !m.id) continue;
+          await client.query(`
+            INSERT INTO maintenances (id, room_id, room_number, building, category, issue, description, urgency, status, technician, report_time, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              room_id = EXCLUDED.room_id,
+              room_number = EXCLUDED.room_number,
+              building = EXCLUDED.building,
+              category = EXCLUDED.category,
+              issue = EXCLUDED.issue,
+              description = EXCLUDED.description,
+              urgency = EXCLUDED.urgency,
+              status = EXCLUDED.status,
+              technician = EXCLUDED.technician,
+              report_time = EXCLUDED.report_time,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            m.id, m.roomId || '', m.roomNumber || '', m.building || '', m.category || '',
+            m.issue || '', m.description || '', m.urgency || 'Sedang', m.status || 'PROSES',
+            m.technician || '', m.reportTime || '', JSON.stringify(m)
+          ]);
+          cnt++;
+        }
+        counts.maintenances = cnt;
+      }
+
+      // 10. Upsert qc_inspections
+      if (Array.isArray(dataset.qcInspections || dataset.qc_inspections)) {
+        const qcs = dataset.qcInspections || dataset.qc_inspections;
+        let cnt = 0;
+        for (const q of qcs) {
+          if (!q || !q.id) continue;
+          await client.query(`
+            INSERT INTO qc_inspections (id, room_id, building, room_number, inspector_id, inspector_name, inspection_date, cleanliness, linen_bed, ac_electricity, plumbing_water, amenities, result, notes, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              room_id = EXCLUDED.room_id,
+              building = EXCLUDED.building,
+              room_number = EXCLUDED.room_number,
+              inspector_id = EXCLUDED.inspector_id,
+              inspector_name = EXCLUDED.inspector_name,
+              inspection_date = EXCLUDED.inspection_date,
+              cleanliness = EXCLUDED.cleanliness,
+              linen_bed = EXCLUDED.linen_bed,
+              ac_electricity = EXCLUDED.ac_electricity,
+              plumbing_water = EXCLUDED.plumbing_water,
+              amenities = EXCLUDED.amenities,
+              result = EXCLUDED.result,
+              notes = EXCLUDED.notes,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            q.id, q.roomId || '', q.building || '', q.roomNumber || '', q.inspectorId || '',
+            q.inspectorName || '', q.inspectionDate || '', q.cleanliness || '', q.linenBed || '',
+            q.acElectricity || '', q.plumbingWater || '', q.amenities || '', q.result || 'LOLOS_QC',
+            q.notes || '', JSON.stringify(q)
+          ]);
+          cnt++;
+        }
+        counts.qc_inspections = cnt;
+      }
+
+      // 11. Upsert breakfast_orders
+      if (Array.isArray(dataset.breakfastOrders || dataset.breakfast_orders)) {
+        const bos = dataset.breakfastOrders || dataset.breakfast_orders;
+        let cnt = 0;
+        for (const o of bos) {
+          if (!o || !o.id) continue;
+          await client.query(`
+            INSERT INTO breakfast_orders (id, room_number, building, guest_name, phone, transaction_id, menu_name, portions, days, start_date, status, total_price, notes, cancel_reason, raw_data, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              room_number = EXCLUDED.room_number,
+              building = EXCLUDED.building,
+              guest_name = EXCLUDED.guest_name,
+              phone = EXCLUDED.phone,
+              transaction_id = EXCLUDED.transaction_id,
+              menu_name = EXCLUDED.menu_name,
+              portions = EXCLUDED.portions,
+              days = EXCLUDED.days,
+              start_date = EXCLUDED.start_date,
+              status = EXCLUDED.status,
+              total_price = EXCLUDED.total_price,
+              notes = EXCLUDED.notes,
+              cancel_reason = EXCLUDED.cancel_reason,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [
+            o.id, o.roomNumber || '', o.building || '', o.guestName || '', o.phone || '',
+            o.transactionId || '', o.menuName || '', o.portions || 1, o.days || 1,
+            o.startDate || '', o.status || 'MENUNGGU', o.totalPrice || 0, o.notes || '',
+            o.cancelReason || '', JSON.stringify(o)
+          ]);
+          cnt++;
+        }
+        counts.breakfast_orders = cnt;
+      }
+
+      // 12. App Settings
+      if (dataset.appSettings) {
+        await client.query(`
+          INSERT INTO app_settings (key, value, updated_at)
+          VALUES ('general', $1, NOW())
+          ON CONFLICT (key) DO UPDATE SET
+            value = EXCLUDED.value,
+            updated_at = NOW();
+        `, [JSON.stringify(dataset.appSettings)]);
+        counts.app_settings = 1;
+      }
+
+      await client.query("COMMIT");
+      return { ok: true, counts };
+    } catch (err: any) {
+      await client.query("ROLLBACK");
+      console.error("Gagal push ke Aiven PostgreSQL:", err);
+      return { ok: false, counts, error: err?.message || String(err) };
+    } finally {
+      client.release();
+    }
+  }
+
+  // ----------------- AIVEN API ENDPOINTS -----------------
+  // 1. Get Aiven Config
+  app.get("/api/aiven/config", (_req, res) => {
+    res.json({
+      serviceUri: activeAivenConfig.serviceUri || "",
+      host: activeAivenConfig.host || "",
+      port: activeAivenConfig.port || 5432,
+      database: activeAivenConfig.database || "defaultdb",
+      user: activeAivenConfig.user || "avnadmin",
+      hasPassword: Boolean(activeAivenConfig.password),
+      password: activeAivenConfig.password || "",
+      ssl: activeAivenConfig.ssl !== false,
+      isConfigured: activeAivenConfig.isConfigured,
+      lastConnectedAt: activeAivenConfig.lastConnectedAt || null,
+      lastError: activeAivenConfig.lastError || null,
+      latencyMs: activeAivenConfig.latencyMs || null,
+      pgVersion: activeAivenConfig.pgVersion || null,
+      updatedAt: activeAivenConfig.updatedAt
+    });
+  });
+
+  // 2. Save Aiven Config
+  app.post("/api/aiven/config", (req, res) => {
+    const { serviceUri, host, port, database, user, password, ssl } = req.body || {};
+    
+    let cleanUri = String(serviceUri || "").trim();
+    let finalHost = String(host || "").trim();
+    let finalPort = Number(port) || 5432;
+    let finalDatabase = String(database || "").trim() || "defaultdb";
+    let finalUser = String(user || "").trim() || "avnadmin";
+    let finalPassword = String(password || "").trim();
+
+    if (cleanUri) {
+      const parsed = parseAivenUri(cleanUri);
+      if (parsed) {
+        finalHost = parsed.host;
+        finalPort = parsed.port;
+        finalUser = parsed.user;
+        finalPassword = parsed.password || finalPassword;
+        finalDatabase = parsed.database;
+      }
+    } else if (finalHost && finalPassword) {
+      cleanUri = `postgres://${encodeURIComponent(finalUser)}:${encodeURIComponent(finalPassword)}@${finalHost}:${finalPort}/${finalDatabase}?sslmode=require`;
+    }
+
+    activeAivenConfig = {
+      serviceUri: cleanUri,
+      host: finalHost,
+      port: finalPort,
+      database: finalDatabase,
+      user: finalUser,
+      password: finalPassword,
+      ssl: ssl !== false,
+      isConfigured: Boolean(cleanUri || (finalHost && finalPassword)),
+      lastConnectedAt: activeAivenConfig.lastConnectedAt || null,
+      lastError: null,
+      latencyMs: activeAivenConfig.latencyMs || null,
+      pgVersion: activeAivenConfig.pgVersion || null,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Close existing pool to reload with new credentials
+    if (aivenPool) {
+      aivenPool.end().catch(() => {});
+      aivenPool = null;
+    }
+
+    // Save to disk
+    try {
+      fs.writeFileSync(aivenConfigFilePath, JSON.stringify(activeAivenConfig, null, 2), "utf-8");
+      
+      let envContent = fs.existsSync(envFilePath) ? fs.readFileSync(envFilePath, "utf-8") : "";
+      if (cleanUri) {
+        process.env.AIVEN_DATABASE_URL = cleanUri;
+        if (envContent.includes("AIVEN_DATABASE_URL=")) {
+          envContent = envContent.replace(/AIVEN_DATABASE_URL=.*/, `AIVEN_DATABASE_URL=${cleanUri}`);
+        } else {
+          envContent += `\nAIVEN_DATABASE_URL=${cleanUri}`;
+        }
+        fs.writeFileSync(envFilePath, envContent, "utf-8");
+      }
+    } catch (err) {
+      console.warn("Gagal menyimpan aiven_database_config.json:", err);
+    }
+
+    broadcastRealtimeEvent("config:aiven", {
+      isConfigured: activeAivenConfig.isConfigured,
+      host: activeAivenConfig.host,
+      database: activeAivenConfig.database
+    });
+
+    res.json({ ok: true, config: activeAivenConfig });
+  });
+
+  // 3. Test Connection to Aiven
+  app.post("/api/aiven/test", async (req, res) => {
+    const customConfig = req.body?.serviceUri || req.body?.host ? req.body : activeAivenConfig;
+    const testPool = createAivenPoolInstance(customConfig);
+
+    if (!testPool) {
+      return res.status(400).json({ ok: false, error: "Parameter koneksi Aiven tidak lengkap (Service URI atau Host & Password diperlukan)." });
+    }
+
+    const start = Date.now();
+    try {
+      const client = await testPool.connect();
+      try {
+        const queryRes = await client.query("SELECT NOW() as current_time, version() as version, current_database() as db_name, current_user as db_user;");
+        const latencyMs = Date.now() - start;
+        const row = queryRes.rows[0];
+
+        activeAivenConfig.lastConnectedAt = new Date().toISOString();
+        activeAivenConfig.lastError = null;
+        activeAivenConfig.latencyMs = latencyMs;
+        activeAivenConfig.pgVersion = row.version;
+
+        try {
+          fs.writeFileSync(aivenConfigFilePath, JSON.stringify(activeAivenConfig, null, 2), "utf-8");
+        } catch (_) {}
+
+        return res.json({
+          ok: true,
+          latencyMs,
+          currentTime: row.current_time,
+          version: row.version,
+          database: row.db_name,
+          user: row.db_user,
+          message: `Koneksi ke Aiven Cloud PostgreSQL berhasil! Latensi: ${latencyMs}ms.`
+        });
+      } finally {
+        client.release();
+        testPool.end().catch(() => {});
+      }
+    } catch (err: any) {
+      const errorMsg = err?.message || String(err);
+      activeAivenConfig.lastError = errorMsg;
+      try {
+        fs.writeFileSync(aivenConfigFilePath, JSON.stringify(activeAivenConfig, null, 2), "utf-8");
+      } catch (_) {}
+
+      return res.status(500).json({
+        ok: false,
+        error: errorMsg,
+        message: `Gagal terhubung ke Aiven: ${errorMsg}`
+      });
+    }
+  });
+
+  // 4. Initialize Tables in Aiven
+  app.post("/api/aiven/init-tables", async (_req, res) => {
+    const pool = getActiveAivenPool();
+    if (!pool) {
+      return res.status(400).json({ ok: false, error: "Aiven Database belum dikonfigurasi. Silakan isi Service URI terlebih dahulu." });
+    }
+
+    try {
+      const client = await pool.connect();
+      const createdTables: string[] = [];
+      try {
+        for (const [tableName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
+          await client.query(ddl);
+          createdTables.push(tableName);
+        }
+      } finally {
+        client.release();
+      }
+
+      res.json({
+        ok: true,
+        tables: createdTables,
+        total: createdTables.length,
+        message: `Berhasil menginisialisasi ${createdTables.length} tabel skema di Aiven PostgreSQL!`
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 5. Push Local/Cache Data to Aiven
+  app.post("/api/aiven/push", async (req, res) => {
+    const payload = req.body && Object.keys(req.body).length > 0 ? req.body : serverDatabaseCache;
+    if (!payload) {
+      return res.status(400).json({ ok: false, error: "Tidak ada data lokal yang dapat dikirim ke Aiven." });
+    }
+
+    const result = await pushDatasetToAiven(payload);
+    if (!result.ok) {
+      return res.status(500).json({ ok: false, error: result.error });
+    }
+
+    res.json({
+      ok: true,
+      counts: result.counts,
+      message: "Seluruh data berhasil disinkronkan dan disimpan permanen di Aiven Cloud PostgreSQL!"
+    });
+  });
+
+  // 6. Pull Data from Aiven to App
+  app.post("/api/aiven/pull", async (_req, res) => {
+    const pool = getActiveAivenPool();
+    if (!pool) {
+      return res.status(400).json({ ok: false, error: "Aiven Database belum dikonfigurasi." });
+    }
+
+    try {
+      const client = await pool.connect();
+      const resultData: any = {};
+      try {
+        // Query tables
+        const tableList = [
+          'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
+          'breakfast_menu_items', 'transactions', 'users', 'maintenances',
+          'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
+          'audit_logs'
+        ];
+
+        for (const t of tableList) {
+          try {
+            const qr = await client.query(`SELECT * FROM ${t};`);
+            resultData[t] = qr.rows.map(row => {
+              let parsedRaw: any = {};
+              if (row.raw_data) {
+                if (typeof row.raw_data === 'object') {
+                  parsedRaw = row.raw_data;
+                } else if (typeof row.raw_data === 'string') {
+                  try { parsedRaw = JSON.parse(row.raw_data); } catch (_) {}
+                }
+              }
+              const merged = { ...parsedRaw, ...row };
+              if (t === 'room_capacity_rates') {
+                return {
+                  ...merged,
+                  roomType: parsedRaw.roomType || row.room_type || row.roomType || 'Standar',
+                  bedType: parsedRaw.bedType || row.bed_type || row.bedType || '4 Single Bed',
+                  capacityPax: Number(parsedRaw.capacityPax ?? row.capacity_pax ?? row.capacityPax ?? 4),
+                  pricePerNight: Number(parsedRaw.pricePerNight ?? row.price_per_night ?? row.pricePerNight ?? 400000),
+                  isActive: parsedRaw.isActive !== undefined ? parsedRaw.isActive : (row.is_active !== undefined ? row.is_active : true)
+                };
+              }
+              return merged;
+            });
+          } catch (_) {
+            resultData[t] = [];
+          }
+        }
+
+        // Settings
+        try {
+          const setQr = await client.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
+          if (setQr.rows.length > 0 && setQr.rows[0].value) {
+            resultData.appSettings = setQr.rows[0].value;
+          }
+        } catch (_) {}
+
+      } finally {
+        client.release();
+      }
+
+      // Update server local cache
+      if (resultData.buildings?.length > 0 || resultData.rooms?.length > 0) {
+        serverDatabaseCache = {
+          ...serverDatabaseCache,
+          buildings: resultData.buildings || [],
+          rooms: resultData.rooms || [],
+          meetingRooms: resultData.meeting_rooms || [],
+          roomCapacityRates: resultData.room_capacity_rates || [],
+          breakfastMenuItems: resultData.breakfast_menu_items || [],
+          transactions: resultData.transactions || [],
+          users: resultData.users || [],
+          maintenances: resultData.maintenances || [],
+          qcInspections: resultData.qc_inspections || [],
+          breakfastOrders: resultData.breakfast_orders || [],
+          cleaningLogs: resultData.cleaning_logs || [],
+          workSessions: resultData.work_sessions || [],
+          auditLogs: resultData.audit_logs || [],
+          appSettings: resultData.appSettings || serverDatabaseCache?.appSettings
+        };
+        try {
+          fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
+        } catch (_) {}
+
+        broadcastRealtimeEvent("database:sync", { timestamp: Date.now(), db: serverDatabaseCache });
+      }
+
+      res.json({
+        ok: true,
+        data: resultData,
+        message: "Data terbaru berhasil ditarik dari Aiven Cloud PostgreSQL!"
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  // 7. Get Table Stats & Record Counts from Aiven
+  app.get("/api/aiven/tables-stats", async (_req, res) => {
+    const pool = getActiveAivenPool();
+    if (!pool) {
+      return res.json({ ok: false, isConfigured: false, tables: [] });
+    }
+
+    try {
+      const client = await pool.connect();
+      const tables: Array<{ name: string; label: string; count: number; exists: boolean }> = [];
+      try {
+        const tableMetadata: Record<string, string> = {
+          buildings: "Gedung & Properti",
+          rooms: "Kamar & Unit Hunian",
+          meeting_rooms: "Ruang Pertemuan & Serbaguna",
+          room_capacity_rates: "Katalog Tarif & Kapasitas",
+          breakfast_menu_items: "Katalog Menu & Katering",
+          transactions: "Transaksi & Reservasi",
+          users: "Pengguna & Petugas",
+          maintenances: "Laporan Pemeliharaan",
+          qc_inspections: "Inspeksi Mutu QC",
+          breakfast_orders: "Pesanan Konsumsi",
+          cleaning_logs: "Laporan Housekeeping",
+          work_sessions: "Sesi Jam Kerja",
+          audit_logs: "Log Audit Sistem",
+          app_settings: "Pengaturan Instansi"
+        };
+
+        for (const [tbl, label] of Object.entries(tableMetadata)) {
+          try {
+            const check = await client.query(`SELECT count(*)::int as cnt FROM ${tbl};`);
+            tables.push({
+              name: tbl,
+              label,
+              count: check.rows[0].cnt || 0,
+              exists: true
+            });
+          } catch (_) {
+            tables.push({
+              name: tbl,
+              label,
+              count: 0,
+              exists: false
+            });
+          }
+        }
+      } finally {
+        client.release();
+      }
+
+      res.json({ ok: true, isConfigured: true, tables });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err), tables: [] });
+    }
+  });
+
+  // 8. Custom SQL Query Console (Super Admin)
+  app.post("/api/aiven/query", async (req, res) => {
+    const pool = getActiveAivenPool();
+    if (!pool) {
+      return res.status(400).json({ ok: false, error: "Aiven Database belum terhubung." });
+    }
+
+    const sql = String(req.body?.sql || "").trim();
+    if (!sql) {
+      return res.status(400).json({ ok: false, error: "Query SQL tidak boleh kosong." });
+    }
+
+    const start = Date.now();
+    try {
+      const client = await pool.connect();
+      try {
+        const qRes = await client.query(sql);
+        const durationMs = Date.now() - start;
+
+        res.json({
+          ok: true,
+          command: qRes.command,
+          rowCount: qRes.rowCount,
+          fields: (qRes.fields || []).map(f => ({ name: f.name, dataTypeID: f.dataTypeID })),
+          rows: qRes.rows || [],
+          durationMs
+        });
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      res.status(400).json({ ok: false, error: err?.message || String(err) });
+    }
   });
 
   // Skema Baku Database SIM Asrama Haji untuk Google Spreadsheet (Lengkap & Terstandarisasi)
@@ -1314,13 +2465,78 @@ async function startServer() {
     }
   });
 
-  // 3. Endpoint BACA DATABASE LANGSUNG DARI GOOGLE SPREADSHEET (GET)
+  // 3. Endpoint BACA BASIS DATA UTAMA (AIVEN CLOUD POSTGRESQL / SERVER CACHE) (GET)
   app.get(["/api/sheets/database", "/api/database"], async (req, res) => {
-    const targetUrl = activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL;
     const forceRefresh = req.query?.refresh === "true";
 
-    // JIKA CACHE SERVER SUDAH ADA DAN TIDAK DIMINTA REFRESH:
-    // Kembalikan langsung dari server cache dalam < 1ms agar respons instan dan tidak membebani limit Google Apps Script
+    // 1. PRIORITAS UTAMA: JIKA AIVEN DATABASE TERHUBUNG, BACA LANGSUNG DARI AIVEN
+    const pool = getActiveAivenPool();
+    if (pool) {
+      try {
+        const client = await pool.connect();
+        try {
+          const tableList = [
+            'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
+            'breakfast_menu_items', 'transactions', 'users', 'maintenances',
+            'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
+            'audit_logs'
+          ];
+          const aivenData: any = {};
+          for (const t of tableList) {
+            try {
+              const qr = await client.query(`SELECT * FROM ${t};`);
+              aivenData[t] = qr.rows.map(row => (row.raw_data && typeof row.raw_data === 'object' ? { ...row.raw_data, ...row } : row));
+            } catch (_) {
+              aivenData[t] = [];
+            }
+          }
+          try {
+            const setQr = await client.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
+            if (setQr.rows.length > 0 && setQr.rows[0].value) {
+              aivenData.appSettings = setQr.rows[0].value;
+            }
+          } catch (_) {}
+
+          if (aivenData.buildings?.length > 0 || aivenData.rooms?.length > 0) {
+            serverDatabaseCache = {
+              ...serverDatabaseCache,
+              buildings: aivenData.buildings || [],
+              rooms: aivenData.rooms || [],
+              meetingRooms: aivenData.meeting_rooms || [],
+              roomCapacityRates: aivenData.room_capacity_rates || [],
+              breakfastMenuItems: aivenData.breakfast_menu_items || [],
+              transactions: aivenData.transactions || [],
+              users: aivenData.users || [],
+              maintenances: aivenData.maintenances || [],
+              qcInspections: aivenData.qc_inspections || [],
+              breakfastOrders: aivenData.breakfast_orders || [],
+              cleaningLogs: aivenData.cleaning_logs || [],
+              workSessions: aivenData.work_sessions || [],
+              auditLogs: aivenData.audit_logs || [],
+              appSettings: aivenData.appSettings || serverDatabaseCache?.appSettings
+            };
+            try {
+              fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
+            } catch (_) {}
+
+            const fullFormatted = formatDatabaseForSpreadsheet(serverDatabaseCache);
+            return res.json({
+              status: "success",
+              message: "Data dimuat langsung dari Basis Data Utama Aiven Cloud (PostgreSQL).",
+              data: fullFormatted,
+              source: "aiven_cloud_postgres",
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } finally {
+          client.release();
+        }
+      } catch (aivenErr: any) {
+        console.warn("Gagal membaca langsung dari Aiven, fallback ke server cache:", aivenErr?.message || aivenErr);
+      }
+    }
+
+    // 2. KEMBALIKAN DARI CACHE SERVER CEPAT (< 1ms)
     if (serverDatabaseCache && Array.isArray(serverDatabaseCache.buildings) && serverDatabaseCache.buildings.length > 0 && !forceRefresh) {
       const fullFormatted = formatDatabaseForSpreadsheet(serverDatabaseCache);
       return res.json({
@@ -1332,17 +2548,18 @@ async function startServer() {
       });
     }
 
+    const targetUrl = activeSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL;
     if (!targetUrl) {
       if (serverDatabaseCache) {
         return res.json({
           status: "cached",
-          message: "Google Spreadsheet belum terhubung. Menggunakan data tersimpan di server.",
+          message: "Aiven Cloud / Server Cache aktif. Menggunakan data tersimpan di server.",
           data: formatDatabaseForSpreadsheet(serverDatabaseCache),
         });
       }
       return res.status(200).json({
         status: "unconfigured",
-        message: "Google Spreadsheet belum dikonfigurasi.",
+        message: "Database belum terkonfigurasi.",
         data: null,
       });
     }
@@ -1598,11 +2815,30 @@ async function startServer() {
     // Broadcast ke seluruh klien real-time bahwa database telah diperbarui
     broadcastRealtimeEvent("database:sync", { timestamp: Date.now(), db: serverDatabaseCache }, req.body?.clientId);
 
+    // 1. PRIORITAS UTAMA: SIMPAN KE BASIS DATA UTAMA AIVEN CLOUD POSTGRESQL
+    const pool = getActiveAivenPool();
+    if (pool) {
+      pushDatasetToAiven(payload).then(resAiven => {
+        if (resAiven.ok) {
+          console.log("[Aiven Push] Data berhasil disimpan ke Aiven PostgreSQL!");
+        } else {
+          console.warn("[Aiven Push] Gagal push ke Aiven:", resAiven.error);
+        }
+      }).catch(err => {
+        console.warn("[Aiven Push] Error:", err);
+      });
+      return res.json({
+        ok: true,
+        status: "saved_aiven",
+        message: "Database berhasil disimpan ke Basis Data Utama Aiven Cloud (PostgreSQL).",
+      });
+    }
+
     if (!targetUrl) {
       return res.json({
         ok: true,
         status: "saved_server_only",
-        message: "Database disimpan di server (Google Spreadsheet belum dikonfigurasi).",
+        message: "Database disimpan di server (Aiven / Cloud belum terkonfigurasi).",
       });
     }
 

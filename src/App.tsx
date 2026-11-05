@@ -119,7 +119,7 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     roles: ['Super Admin', 'Admin']
   },
   spreadsheetSync: {
-    title: 'Google Spreadsheet',
+    title: 'Basis Data Cloud (Aiven Database)',
     roles: ['Super Admin', 'Admin']
   }
 };
@@ -146,7 +146,6 @@ function MainApp() {
     activeTab === 'rooms' ? 'gedung' :
     activeTab === 'qc' ? 'qualityControl' :
     activeTab === 'maintenance' ? 'laporanMaintenance' :
-    activeTab === 'spreadsheetSync' ? 'auditLog' :
     activeTab;
 
   const currentTabConfig = TAB_PERMISSIONS[resolvedTab];
@@ -191,7 +190,8 @@ function MainApp() {
             {resolvedTab === 'laporanKamar' && <ReportsView />}
             {resolvedTab === 'laporanMaintenance' && <MaintenanceReportsView />}
             {resolvedTab === 'pesananSarapan' && <BreakfastOrdersView />}
-            {resolvedTab === 'auditLog' && <AuditLogView defaultSubView={activeTab === 'spreadsheetSync' ? 'SPREADSHEET_MGMT' : undefined} />}
+            {resolvedTab === 'spreadsheetSync' && <SpreadsheetIntegrationView />}
+            {resolvedTab === 'auditLog' && <AuditLogView defaultSubView={undefined} />}
             {resolvedTab === 'verifyPdf' && <AuditLogView defaultSubView="PDF_DOWNLOAD_LOGS" />}
             {resolvedTab === 'kelolaAnggota' && <UserManagementView />}
           </div>

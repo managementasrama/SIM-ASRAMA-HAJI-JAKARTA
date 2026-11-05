@@ -3736,13 +3736,14 @@ export function RoomsView() {
           {/* Rates Cards Grid (5-GRID SYSTEM) */}
           {(() => {
             const filteredRates = cleanRatesList.filter(r => {
-              if (rateTypeFilter !== 'ALL' && r.roomType !== rateTypeFilter) return false;
+              const rType = String(r.roomType || (r as any).room_type || '').trim();
+              if (rateTypeFilter !== 'ALL' && rType !== rateTypeFilter) return false;
               if (rateSearch) {
-                const q = rateSearch.toLowerCase();
-                const matchType = r.roomType.toLowerCase().includes(q);
-                const matchBed = r.bedType.toLowerCase().includes(q);
-                const matchDesc = (r.description || '').toLowerCase().includes(q);
-                const matchFac = (r.facilities || []).some(f => f.toLowerCase().includes(q));
+                const q = rateSearch.toLowerCase().trim();
+                const matchType = rType.toLowerCase().includes(q);
+                const matchBed = String(r.bedType || (r as any).bed_type || '').toLowerCase().includes(q);
+                const matchDesc = String(r.description || '').toLowerCase().includes(q);
+                const matchFac = (r.facilities || []).some(f => String(f || '').toLowerCase().includes(q));
                 if (!matchType && !matchBed && !matchDesc && !matchFac) return false;
               }
               return true;
@@ -3761,13 +3762,15 @@ export function RoomsView() {
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 {filteredRates.map((rate, rateIdx) => {
+                  const rateRoomType = String(rate.roomType || (rate as any).room_type || '').trim().toLowerCase();
+                  const rateBedType = String(rate.bedType || (rate as any).bed_type || '').trim().toLowerCase();
                   const matchingRooms = rooms.filter(rm => 
-                    rm.type?.toLowerCase() === rate.roomType.toLowerCase() && 
-                    rm.bedType?.toLowerCase() === rate.bedType.toLowerCase()
+                    String(rm.type || '').trim().toLowerCase() === rateRoomType && 
+                    String(rm.bedType || '').trim().toLowerCase() === rateBedType
                   );
 
-                  const isSuperior = rate.roomType === 'Superior';
-                  const isEkonomi = rate.roomType === 'Ekonomi';
+                  const isSuperior = rate.roomType === 'Superior' || (rate as any).room_type === 'Superior';
+                  const isEkonomi = rate.roomType === 'Ekonomi' || (rate as any).room_type === 'Ekonomi';
                   const isStandar = rate.roomType === 'Standar';
 
                   return (

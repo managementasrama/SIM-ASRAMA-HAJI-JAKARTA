@@ -263,16 +263,70 @@ export const initialRoomCapacityRates: RoomCapacityRate[] = [
     }
 ];
 
-// Helper untuk menemukan tarif kapasitas default
+// Helper untuk menemukan tarif kapasitas default (Aman dari null/undefined dan mendukung konvensi PostgreSQL)
 export function findRoomRate(
-    roomType: string = 'Standar', 
-    bedType: string = '4 Single Bed',
-    customRates: RoomCapacityRate[] = initialRoomCapacityRates
+    roomType?: string | null, 
+    bedType?: string | null,
+    customRates?: RoomCapacityRate[] | null
 ): RoomCapacityRate | undefined {
-    return customRates.find(r => 
-        r.roomType.toLowerCase() === roomType.toLowerCase() && 
-        r.bedType.toLowerCase() === bedType.toLowerCase()
-    );
+    const list = (Array.isArray(customRates) && customRates.length > 0)
+        ? customRates
+        : initialRoomCapacityRates;
+
+    if (!Array.isArray(list) || list.length === 0) return undefined;
+
+    const cleanRoomType = String(roomType || 'Standar').trim().toLowerCase();
+    const cleanBedType = String(bedType || '').trim().toLowerCase();
+
+    // 1. Jika bedType diberikan, cari kecocokan persis pada roomType dan bedType
+    if (cleanBedType) {
+        const exactMatch = list.find(r => {
+            if (!r) return false;
+            const rType = String(r.roomType || (r as any).room_type || '').trim().toLowerCase();
+            const bType = String(r.bedType || (r as any).bed_type || '').trim().toLowerCase();
+            return rType === cleanRoomType && bType === cleanBedType;
+        });
+        if (exactMatch) {
+            return {
+                ...exactMatch,
+                roomType: exactMatch.roomType || (exactMatch as any).room_type || 'Standar',
+                bedType: exactMatch.bedType || (exactMatch as any).bed_type || '4 Single Bed',
+                pricePerNight: Number(exactMatch.pricePerNight ?? (exactMatch as any).price_per_night ?? 400000)
+            };
+        }
+    }
+
+    // 2. Kecocokan berdasarkan roomType saja (misal untuk kamar yang tidak memiliki field bedType)
+    const roomTypeMatch = list.find(r => {
+        if (!r) return false;
+        const rType = String(r.roomType || (r as any).room_type || '').trim().toLowerCase();
+        return rType === cleanRoomType;
+    });
+    if (roomTypeMatch) {
+        return {
+            ...roomTypeMatch,
+            roomType: roomTypeMatch.roomType || (roomTypeMatch as any).room_type || 'Standar',
+            bedType: roomTypeMatch.bedType || (roomTypeMatch as any).bed_type || '4 Single Bed',
+            pricePerNight: Number(roomTypeMatch.pricePerNight ?? (roomTypeMatch as any).price_per_night ?? 400000)
+        };
+    }
+
+    // 3. Fallback pencocokan parsial / substring (misal 'superior' dalam 'Superior Suite')
+    const partialMatch = list.find(r => {
+        if (!r) return false;
+        const rType = String(r.roomType || (r as any).room_type || '').trim().toLowerCase();
+        return (rType && cleanRoomType && (rType.includes(cleanRoomType) || cleanRoomType.includes(rType)));
+    });
+    if (partialMatch) {
+        return {
+            ...partialMatch,
+            roomType: partialMatch.roomType || (partialMatch as any).room_type || 'Standar',
+            bedType: partialMatch.bedType || (partialMatch as any).bed_type || '4 Single Bed',
+            pricePerNight: Number(partialMatch.pricePerNight ?? (partialMatch as any).price_per_night ?? 400000)
+        };
+    }
+
+    return undefined;
 }
 
 // Master Users: Akun Resmi Petugas Terpadu SIM-HAJI UPT Asrama Haji Jakarta (Hanya Super Admin & Admin)

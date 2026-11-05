@@ -4826,19 +4826,19 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 }`}
               >
                 <i className="fa-solid fa-database text-emerald-600"></i>
-                <span>Basis Data</span>
+                <span>Basis Data Lokal &amp; Cadangan</span>
               </button>
 
               <button
                 onClick={() => setActiveSubView('SPREADSHEET_MGMT')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-2 ${
                   activeSubView === 'SPREADSHEET_MGMT' 
-                    ? 'bg-white text-emerald-800 shadow-xs font-black' 
+                    ? 'bg-white text-indigo-800 shadow-xs font-black' 
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                 }`}
               >
-                <i className="fa-solid fa-file-excel text-emerald-600"></i>
-                <span>Google Spreadsheet</span>
+                <i className="fa-solid fa-server text-indigo-600"></i>
+                <span>Basis Data Cloud (Aiven)</span>
               </button>
             </>
           )}
@@ -6329,18 +6329,18 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
         /* Pusat Manajemen Basis Data (Google Spreadsheet) */
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* Unified Central Database Banner & Real-Time Sync Control */}
-          <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-emerald-500/30 relative overflow-hidden">
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-indigo-500/30 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-              <i className="fa-solid fa-cloud-bolt text-9xl text-emerald-400"></i>
+              <i className="fa-solid fa-server text-9xl text-indigo-400"></i>
             </div>
             
             <div className="relative z-10 space-y-4">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="max-w-3xl space-y-2.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center space-x-2 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-bold">
+                    <div className="inline-flex items-center space-x-2 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3 py-1 rounded-full text-xs font-bold">
                       <i className="fa-solid fa-database"></i>
-                      <span>Basis Data Utama (Google Spreadsheet)</span>
+                      <span>Basis Data Utama (Aiven Cloud PostgreSQL)</span>
                     </div>
 
                     <div className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
@@ -6362,7 +6362,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                           ? 'Status Sync: Menyinkronkan...'
                           : supabaseSyncState?.lastError
                           ? `Status Sync: ${supabaseSyncState.lastError}`
-                          : 'Status Sync: Terhubung & Sinkron dengan Google Spreadsheet'}
+                          : 'Status Sync: Terhubung & Sinkron dengan Aiven Cloud PostgreSQL'}
                       </span>
                     </div>
                   </div>
@@ -6371,7 +6371,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     Basis Data Terpusat SIM-Akomodasi UPT Asrama Haji Jakarta
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Sistem terhubung langsung ke <strong>Basis Data Utama Google Spreadsheet</strong>. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari spreadsheet pusat, dan setiap perubahan transaksi, master gedung, dan kamar disinkronkan secara aman.
+                    Sistem terhubung langsung ke <strong>Basis Data Utama Aiven Cloud (PostgreSQL Enterprise)</strong>. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari database Aiven pusat, dan setiap perubahan transaksi, master gedung, dan kamar disinkronkan secara aman.
                   </p>
                 </div>
 
@@ -6385,10 +6385,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                       setIsCloudSyncing(false);
                     }}
                     disabled={isCloudSyncing || supabaseSyncState?.isSyncing}
-                    className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
+                    className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <i className={`fa-solid ${isCloudSyncing || supabaseSyncState?.isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
-                    <span>Tarik Data Terbaru dari Spreadsheet</span>
+                    <span>Tarik Data Terbaru dari Aiven</span>
                   </button>
 
                   <button
@@ -6401,18 +6401,18 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     disabled={isCloudSyncing || supabaseSyncState?.isSyncing}
                     className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
-                    <i className="fa-solid fa-cloud-arrow-up text-emerald-300"></i>
-                    <span>Kirim Pembaruan ke Spreadsheet</span>
+                    <i className="fa-solid fa-cloud-arrow-up text-indigo-300"></i>
+                    <span>Kirim Pembaruan ke Aiven</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveSubView('SPREADSHEET_MGMT')}
-                    className="px-3.5 py-2.5 bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 border border-emerald-400/50 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
-                    title="Buka panduan & integrasi Google Spreadsheet"
+                    className="px-3.5 py-2.5 bg-indigo-500/30 hover:bg-indigo-500/40 text-indigo-100 border border-indigo-400/50 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                    title="Buka Pusat Basis Data Cloud Aiven"
                   >
-                    <i className="fa-solid fa-file-excel text-emerald-300"></i>
-                    <span>Kelola Lembar Kerja &amp; Integrasi Spreadsheet</span>
+                    <i className="fa-solid fa-server text-indigo-300"></i>
+                    <span>Kelola Basis Data Cloud Aiven</span>
                   </button>
                 </div>
               </div>
@@ -6421,17 +6421,17 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3 border-t border-white/10 text-xs">
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Database Utama:</span>
-                  <span className="font-mono text-emerald-300 font-bold text-[11px] truncate max-w-[200px]">
-                    Google Spreadsheet (Apps Script)
+                  <span className="font-mono text-indigo-300 font-bold text-[11px] truncate max-w-[200px]">
+                    Aiven Cloud Database (PostgreSQL)
                   </span>
                 </div>
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Mode Penyimpanan:</span>
-                  <span className="font-bold text-white text-[11px]">Spreadsheet + Real-Time Engine</span>
+                  <span className="font-bold text-white text-[11px]">PostgreSQL Cloud + Real-Time Engine</span>
                 </div>
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Sinkronisasi Terakhir:</span>
-                  <span className="font-mono text-emerald-300 font-bold text-[11px]">
+                  <span className="font-mono text-indigo-300 font-bold text-[11px]">
                     {supabaseSyncState?.lastSyncedAt
                       ? `${new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB`
                       : 'Real-Time Otomatis'}

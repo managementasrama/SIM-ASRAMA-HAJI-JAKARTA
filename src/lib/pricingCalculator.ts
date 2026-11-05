@@ -222,9 +222,10 @@ export function calculateTransactionPricing(
   if (!isPureAula) {
     const rObj = rooms.find(r => r.id === tx.roomId || r.roomNumber === tx.roomNumber);
     const matchedRate = findRoomRate(rObj?.type || tx.category || 'Standar', rObj?.bedType, roomCapacityRates);
+    const safeType = String(rObj?.type || tx.category || '').toLowerCase().trim();
     const rate = rObj?.pricePerNight || matchedRate?.pricePerNight || (
-      (rObj?.type || tx.category || '').toLowerCase().includes('superior') ? 500000 :
-      (rObj?.type || tx.category || '').toLowerCase().includes('ekonomi') ? 380000 : 480000
+      safeType.includes('superior') ? 500000 :
+      safeType.includes('ekonomi') ? 380000 : 480000
     );
     subtotalRooms = rate * nights;
     ratePerUnit = rate;
@@ -310,9 +311,10 @@ export function calculateGroupPricing(
   roomNumbers.forEach(rn => {
     const rObj = rooms.find(r => r.roomNumber === rn);
     const matchedRate = findRoomRate(rObj?.type || 'Standar', rObj?.bedType, roomCapacityRates);
+    const safeType = String(rObj?.type || '').toLowerCase().trim();
     const rate = rObj?.pricePerNight || matchedRate?.pricePerNight || (
-      (rObj?.type || '').toLowerCase().includes('superior') ? 500000 :
-      (rObj?.type || '').toLowerCase().includes('ekonomi') ? 380000 : 480000
+      safeType.includes('superior') ? 500000 :
+      safeType.includes('ekonomi') ? 380000 : 480000
     );
     subtotalRooms += rate * nights;
   });
@@ -320,13 +322,14 @@ export function calculateGroupPricing(
   // Aula Sewa dalam Paket Rombongan
   let subtotalAula = 0;
   if (grp.includeAula && grp.rentAulaName) {
+    const cleanAulaName = String(grp.rentAulaName || '').toLowerCase().trim();
     const mrObj = meetingRooms.find(m => 
-      m.name.toLowerCase() === grp.rentAulaName?.toLowerCase() || 
-      m.code?.toLowerCase() === grp.rentAulaName?.toLowerCase()
+      (m.name && String(m.name).toLowerCase().trim() === cleanAulaName) || 
+      (m.code && String(m.code).toLowerCase().trim() === cleanAulaName)
     );
     const days = grp.rentAulaDurationDays || grp.representativeTx?.rentAulaDurationDays || 1;
     const durHours = grp.representativeTx?.rentAulaDuration || (grp.representativeTx?.rentAulaSession?.includes('12 Jam') ? 12 : 8);
-    const isSG = mrObj?.category === 'SERBAGUNA' || grp.rentAulaName?.toLowerCase().includes('serbaguna');
+    const isSG = mrObj?.category === 'SERBAGUNA' || cleanAulaName.includes('serbaguna');
     const sessionRate = mrObj?.sessionRate || (isSG ? 8500000 : 7000000);
     const dailyRate = mrObj?.dailyRate || (isSG ? 15000000 : 12000000);
 
