@@ -406,9 +406,9 @@ async function startServer() {
         ssl: {
           rejectUnauthorized: false
         },
-        connectionTimeoutMillis: 15000,
-        idleTimeoutMillis: 30000,
-        max: 20
+        connectionTimeoutMillis: 8000,
+        idleTimeoutMillis: 10000,
+        max: 5
       });
       p.on('error', (err: any) => {
         console.warn('Aiven PG Pool error:', err?.message || err);
@@ -1738,6 +1738,33 @@ async function startServer() {
         error: errorMsg,
         message: `Gagal terhubung ke Aiven: ${errorMsg}`
       });
+    }
+  });
+
+  // 3.5 Reconnect / Reset Aiven Pool (Clear Connection Exhaustion / Slots)
+  app.post("/api/aiven/reconnect", async (_req, res) => {
+    try {
+      if (aivenPool) {
+        await aivenPool.end().catch(() => {});
+        aivenPool = null;
+      }
+      const newPool = getActiveAivenPool();
+      if (!newPool) {
+        return res.status(400).json({ ok: false, error: "Aiven Database belum dikonfigurasi." });
+      }
+      const client = await newPool.connect();
+      try {
+        await client.query("SELECT 1;");
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true, message: "Koneksi pool Aiven berhasil di-reset dan tersambung kembali." });
+    } catch (err: any) {
+      if (aivenPool) {
+        aivenPool.end().catch(() => {});
+        aivenPool = null;
+      }
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
 
