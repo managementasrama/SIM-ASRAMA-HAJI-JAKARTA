@@ -8,5 +8,8 @@ coverage/
 !.env.example
 
 public/assets/aistudio/
-*.json
 *.sqlite
+server_database_cache.json
+aiven_database_config.json
+chat_storage_database.json
+google_sheets_config.json

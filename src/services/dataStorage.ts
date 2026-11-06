@@ -319,7 +319,8 @@ export class DataStorageService {
       try {
         const aivenRes = await fetch('/api/aiven/pull', { method: 'POST' });
         if (aivenRes.ok) {
-          const aivenJson = await aivenRes.json();
+          const txt = await aivenRes.text();
+          const aivenJson = txt && txt.trim() ? JSON.parse(txt) : { ok: false };
           if (aivenJson.ok && aivenJson.data && (aivenJson.data.buildings?.length > 0 || aivenJson.data.rooms?.length > 0 || aivenJson.data.transactions?.length > 0)) {
             sheetDb = {
               schemaVersion: 4,
@@ -694,7 +695,8 @@ export class DataStorageService {
           body: JSON.stringify(db)
         });
         if (aivenRes.ok) {
-          const aivenJson = await aivenRes.json();
+          const txt = await aivenRes.text();
+          const aivenJson = txt && txt.trim() ? JSON.parse(txt) : { ok: false };
           if (aivenJson.ok) {
             this.syncStatus = 'connected';
             this.lastSyncTime = new Date().toISOString();

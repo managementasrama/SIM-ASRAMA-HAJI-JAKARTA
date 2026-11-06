@@ -325,10 +325,8 @@ async function startServer() {
     }
   }
 
-  const DEFAULT_AIVEN_URI = "";
-
   const envAiven = parseEnvForAiven();
-  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || DEFAULT_AIVEN_URI;
+  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || "";
 
   let activeAivenConfig: {
     serviceUri?: string;
@@ -396,7 +394,7 @@ async function startServer() {
     const cfg = connUriOrConfig || activeAivenConfig;
     const uri = typeof cfg === 'string' 
       ? cfg 
-      : (cfg?.serviceUri || (cfg?.host ? `postgres://${encodeURIComponent(cfg.user || 'avnadmin')}:${encodeURIComponent(cfg.password || '')}@${cfg.host}:${cfg.port || 22170}/${cfg.database || 'defaultdb'}?sslmode=no-verify` : DEFAULT_AIVEN_URI));
+      : (cfg?.serviceUri || (cfg?.host ? `postgres://${encodeURIComponent(cfg.user || 'avnadmin')}:${encodeURIComponent(cfg.password || '')}@${cfg.host}:${cfg.port || 22170}/${cfg.database || 'defaultdb'}?sslmode=no-verify` : ''));
 
     if (!uri) return null;
 

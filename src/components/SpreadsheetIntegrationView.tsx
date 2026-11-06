@@ -27,6 +27,18 @@ interface AivenConfig {
 
 const DEFAULT_AIVEN_URI = "";
 
+async function safeJson(res: Response): Promise<any> {
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      return { ok: false, error: `HTTP ${res.status}: Empty response body` };
+    }
+    return JSON.parse(text);
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Invalid JSON response' };
+  }
+}
+
 export function SpreadsheetIntegrationView() {
   const {
     currentUser,
@@ -87,7 +99,7 @@ export function SpreadsheetIntegrationView() {
     try {
       const res = await fetch('/api/aiven/config');
       if (res.ok) {
-        const data: AivenConfig = await res.json();
+        const data: AivenConfig = await safeJson(res);
         setConfig(data);
         if (data.serviceUri) setServiceUri(data.serviceUri);
         if (data.host) setHost(data.host);
@@ -108,7 +120,7 @@ export function SpreadsheetIntegrationView() {
     try {
       const res = await fetch('/api/aiven/tables-stats');
       if (res.ok) {
-        const data = await res.json();
+        const data = await safeJson(res);
         if (Array.isArray(data.tables)) {
           setTableStats(data.tables);
         }
@@ -138,7 +150,7 @@ export function SpreadsheetIntegrationView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       setTestResult(data);
       if (data.ok) {
         showToast('Koneksi ke Aiven PostgreSQL berhasil!', 'success');
@@ -167,7 +179,7 @@ export function SpreadsheetIntegrationView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.ok) {
         showToast('Konfigurasi database Aiven berhasil disimpan!', 'success');
         loadAivenConfig();
@@ -187,7 +199,7 @@ export function SpreadsheetIntegrationView() {
     setIsInitializingTables(true);
     try {
       const res = await fetch('/api/aiven/init-tables', { method: 'POST' });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.ok) {
         showToast(data.message || 'Skema tabel berhasil diinisialisasi!', 'success');
         loadTableStats();
@@ -206,7 +218,7 @@ export function SpreadsheetIntegrationView() {
     setIsPushing(true);
     try {
       const res = await fetch('/api/aiven/push', { method: 'POST' });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.ok) {
         showToast('Data berhasil dikirim & disimpan permanen di Aiven PostgreSQL!', 'success');
         loadTableStats();
@@ -247,7 +259,7 @@ export function SpreadsheetIntegrationView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: sqlQuery })
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       setSqlResult(data);
       if (data.ok) {
         showToast(`SQL Berhasil dieksekusi (${data.rowCount || 0} baris dalam ${data.durationMs || 0}ms)`, 'success');
@@ -272,7 +284,7 @@ export function SpreadsheetIntegrationView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: `SELECT * FROM ${tableName} ORDER BY updated_at DESC LIMIT 50;` })
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.ok && Array.isArray(data.rows)) {
         setPreviewRows(data.rows);
       }
