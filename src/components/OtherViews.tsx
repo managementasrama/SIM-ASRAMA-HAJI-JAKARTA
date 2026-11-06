@@ -4005,14 +4005,15 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const uniqueUsers = useMemo(() => {
     const names = new Set<string>();
     safeWorkSessions.forEach(s => {
-      const normId = (s.userId || '').trim().toLowerCase();
-      const normName = (s.userName || '').trim().toLowerCase();
+      const normId = (s?.userId || '').trim().toLowerCase();
+      const normName = (s?.userName || '').trim().toLowerCase();
       const matched = users.find(u => 
-        (normId && u.id.toLowerCase() === normId) ||
-        (normName && u.fullName.trim().toLowerCase() === normName) ||
-        (normName && u.username.trim().toLowerCase() === normName)
+        (normId && (u?.id || '').toLowerCase() === normId) ||
+        (normName && (u?.fullName || '').trim().toLowerCase() === normName) ||
+        (normName && (u?.username || '').trim().toLowerCase() === normName)
       );
-      names.add(matched?.fullName || s.userName.trim());
+      const canon = matched?.fullName || (s?.userName || '').trim();
+      if (canon) names.add(canon);
     });
     return Array.from(names).filter(Boolean).sort();
   }, [safeWorkSessions, users]);
@@ -4067,14 +4068,14 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     return sessionsWithLiveDuration.filter(session => {
       // User filter
       if (selectedUser !== 'SEMUA') {
-        const normId = (session.userId || '').trim().toLowerCase();
-        const normName = (session.userName || '').trim().toLowerCase();
+        const normId = (session?.userId || '').trim().toLowerCase();
+        const normName = (session?.userName || '').trim().toLowerCase();
         const matched = users.find(u => 
-          (normId && u.id.toLowerCase() === normId) ||
-          (normName && u.fullName.trim().toLowerCase() === normName) ||
-          (normName && u.username.trim().toLowerCase() === normName)
+          (normId && (u?.id || '').toLowerCase() === normId) ||
+          (normName && (u?.fullName || '').trim().toLowerCase() === normName) ||
+          (normName && (u?.username || '').trim().toLowerCase() === normName)
         );
-        const canonName = matched?.fullName || session.userName.trim();
+        const canonName = matched?.fullName || (session?.userName || '').trim();
         if (canonName !== selectedUser) {
           return false;
         }
@@ -4110,12 +4111,12 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       }
 
       // Search Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchId = session.id.toLowerCase().includes(q);
-        const matchName = session.userName.toLowerCase().includes(q);
-        const matchRole = session.userRole.toLowerCase().includes(q);
-        const matchNotes = (session.notes || '').toLowerCase().includes(q);
+      if ((searchQuery || '').trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchId = (session?.id || '').toLowerCase().includes(q);
+        const matchName = (session?.userName || '').toLowerCase().includes(q);
+        const matchRole = (session?.userRole || '').toLowerCase().includes(q);
+        const matchNotes = (session?.notes || '').toLowerCase().includes(q);
         if (!matchId && !matchName && !matchRole && !matchNotes) {
           return false;
         }
@@ -4130,20 +4131,20 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     return sessionsWithLiveDuration.reduce((acc, s) => {
       // Filter petugas jika dipilih
       if (selectedUser !== 'SEMUA') {
-        const normId = (s.userId || '').trim().toLowerCase();
-        const normName = (s.userName || '').trim().toLowerCase();
+        const normId = (s?.userId || '').trim().toLowerCase();
+        const normName = (s?.userName || '').trim().toLowerCase();
         const matched = users.find(u => 
-          (normId && u.id.toLowerCase() === normId) ||
-          (normName && u.fullName.trim().toLowerCase() === normName) ||
-          (normName && u.username.trim().toLowerCase() === normName)
+          (normId && (u?.id || '').toLowerCase() === normId) ||
+          (normName && (u?.fullName || '').trim().toLowerCase() === normName) ||
+          (normName && (u?.username || '').trim().toLowerCase() === normName)
         );
-        const canonName = matched?.fullName || s.userName.trim();
+        const canonName = matched?.fullName || (s?.userName || '').trim();
         if (canonName !== selectedUser) return acc;
       }
 
-      const sDate = extractStandardDate(s.loginTime, realToday);
+      const sDate = extractStandardDate(s?.loginTime, realToday);
       if (sDate.startsWith(currentMonthPrefix)) {
-        return acc + (Number(s.durationSeconds) || 0);
+        return acc + (Number(s?.durationSeconds) || 0);
       }
       return acc;
     }, 0);
@@ -4152,18 +4153,18 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
   const currentMonthSessionsCount = useMemo(() => {
     return sessionsWithLiveDuration.filter(s => {
       if (selectedUser !== 'SEMUA') {
-        const normId = (s.userId || '').trim().toLowerCase();
-        const normName = (s.userName || '').trim().toLowerCase();
+        const normId = (s?.userId || '').trim().toLowerCase();
+        const normName = (s?.userName || '').trim().toLowerCase();
         const matched = users.find(u => 
-          (normId && u.id.toLowerCase() === normId) ||
-          (normName && u.fullName.trim().toLowerCase() === normName) ||
-          (normName && u.username.trim().toLowerCase() === normName)
+          (normId && (u?.id || '').toLowerCase() === normId) ||
+          (normName && (u?.fullName || '').trim().toLowerCase() === normName) ||
+          (normName && (u?.username || '').trim().toLowerCase() === normName)
         );
-        const canonName = matched?.fullName || s.userName.trim();
+        const canonName = matched?.fullName || (s?.userName || '').trim();
         if (canonName !== selectedUser) return false;
       }
 
-      const sDate = extractStandardDate(s.loginTime, realToday);
+      const sDate = extractStandardDate(s?.loginTime, realToday);
       return sDate.startsWith(currentMonthPrefix);
     }).length;
   }, [sessionsWithLiveDuration, currentMonthPrefix, realToday, selectedUser, users]);
@@ -4293,24 +4294,24 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
 
     // Resolver akun pengguna kanonikal (agar 1 akun selalu konsisten ID & namanya)
     const resolveUser = (s: WorkSession) => {
-      const normId = (s.userId || '').trim().toLowerCase();
-      const normName = (s.userName || '').trim().toLowerCase();
+      const normId = (s?.userId || '').trim().toLowerCase();
+      const normName = (s?.userName || '').trim().toLowerCase();
       const matched = users.find(u => 
-        (normId && u.id.toLowerCase() === normId) ||
-        (normName && u.fullName.trim().toLowerCase() === normName) ||
-        (normName && u.username.trim().toLowerCase() === normName)
+        (normId && (u?.id || '').toLowerCase() === normId) ||
+        (normName && (u?.fullName || '').trim().toLowerCase() === normName) ||
+        (normName && (u?.username || '').trim().toLowerCase() === normName)
       );
       if (matched) {
         return {
           canonicalId: matched.id,
-          canonicalName: matched.fullName,
-          canonicalRole: matched.role
+          canonicalName: matched.fullName || matched.username || 'Petugas',
+          canonicalRole: matched.role || s?.userRole || 'Petugas'
         };
       }
       return {
         canonicalId: normId || normName || 'unknown_user',
-        canonicalName: s.userName?.trim() || 'Petugas',
-        canonicalRole: s.userRole || 'Petugas'
+        canonicalName: (s?.userName || '').trim() || 'Petugas',
+        canonicalRole: s?.userRole || 'Petugas'
       };
     };
 
@@ -4429,17 +4430,17 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     }>();
 
     sessionsWithLiveDuration.forEach(s => {
-      const normId = (s.userId || '').trim().toLowerCase();
-      const normName = (s.userName || '').trim().toLowerCase();
+      const normId = (s?.userId || '').trim().toLowerCase();
+      const normName = (s?.userName || '').trim().toLowerCase();
       const matched = users.find(u => 
-        (normId && u.id.toLowerCase() === normId) ||
-        (normName && u.fullName.trim().toLowerCase() === normName) ||
-        (normName && u.username.trim().toLowerCase() === normName)
+        (normId && (u?.id || '').toLowerCase() === normId) ||
+        (normName && (u?.fullName || '').trim().toLowerCase() === normName) ||
+        (normName && (u?.username || '').trim().toLowerCase() === normName)
       );
       const canonId = matched?.id || normId || normName || 'unknown_user';
-      const canonName = matched?.fullName || s.userName.trim();
-      const canonRole = matched?.role || s.userRole;
-      const sessionDate = extractStandardDate(s.loginTime, realToday);
+      const canonName = matched?.fullName || (s?.userName || '').trim() || 'Petugas';
+      const canonRole = matched?.role || s?.userRole || 'Petugas';
+      const sessionDate = extractStandardDate(s?.loginTime, realToday);
 
       const existing = map.get(canonId);
       if (!existing) {
@@ -4692,8 +4693,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
         if (auditActionFilter === 'QC' && !act.includes('qc') && !act.includes('inspeksi')) return false;
         if (auditActionFilter === 'PDF_DOWNLOAD' && !act.includes('pdf') && !act.includes('unduh')) return false;
       }
-      if (auditSearch.trim()) {
-        const q = auditSearch.toLowerCase();
+      if ((auditSearch || '').trim()) {
+        const q = auditSearch.toLowerCase().trim();
         const matchUser = (log.user || '').toLowerCase().includes(q);
         const matchAction = (log.action || '').toLowerCase().includes(q);
         const matchDetails = (log.details || '').toLowerCase().includes(q);
@@ -4747,8 +4748,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       if (pdfOfficerFilter !== 'SEMUA' && log.user !== pdfOfficerFilter) return false;
 
       // Search query
-      if (pdfSearch.trim()) {
-        const q = pdfSearch.toLowerCase();
+      if ((pdfSearch || '').trim()) {
+        const q = pdfSearch.toLowerCase().trim();
         const matchCode = (log.verificationCode || '').toLowerCase().includes(q);
         const matchUser = (log.user || '').toLowerCase().includes(q);
         const matchDetails = (log.details || '').toLowerCase().includes(q);
@@ -5870,7 +5871,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     />
                   </div>
 
-                  {(datePreset !== 'SEMUA' || auditActionFilter !== 'SEMUA' || auditSearch.trim() || customStartDate || customEndDate) && (
+                  {(datePreset !== 'SEMUA' || auditActionFilter !== 'SEMUA' || (auditSearch && auditSearch.trim()) || customStartDate || customEndDate) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -6193,7 +6194,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     />
                   </div>
 
-                  {(pdfDatePreset !== 'SEMUA' || pdfOfficerFilter !== 'SEMUA' || pdfSearch.trim() || pdfStartDate || pdfEndDate) && (
+                  {(pdfDatePreset !== 'SEMUA' || pdfOfficerFilter !== 'SEMUA' || (pdfSearch && pdfSearch.trim()) || pdfStartDate || pdfEndDate) && (
                     <button
                       type="button"
                       onClick={() => {
