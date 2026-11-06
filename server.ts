@@ -932,26 +932,28 @@ async function startServer() {
       }
       await ensureTableColumns(client);
 
-      async function safeUpsert(sql: string, params: any[]) {
-        try {
-          await client.query("SAVEPOINT item_sp;");
-          await client.query(sql, params);
-          await client.query("RELEASE SAVEPOINT item_sp;");
-          return true;
-        } catch (e) {
-          await client.query("ROLLBACK TO item_sp;").catch(() => {});
-          return false;
-        }
-      }
-
-      // 2. Upsert buildings
-      if (Array.isArray(dataset.buildings)) {
-        let cnt = 0;
-        for (const b of dataset.buildings) {
-          if (!b || !b.id) continue;
-          const ok = await safeUpsert(`
+      // 2. Batch Upsert Buildings
+      const bList = Array.isArray(dataset.buildings) ? dataset.buildings : [];
+      if (bList.length > 0) {
+        const rows = bList.filter((b: any) => b && b.id).map((b: any) => ({
+          id: String(b.id),
+          name: String(b.name || ''),
+          code: String(b.code || ''),
+          floors: Number(b.floors || 1),
+          total_rooms: Number(b.totalRooms || 0),
+          capacity_desc: String(b.capacityDesc || ''),
+          category: String(b.category || 'PENGINAPAN'),
+          status: String(b.status || 'AKTIF'),
+          description: String(b.description || ''),
+          raw_data: b
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO buildings (id, name, code, floors, total_rooms, capacity_desc, category, status, description, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+            SELECT id, name, code, floors, total_rooms, capacity_desc, category, status, description, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, name VARCHAR, code VARCHAR, floors INT, total_rooms INT, capacity_desc TEXT, category VARCHAR, status VARCHAR, description TEXT, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
               code = EXCLUDED.code,
@@ -963,20 +965,43 @@ async function startServer() {
               description = EXCLUDED.description,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [b.id, b.name || '', b.code || '', b.floors || 1, b.totalRooms || 0, b.capacityDesc || '', b.category || 'PENGINAPAN', b.status || 'AKTIF', b.description || '', JSON.stringify(b)]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.buildings = rows.length;
         }
-        counts.buildings = cnt;
       }
 
-      // 3. Upsert rooms
-      if (Array.isArray(dataset.rooms)) {
-        let cnt = 0;
-        for (const r of dataset.rooms) {
-          if (!r || !r.id) continue;
-          const ok = await safeUpsert(`
+      // 3. Batch Upsert Rooms
+      const rList = Array.isArray(dataset.rooms) ? dataset.rooms : [];
+      if (rList.length > 0) {
+        const rows = rList.filter((r: any) => r && r.id).map((r: any) => ({
+          id: String(r.id),
+          room_number: String(r.roomNumber || r.room_number || ''),
+          building: String(r.building || ''),
+          building_id: String(r.buildingId || r.building_id || ''),
+          floor: Number(r.floor || 1),
+          type: String(r.type || 'Standar'),
+          bed_type: String(r.bedType || r.bed_type || '4 Single Bed'),
+          capacity: String(r.capacity || '4 Orang'),
+          capacity_number: Number(r.capacityNumber || r.capacity_number || 4),
+          status: String(r.status || 'READY'),
+          price_per_night: Number(r.pricePerNight || r.price_per_night || 0),
+          facilities: r.facilities || [],
+          qc_status: String(r.qcStatus || r.qc_status || 'LOLOS_QC'),
+          last_qc_date: r.lastQcDate || null,
+          last_qc_by: r.lastQcBy || null,
+          last_qc_notes: r.lastQcNotes || null,
+          active_tx_id: r.activeTxId || null,
+          active_maint_id: r.activeMaintId || null,
+          notes: r.notes || null,
+          raw_data: r
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO rooms (id, room_number, building, building_id, floor, type, bed_type, capacity, capacity_number, status, price_per_night, facilities, qc_status, last_qc_date, last_qc_by, last_qc_notes, active_tx_id, active_maint_id, notes, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+            SELECT id, room_number, building, building_id, floor, type, bed_type, capacity, capacity_number, status, price_per_night, facilities, qc_status, last_qc_date, last_qc_by, last_qc_notes, active_tx_id, active_maint_id, notes, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_number VARCHAR, building VARCHAR, building_id VARCHAR, floor INT, type VARCHAR, bed_type VARCHAR, capacity VARCHAR, capacity_number INT, status VARCHAR, price_per_night NUMERIC, facilities JSONB, qc_status VARCHAR, last_qc_date VARCHAR, last_qc_by VARCHAR, last_qc_notes TEXT, active_tx_id VARCHAR, active_maint_id VARCHAR, notes TEXT, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               room_number = EXCLUDED.room_number,
               building = EXCLUDED.building,
@@ -998,27 +1023,39 @@ async function startServer() {
               notes = EXCLUDED.notes,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            r.id, r.roomNumber || '', r.building || '', r.buildingId || '', r.floor || 1, r.type || 'Standar',
-            r.bedType || '4 Single Bed', r.capacity || '4 Orang', r.capacityNumber || 4, r.status || 'READY',
-            r.pricePerNight || 0, JSON.stringify(r.facilities || []), r.qcStatus || 'LOLOS_QC',
-            r.lastQcDate || null, r.lastQcBy || null, r.lastQcNotes || null, r.activeTxId || null,
-            r.activeMaintId || null, r.notes || null, JSON.stringify(r)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.rooms = rows.length;
         }
-        counts.rooms = cnt;
       }
 
-      // 4. Upsert meeting_rooms
-      if (Array.isArray(dataset.meetingRooms || dataset.meeting_rooms)) {
-        const mrs = dataset.meetingRooms || dataset.meeting_rooms;
-        let cnt = 0;
-        for (const mr of mrs) {
-          if (!mr || !mr.id) continue;
-          const ok = await safeUpsert(`
+      // 4. Batch Upsert Meeting Rooms
+      const mrList = Array.isArray(dataset.meetingRooms || dataset.meeting_rooms) ? (dataset.meetingRooms || dataset.meeting_rooms) : [];
+      if (mrList.length > 0) {
+        const rows = mrList.filter((mr: any) => mr && mr.id).map((mr: any) => ({
+          id: String(mr.id),
+          name: String(mr.name || ''),
+          code: String(mr.code || ''),
+          building: String(mr.building || 'Ruang Pertemuan'),
+          capacity: String(mr.capacity || '500 Orang'),
+          capacity_number: Number(mr.capacityNumber || mr.capacity_number || 500),
+          category: String(mr.category || 'AULA'),
+          daily_rate: Number(mr.dailyRate || mr.daily_rate || 0),
+          session_rate: Number(mr.sessionRate || mr.session_rate || 0),
+          facilities: mr.facilities || [],
+          description: String(mr.description || ''),
+          status: String(mr.status || 'TERSEDIA'),
+          qc_status: String(mr.qcStatus || mr.qc_status || 'LOLOS_QC'),
+          active_tx_id: mr.activeTxId || null,
+          active_maint_id: mr.activeMaintId || null,
+          raw_data: mr
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO meeting_rooms (id, name, code, building, capacity, capacity_number, category, daily_rate, session_rate, facilities, description, status, qc_status, active_tx_id, active_maint_id, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
+            SELECT id, name, code, building, capacity, capacity_number, category, daily_rate, session_rate, facilities, description, status, qc_status, active_tx_id, active_maint_id, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, name VARCHAR, code VARCHAR, building VARCHAR, capacity VARCHAR, capacity_number INT, category VARCHAR, daily_rate NUMERIC, session_rate NUMERIC, facilities JSONB, description TEXT, status VARCHAR, qc_status VARCHAR, active_tx_id VARCHAR, active_maint_id VARCHAR, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
               code = EXCLUDED.code,
@@ -1036,26 +1073,32 @@ async function startServer() {
               active_maint_id = EXCLUDED.active_maint_id,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            mr.id, mr.name || '', mr.code || '', mr.building || 'Ruang Pertemuan', mr.capacity || '500 Orang',
-            mr.capacityNumber || 500, mr.category || 'AULA', mr.dailyRate || 0, mr.sessionRate || 0,
-            JSON.stringify(mr.facilities || []), mr.description || '', mr.status || 'TERSEDIA',
-            mr.qcStatus || 'LOLOS_QC', mr.activeTxId || null, mr.activeMaintId || null, JSON.stringify(mr)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.meeting_rooms = rows.length;
         }
-        counts.meeting_rooms = cnt;
       }
 
-      // 5. Upsert room_capacity_rates
-      if (Array.isArray(dataset.roomCapacityRates || dataset.room_capacity_rates)) {
-        const rates = dataset.roomCapacityRates || dataset.room_capacity_rates;
-        let cnt = 0;
-        for (const r of rates) {
-          if (!r || !r.id) continue;
-          const ok = await safeUpsert(`
+      // 5. Batch Upsert Room Capacity Rates
+      const rcrList = Array.isArray(dataset.roomCapacityRates || dataset.room_capacity_rates) ? (dataset.roomCapacityRates || dataset.room_capacity_rates) : [];
+      if (rcrList.length > 0) {
+        const rows = rcrList.filter((r: any) => r && r.id).map((r: any) => ({
+          id: String(r.id),
+          room_type: String(r.roomType || r.room_type || 'Standar'),
+          bed_type: String(r.bedType || r.bed_type || '4 Single Bed'),
+          capacity_pax: Number(r.capacityPax || r.capacity_pax || 4),
+          price_per_night: Number(r.pricePerNight || r.price_per_night || 0),
+          description: String(r.description || ''),
+          facilities: r.facilities || [],
+          is_active: r.isActive !== false,
+          raw_data: r
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO room_capacity_rates (id, room_type, bed_type, capacity_pax, price_per_night, description, facilities, is_active, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            SELECT id, room_type, bed_type, capacity_pax, price_per_night, description, facilities, is_active, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_type VARCHAR, bed_type VARCHAR, capacity_pax INT, price_per_night NUMERIC, description TEXT, facilities JSONB, is_active BOOLEAN, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               room_type = EXCLUDED.room_type,
               bed_type = EXCLUDED.bed_type,
@@ -1066,25 +1109,31 @@ async function startServer() {
               is_active = EXCLUDED.is_active,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            r.id, r.roomType || 'Standar', r.bedType || '4 Single Bed', r.capacityPax || 4,
-            r.pricePerNight || 0, r.description || '', JSON.stringify(r.facilities || []),
-            r.isActive !== false, JSON.stringify(r)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.room_capacity_rates = rows.length;
         }
-        counts.room_capacity_rates = cnt;
       }
 
-      // 6. Upsert breakfast_menu_items
-      if (Array.isArray(dataset.breakfastMenuItems || dataset.breakfast_menu_items)) {
-        const menus = dataset.breakfastMenuItems || dataset.breakfast_menu_items;
-        let cnt = 0;
-        for (const m of menus) {
-          if (!m || !m.id) continue;
-          const ok = await safeUpsert(`
+      // 6. Batch Upsert Breakfast Menu Items
+      const bmiList = Array.isArray(dataset.breakfastMenuItems || dataset.breakfast_menu_items) ? (dataset.breakfastMenuItems || dataset.breakfast_menu_items) : [];
+      if (bmiList.length > 0) {
+        const rows = bmiList.filter((m: any) => m && m.id).map((m: any) => ({
+          id: String(m.id),
+          name: String(m.name || ''),
+          category: String(m.category || 'MAKANAN_BERAT'),
+          price: Number(m.price || 25000),
+          description: String(m.description || ''),
+          allergens: String(m.allergens || ''),
+          is_available: m.isAvailable !== false,
+          raw_data: m
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO breakfast_menu_items (id, name, category, price, description, allergens, is_available, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            SELECT id, name, category, price, description, allergens, is_available, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, name VARCHAR, category VARCHAR, price NUMERIC, description TEXT, allergens TEXT, is_available BOOLEAN, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
               category = EXCLUDED.category,
@@ -1094,23 +1143,49 @@ async function startServer() {
               is_available = EXCLUDED.is_available,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            m.id, m.name || '', m.category || 'MAKANAN_BERAT', m.price || 25000,
-            m.description || '', m.allergens || '', m.isAvailable !== false, JSON.stringify(m)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.breakfast_menu_items = rows.length;
         }
-        counts.breakfast_menu_items = cnt;
       }
 
-      // 7. Upsert transactions
-      if (Array.isArray(dataset.transactions)) {
-        let cnt = 0;
-        for (const t of dataset.transactions) {
-          if (!t || !t.id) continue;
-          const ok = await safeUpsert(`
+      // 7. Batch Upsert Transactions
+      const txList = Array.isArray(dataset.transactions) ? dataset.transactions : [];
+      if (txList.length > 0) {
+        const rows = txList.filter((t: any) => t && t.id).map((t: any) => ({
+          id: String(t.id),
+          room_id: String(t.roomId || t.room_id || ''),
+          building: String(t.building || ''),
+          room_number: String(t.roomNumber || t.room_number || ''),
+          category: String(t.category || 'UMUM'),
+          guest_name: String(t.guestName || t.guest_name || ''),
+          guest_type: String(t.guestType || t.guest_type || 'INDIVIDU'),
+          nik_ktp: String(t.nikKtp || t.nik_ktp || ''),
+          kloter: String(t.kloter || ''),
+          start_date: String(t.startDate || t.start_date || ''),
+          duration: Number(t.duration || 1),
+          duration_unit: String(t.durationUnit || t.duration_unit || 'Malam'),
+          phone: String(t.phone || ''),
+          notes: String(t.notes || ''),
+          status: String(t.status || 'BOOKED'),
+          created_user: String(t.createdUser || t.created_user || ''),
+          is_group: Boolean(t.isGroup ?? t.is_group),
+          group_type: String(t.groupType || t.group_type || ''),
+          group_name: String(t.groupName || t.group_name || ''),
+          group_id: String(t.groupId || t.group_id || ''),
+          total_pax: Number(t.totalPax || t.total_pax || 0),
+          payment_status: String(t.paymentStatus || t.payment_status || 'BELUM_LUNAS'),
+          payment_method: String(t.paymentMethod || t.payment_method || ''),
+          paid_amount: Number(t.paidAmount || t.paid_amount || 0),
+          total_price: Number(t.totalPrice || t.total_price || 0),
+          raw_data: t
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO transactions (id, room_id, building, room_number, category, guest_name, guest_type, nik_ktp, kloter, start_date, duration, duration_unit, phone, notes, status, created_user, is_group, group_type, group_name, group_id, total_pax, payment_status, payment_method, paid_amount, total_price, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
+            SELECT id, room_id, building, room_number, category, guest_name, guest_type, nik_ktp, kloter, start_date, duration, duration_unit, phone, notes, status, created_user, is_group, group_type, group_name, group_id, total_pax, payment_status, payment_method, paid_amount, total_price, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_id VARCHAR, building VARCHAR, room_number VARCHAR, category VARCHAR, guest_name VARCHAR, guest_type VARCHAR, nik_ktp VARCHAR, kloter VARCHAR, start_date VARCHAR, duration INT, duration_unit VARCHAR, phone VARCHAR, notes TEXT, status VARCHAR, created_user VARCHAR, is_group BOOLEAN, group_type VARCHAR, group_name VARCHAR, group_id VARCHAR, total_pax INT, payment_status VARCHAR, payment_method VARCHAR, paid_amount NUMERIC, total_price NUMERIC, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               room_id = EXCLUDED.room_id,
               building = EXCLUDED.building,
@@ -1138,28 +1213,38 @@ async function startServer() {
               total_price = EXCLUDED.total_price,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            t.id, t.roomId || '', t.building || '', t.roomNumber || '', t.category || 'UMUM',
-            t.guestName || '', t.guestType || 'INDIVIDU', t.nikKtp || '', t.kloter || '',
-            t.startDate || '', t.duration || 1, t.durationUnit || 'Malam', t.phone || '',
-            t.notes || '', t.status || 'BOOKED', t.createdUser || '', Boolean(t.isGroup),
-            t.groupType || '', t.groupName || '', t.groupId || '', t.totalPax || 0,
-            t.paymentStatus || 'BELUM_LUNAS', t.paymentMethod || '', t.paidAmount || 0,
-            t.totalPrice || 0, JSON.stringify(t)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.transactions = rows.length;
         }
-        counts.transactions = cnt;
       }
 
-      // 8. Upsert users
-      if (Array.isArray(dataset.users)) {
-        let cnt = 0;
-        for (const u of dataset.users) {
-          if (!u || !u.id) continue;
-          const ok = await safeUpsert(`
+      // 8. Batch Upsert Users
+      const uList = Array.isArray(dataset.users) ? dataset.users : [];
+      if (uList.length > 0) {
+        const rows = uList.filter((u: any) => u && u.id).map((u: any) => ({
+          id: String(u.id),
+          username: String(u.username || ''),
+          full_name: String(u.fullName || u.full_name || ''),
+          role: String(u.role || 'Staff'),
+          department: String(u.department || ''),
+          assigned_building: String(u.assignedBuilding || u.assigned_building || ''),
+          phone: String(u.phone || ''),
+          email: String(u.email || ''),
+          nip: String(u.nip || ''),
+          status: String(u.status || 'active'),
+          password: String(u.password || ''),
+          permissions: u.permissions || {},
+          signature_url: u.signatureUrl || null,
+          qr_code_url: u.qrCodeUrl || null,
+          raw_data: u
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO users (id, username, full_name, role, department, assigned_building, phone, email, nip, status, password, permissions, signature_url, qr_code_url, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            SELECT id, username, full_name, role, department, assigned_building, phone, email, nip, status, password, permissions, signature_url, qr_code_url, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, username VARCHAR, full_name VARCHAR, role VARCHAR, department VARCHAR, assigned_building VARCHAR, phone VARCHAR, email VARCHAR, nip VARCHAR, status VARCHAR, password VARCHAR, permissions JSONB, signature_url TEXT, qr_code_url TEXT, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               username = EXCLUDED.username,
               full_name = EXCLUDED.full_name,
@@ -1176,25 +1261,35 @@ async function startServer() {
               qr_code_url = EXCLUDED.qr_code_url,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            u.id, u.username || '', u.fullName || '', u.role || 'Staff', u.department || '',
-            u.assignedBuilding || '', u.phone || '', u.email || '', u.nip || '',
-            u.status || 'active', u.password || '', JSON.stringify(u.permissions || {}),
-            u.signatureUrl || null, u.qrCodeUrl || null, JSON.stringify(u)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.users = rows.length;
         }
-        counts.users = cnt;
       }
 
-      // 9. Upsert maintenances
-      if (Array.isArray(dataset.maintenances)) {
-        let cnt = 0;
-        for (const m of dataset.maintenances) {
-          if (!m || !m.id) continue;
-          const ok = await safeUpsert(`
+      // 9. Batch Upsert Maintenances
+      const mList = Array.isArray(dataset.maintenances) ? dataset.maintenances : [];
+      if (mList.length > 0) {
+        const rows = mList.filter((m: any) => m && m.id).map((m: any) => ({
+          id: String(m.id),
+          room_id: String(m.roomId || m.room_id || ''),
+          room_number: String(m.roomNumber || m.room_number || ''),
+          building: String(m.building || ''),
+          category: String(m.category || ''),
+          issue: String(m.issue || ''),
+          description: String(m.description || ''),
+          urgency: String(m.urgency || 'Sedang'),
+          status: String(m.status || 'PROSES'),
+          technician: String(m.technician || ''),
+          report_time: String(m.reportTime || m.report_time || ''),
+          raw_data: m
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO maintenances (id, room_id, room_number, building, category, issue, description, urgency, status, technician, report_time, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+            SELECT id, room_id, room_number, building, category, issue, description, urgency, status, technician, report_time, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_id VARCHAR, room_number VARCHAR, building VARCHAR, category VARCHAR, issue VARCHAR, description TEXT, urgency VARCHAR, status VARCHAR, technician VARCHAR, report_time VARCHAR, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               room_id = EXCLUDED.room_id,
               room_number = EXCLUDED.room_number,
@@ -1208,25 +1303,38 @@ async function startServer() {
               report_time = EXCLUDED.report_time,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            m.id, m.roomId || '', m.roomNumber || '', m.building || '', m.category || '',
-            m.issue || '', m.description || '', m.urgency || 'Sedang', m.status || 'PROSES',
-            m.technician || '', m.reportTime || '', JSON.stringify(m)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.maintenances = rows.length;
         }
-        counts.maintenances = cnt;
       }
 
-      // 10. Upsert qc_inspections
-      if (Array.isArray(dataset.qcInspections || dataset.qc_inspections)) {
-        const qcs = dataset.qcInspections || dataset.qc_inspections;
-        let cnt = 0;
-        for (const q of qcs) {
-          if (!q || !q.id) continue;
-          const ok = await safeUpsert(`
+      // 10. Batch Upsert QC Inspections
+      const qcList = Array.isArray(dataset.qcInspections || dataset.qc_inspections) ? (dataset.qcInspections || dataset.qc_inspections) : [];
+      if (qcList.length > 0) {
+        const rows = qcList.filter((q: any) => q && q.id).map((q: any) => ({
+          id: String(q.id),
+          room_id: String(q.roomId || q.room_id || ''),
+          building: String(q.building || ''),
+          room_number: String(q.roomNumber || q.room_number || ''),
+          inspector_id: String(q.inspectorId || q.inspector_id || ''),
+          inspector_name: String(q.inspectorName || q.inspector_name || ''),
+          inspection_date: String(q.inspectionDate || q.inspection_date || ''),
+          cleanliness: String(q.cleanliness || ''),
+          linen_bed: String(q.linenBed || q.linen_bed || ''),
+          ac_electricity: String(q.acElectricity || q.ac_electricity || ''),
+          plumbing_water: String(q.plumbingWater || q.plumbing_water || ''),
+          amenities: String(q.amenities || ''),
+          result: String(q.result || 'LOLOS_QC'),
+          notes: String(q.notes || ''),
+          raw_data: q
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO qc_inspections (id, room_id, building, room_number, inspector_id, inspector_name, inspection_date, cleanliness, linen_bed, ac_electricity, plumbing_water, amenities, result, notes, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            SELECT id, room_id, building, room_number, inspector_id, inspector_name, inspection_date, cleanliness, linen_bed, ac_electricity, plumbing_water, amenities, result, notes, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_id VARCHAR, building VARCHAR, room_number VARCHAR, inspector_id VARCHAR, inspector_name VARCHAR, inspection_date VARCHAR, cleanliness VARCHAR, linen_bed VARCHAR, ac_electricity VARCHAR, plumbing_water VARCHAR, amenities VARCHAR, result VARCHAR, notes TEXT, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               room_id = EXCLUDED.room_id,
               building = EXCLUDED.building,
@@ -1243,26 +1351,38 @@ async function startServer() {
               notes = EXCLUDED.notes,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            q.id, q.roomId || '', q.building || '', q.roomNumber || '', q.inspectorId || '',
-            q.inspectorName || '', q.inspectionDate || '', q.cleanliness || '', q.linenBed || '',
-            q.acElectricity || '', q.plumbingWater || '', q.amenities || '', q.result || 'LOLOS_QC',
-            q.notes || '', JSON.stringify(q)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.qc_inspections = rows.length;
         }
-        counts.qc_inspections = cnt;
       }
 
-      // 11. Upsert breakfast_orders
-      if (Array.isArray(dataset.breakfastOrders || dataset.breakfast_orders)) {
-        const bos = dataset.breakfastOrders || dataset.breakfast_orders;
-        let cnt = 0;
-        for (const o of bos) {
-          if (!o || !o.id) continue;
-          const ok = await safeUpsert(`
+      // 11. Batch Upsert Breakfast Orders
+      const boList = Array.isArray(dataset.breakfastOrders || dataset.breakfast_orders) ? (dataset.breakfastOrders || dataset.breakfast_orders) : [];
+      if (boList.length > 0) {
+        const rows = boList.filter((o: any) => o && o.id).map((o: any) => ({
+          id: String(o.id),
+          room_number: String(o.roomNumber || o.room_number || ''),
+          building: String(o.building || ''),
+          guest_name: String(o.guestName || o.guest_name || ''),
+          phone: String(o.phone || ''),
+          transaction_id: String(o.transactionId || o.transaction_id || ''),
+          menu_name: String(o.menuName || o.menu_name || ''),
+          portions: Number(o.portions || 1),
+          days: Number(o.days || 1),
+          start_date: String(o.startDate || o.start_date || ''),
+          status: String(o.status || 'MENUNGGU'),
+          total_price: Number(o.totalPrice || o.total_price || 0),
+          notes: String(o.notes || ''),
+          cancel_reason: String(o.cancelReason || o.cancel_reason || ''),
+          raw_data: o
+        }));
+        if (rows.length > 0) {
+          await client.query(`
             INSERT INTO breakfast_orders (id, room_number, building, guest_name, phone, transaction_id, menu_name, portions, days, start_date, status, total_price, notes, cancel_reason, raw_data, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+            SELECT id, room_number, building, guest_name, phone, transaction_id, menu_name, portions, days, start_date, status, total_price, notes, cancel_reason, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_number VARCHAR, building VARCHAR, guest_name VARCHAR, phone VARCHAR, transaction_id VARCHAR, menu_name VARCHAR, portions INT, days INT, start_date VARCHAR, status VARCHAR, total_price NUMERIC, notes TEXT, cancel_reason TEXT, raw_data JSONB
+            )
             ON CONFLICT (id) DO UPDATE SET
               room_number = EXCLUDED.room_number,
               building = EXCLUDED.building,
@@ -1279,20 +1399,122 @@ async function startServer() {
               cancel_reason = EXCLUDED.cancel_reason,
               raw_data = EXCLUDED.raw_data,
               updated_at = NOW();
-          `, [
-            o.id, o.roomNumber || '', o.building || '', o.guestName || '', o.phone || '',
-            o.transactionId || '', o.menuName || '', o.portions || 1, o.days || 1,
-            o.startDate || '', o.status || 'MENUNGGU', o.totalPrice || 0, o.notes || '',
-            o.cancelReason || '', JSON.stringify(o)
-          ]);
-          if (ok) cnt++;
+          `, [JSON.stringify(rows)]);
+          counts.breakfast_orders = rows.length;
         }
-        counts.breakfast_orders = cnt;
       }
 
-      // 12. App Settings
+      // 12. Batch Upsert Cleaning Logs
+      const clList = Array.isArray(dataset.cleaningLogs || dataset.cleaning_logs) ? (dataset.cleaningLogs || dataset.cleaning_logs) : [];
+      if (clList.length > 0) {
+        const rows = clList.filter((c: any) => c && c.id).map((c: any) => ({
+          id: String(c.id),
+          room_id: String(c.roomId || c.room_id || ''),
+          room_number: String(c.roomNumber || c.room_number || ''),
+          building: String(c.building || ''),
+          petugas_name: String(c.petugasName || c.petugas_name || ''),
+          timestamp: String(c.timestamp || ''),
+          photo_url: c.photoUrl || null,
+          notes: String(c.notes || ''),
+          status: String(c.status || ''),
+          raw_data: c
+        }));
+        if (rows.length > 0) {
+          await client.query(`
+            INSERT INTO cleaning_logs (id, room_id, room_number, building, petugas_name, timestamp, photo_url, notes, status, raw_data, updated_at)
+            SELECT id, room_id, room_number, building, petugas_name, timestamp, photo_url, notes, status, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, room_id VARCHAR, room_number VARCHAR, building VARCHAR, petugas_name VARCHAR, timestamp VARCHAR, photo_url TEXT, notes TEXT, status VARCHAR, raw_data JSONB
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              room_id = EXCLUDED.room_id,
+              room_number = EXCLUDED.room_number,
+              building = EXCLUDED.building,
+              petugas_name = EXCLUDED.petugas_name,
+              timestamp = EXCLUDED.timestamp,
+              photo_url = EXCLUDED.photo_url,
+              notes = EXCLUDED.notes,
+              status = EXCLUDED.status,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [JSON.stringify(rows)]);
+          counts.cleaning_logs = rows.length;
+        }
+      }
+
+      // 13. Batch Upsert Work Sessions
+      const wsList = Array.isArray(dataset.workSessions || dataset.work_sessions) ? (dataset.workSessions || dataset.work_sessions) : [];
+      if (wsList.length > 0) {
+        const rows = wsList.filter((s: any) => s && s.id).map((s: any) => ({
+          id: String(s.id),
+          user_id: String(s.userId || s.user_id || ''),
+          user_name: String(s.userName || s.user_name || ''),
+          user_role: String(s.userRole || s.user_role || ''),
+          login_time: String(s.loginTime || s.login_time || ''),
+          logout_time: s.logoutTime || s.logout_time || null,
+          duration_seconds: Number(s.durationSeconds || s.duration_seconds || 0),
+          status: String(s.status || 'AKTIF'),
+          notes: String(s.notes || ''),
+          raw_data: s
+        }));
+        if (rows.length > 0) {
+          await client.query(`
+            INSERT INTO work_sessions (id, user_id, user_name, user_role, login_time, logout_time, duration_seconds, status, notes, raw_data, updated_at)
+            SELECT id, user_id, user_name, user_role, login_time, logout_time, duration_seconds, status, notes, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, user_id VARCHAR, user_name VARCHAR, user_role VARCHAR, login_time VARCHAR, logout_time VARCHAR, duration_seconds INT, status VARCHAR, notes TEXT, raw_data JSONB
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              user_id = EXCLUDED.user_id,
+              user_name = EXCLUDED.user_name,
+              user_role = EXCLUDED.user_role,
+              login_time = EXCLUDED.login_time,
+              logout_time = EXCLUDED.logout_time,
+              duration_seconds = EXCLUDED.duration_seconds,
+              status = EXCLUDED.status,
+              notes = EXCLUDED.notes,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [JSON.stringify(rows)]);
+          counts.work_sessions = rows.length;
+        }
+      }
+
+      // 14. Batch Upsert Audit Logs
+      const alList = Array.isArray(dataset.auditLogs || dataset.audit_logs) ? (dataset.auditLogs || dataset.audit_logs) : [];
+      if (alList.length > 0) {
+        const rows = alList.filter((l: any) => l && l.id).map((l: any) => ({
+          id: String(l.id),
+          timestamp: String(l.timestamp || ''),
+          user_name: String(l.userName || l.user_name || l.user || ''),
+          role: String(l.role || ''),
+          action: String(l.action || ''),
+          details: String(l.details || ''),
+          raw_data: l
+        }));
+        if (rows.length > 0) {
+          await client.query(`
+            INSERT INTO audit_logs (id, timestamp, user_name, role, action, details, raw_data, updated_at)
+            SELECT id, timestamp, user_name, role, action, details, raw_data, NOW()
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+              id VARCHAR, timestamp VARCHAR, user_name VARCHAR, role VARCHAR, action VARCHAR, details TEXT, raw_data JSONB
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              timestamp = EXCLUDED.timestamp,
+              user_name = EXCLUDED.user_name,
+              role = EXCLUDED.role,
+              action = EXCLUDED.action,
+              details = EXCLUDED.details,
+              raw_data = EXCLUDED.raw_data,
+              updated_at = NOW();
+          `, [JSON.stringify(rows)]);
+          counts.audit_logs = rows.length;
+        }
+      }
+
+      // 15. App Settings
       if (dataset.appSettings) {
-        await safeUpsert(`
+        await client.query(`
           INSERT INTO app_settings (key, value, updated_at)
           VALUES ('general', $1, NOW())
           ON CONFLICT (key) DO UPDATE SET
