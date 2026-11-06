@@ -431,7 +431,7 @@ export function GroupRegistrationModal({
     // If meeting room or Gedung Serbaguna is selected as well
     if (includeAula && meetingObj) {
       const isSGMeeting = meetingObj.building?.toLowerCase().includes('serbaguna') || 
-                          meetingObj.name?.toLowerCase().includes('serbaguna') || 
+                          (meetingObj as any).name?.toLowerCase().includes('serbaguna') || 
                           (meetingObj as any).category === 'SERBAGUNA';
       const meetingRatePerDay = meetingRoomDuration === 12
         ? ((meetingObj as any).dailyRate || 15000000)
@@ -1747,7 +1747,7 @@ export function GroupRegistrationModal({
               </div>
               {includeAula && (
                 <div className="flex justify-between items-center text-purple-800">
-                  <span>• Sewa Ruang Pertemuan ({priceBreakdown.selectedMeetingObj?.name || 'Aula'} - Paket {meetingRoomDuration === 12 ? '12 Jam' : '8 Jam'}: {meetingRoomDays} Hari x {formatRupiah(priceBreakdown.meetingRatePerDay)})</span>
+                  <span>• Sewa Ruang Pertemuan ({(priceBreakdown.selectedMeetingObj as any)?.name || 'Aula'} - Paket {meetingRoomDuration === 12 ? '12 Jam' : '8 Jam'}: {meetingRoomDays} Hari x {formatRupiah(priceBreakdown.meetingRatePerDay)})</span>
                   <span className="font-mono font-semibold">{formatRupiah(priceBreakdown.meetingTotal)}</span>
                 </div>
               )}

@@ -431,7 +431,7 @@ export function FloatingChatPanel() {
         ? {
             id: replyingTo.id,
             senderName: replyingTo.senderName,
-            text: replyingTo.message
+            message: replyingTo.message
           }
         : undefined
     );

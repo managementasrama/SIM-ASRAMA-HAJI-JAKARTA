@@ -207,7 +207,6 @@ function MainApp() {
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
   public state: { hasError: boolean; error: Error | null } = { hasError: false, error: null };
-  public props!: { children: React.ReactNode };
 
   constructor(props: { children: React.ReactNode }) {
     super(props);

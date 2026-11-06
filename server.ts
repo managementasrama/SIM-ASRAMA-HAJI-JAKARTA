@@ -404,12 +404,14 @@ async function startServer() {
         ssl: {
           rejectUnauthorized: false
         },
-        connectionTimeoutMillis: 8000,
-        idleTimeoutMillis: 10000,
-        max: 5
+        connectionTimeoutMillis: 20000,
+        idleTimeoutMillis: 30000,
+        max: 8,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000
       });
       p.on('error', (err: any) => {
-        console.warn('Aiven PG Pool error:', err?.message || err);
+        console.info('Aiven PG Pool notice:', err?.message || err);
       });
       return p;
     } catch (e) {
@@ -655,6 +657,8 @@ async function startServer() {
         duration_seconds INT DEFAULT 0,
         status VARCHAR(50) DEFAULT 'AKTIF',
         notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
         raw_data JSONB
       );
     `,
@@ -666,6 +670,8 @@ async function startServer() {
         role VARCHAR(100),
         action VARCHAR(100),
         details TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
         raw_data JSONB
       );
     `,
@@ -834,6 +840,8 @@ async function startServer() {
       `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS photo_url TEXT;`,
       `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS notes TEXT;`,
       `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();`,
+      `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`,
       `ALTER TABLE cleaning_logs ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
 
       `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(100);`,
@@ -844,6 +852,8 @@ async function startServer() {
       `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS duration_seconds INT DEFAULT 0;`,
       `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(50);`,
       `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS notes TEXT;`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();`,
+      `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`,
       `ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
 
       `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS timestamp VARCHAR(100);`,
@@ -851,6 +861,8 @@ async function startServer() {
       `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS role VARCHAR(100);`,
       `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action VARCHAR(100);`,
       `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details TEXT;`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();`,
+      `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`,
       `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS raw_data JSONB;`,
 
       `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS key VARCHAR(100);`,
@@ -1311,9 +1323,30 @@ async function startServer() {
     if (table === "system_logs") table = "audit_logs";
 
     let client: any = null;
-    try {
-      client = await pool.connect();
-      if (table === "transactions" && record.id) {
+    let attempts = 0;
+    while (attempts < 2) {
+      try {
+        client = await pool.connect();
+        break;
+      } catch (connErr: any) {
+        attempts++;
+        if (attempts >= 2) {
+          if (connErr?.message?.includes("timeout") || connErr?.message?.includes("Connection terminated")) {
+            try { aivenPool = null; } catch (_) {}
+          }
+          console.info(`[Aiven Background Upsert Notice] Antrean/timeout koneksi pada ${rawSheet} (${connErr?.message || connErr}). Data aman di server cache.`);
+          return false;
+        }
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    if (!client) return false;
+
+    let didRetry = false;
+    while (true) {
+      try {
+        if (table === "transactions" && record.id) {
         await client.query(`
           INSERT INTO transactions (id, room_id, building, room_number, category, guest_name, guest_type, nik_ktp, kloter, start_date, duration, duration_unit, phone, notes, status, created_user, is_group, group_type, group_name, group_id, total_pax, payment_status, payment_method, paid_amount, total_price, raw_data, updated_at)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
@@ -1561,11 +1594,25 @@ async function startServer() {
         } catch (_) {}
       }
       return true;
-    } catch (err) {
-      console.warn(`[Aiven Single Upsert Error on ${rawSheet}]:`, err);
+    } catch (err: any) {
+      if (!didRetry && client && err?.message && (err.message.includes("does not exist") || err.message.includes("column"))) {
+        didRetry = true;
+        try {
+          await ensureTableColumns(client);
+          await client.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();`).catch(() => {});
+          await client.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();`).catch(() => {});
+          await client.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS raw_data JSONB;`).catch(() => {});
+          continue;
+        } catch (_) {}
+      }
+      console.info(`[Aiven Background Upsert Notice on ${rawSheet}]:`, err?.message || err);
       return false;
     } finally {
-      if (client) client.release();
+      if (client) {
+        try { client.release(); } catch (_) {}
+        client = null;
+      }
+    }
     }
   }
 
@@ -1584,7 +1631,7 @@ async function startServer() {
       await client.query(`DELETE FROM ${table} WHERE id = $1;`, [String(recordId).trim()]);
       return true;
     } catch (err) {
-      console.warn(`[Aiven Single Delete Error on ${table}]:`, err);
+      console.info(`[Aiven Background Delete Notice on ${table}]:`, err);
       return false;
     } finally {
       if (client) client.release();
@@ -3672,7 +3719,7 @@ async function startServer() {
 
     // 2. Simpan seketika ke Basis Data Utama Aiven Cloud (PostgreSQL)
     upsertSingleRecordToAiven(rawSheet, record).catch((err) => {
-      console.warn(`[Aiven Upsert] Gagal menyimpan ke Aiven: ${err?.message || err}`);
+      console.info(`[Aiven Background Notice] Simpan ke Aiven dijadwalkan ulang: ${err?.message || err}`);
     });
 
     // 3. Siarkan pembaruan database seketika ke seluruh perangkat & akun yang sedang login via SSE

@@ -72,6 +72,8 @@ export interface Building {
   capacityDesc?: string;
   category?: 'PENGINAPAN' | 'SERBAGUNA' | 'RUANG_PERTEMUAN' | 'KANTOR' | string;
   description?: string;
+  facilities?: string[];
+  location?: string;
   status: 'AKTIF' | 'NONAKTIF';
   createdAt?: string;
   updatedAt?: string;
@@ -282,6 +284,7 @@ export interface Transaction {
   nikKtp?: string;
   kloter: string;
   startDate: string;
+  endDate?: string;
   duration: number;
   phone: string;
   notes: string;
@@ -314,6 +317,8 @@ export interface Transaction {
   rentType?: string;
   durationUnit?: string;
   pricePerNight?: number;
+  totalPrice?: number;
+  totalAmount?: number;
   extraBed?: boolean;
   extraBedCount?: number;
   extraBedPrice?: number;
@@ -372,6 +377,11 @@ export interface RoomTransferRecord {
   rateDiffPerNight: number;
   remainingDays: number;
   rateAdjustmentTotal: number;
+  sourceBuilding?: string;
+  sourceRoomNumber?: string;
+  targetBuilding?: string;
+  targetRoomNumber?: string;
+  transferDate?: string;
 }
 
 export interface Maintenance {
@@ -388,6 +398,7 @@ export interface Maintenance {
   reportedUser: string;
   assignedTechnicianId?: string;
   assignedTechnicianName?: string;
+  assignedBy?: string;
   assignedByManager?: string;
   assignedTime?: string;
   managerNotes?: string;
@@ -404,6 +415,7 @@ export interface AuditLog {
   id?: string;
   timestamp: string;
   user: string;
+  userName?: string;
   role: string;
   action: string;
   details: string;
@@ -464,6 +476,8 @@ export interface ChatMessage {
   timestamp: string;
   timeFormatted: string;
   priority?: 'NORMAL' | 'PENTING' | 'URGENT';
+  isUrgent?: boolean;
+  scope?: string;
   isInstruction?: boolean;
   readBy: string[];
   replyToId?: string;

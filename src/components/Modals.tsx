@@ -625,7 +625,7 @@ export function Modals() {
       reportTime: new Date().toISOString().replace('T', ' ').substring(0, 16),
       status: 'PROSES',
       reportedUser: currentUser ? currentUser.username : 'petugas',
-      facilityType: isAula ? 'AULA' : 'KAMAR'
+      facilityType: isAula ? 'RUANG_PERTEMUAN' : 'KAMAR'
     });
     closeModal('modalMaintenance');
   };
@@ -1176,7 +1176,7 @@ export function Modals() {
                             setBreakfastMenu(bTx.breakfastMenu || 'Nasi Goreng Spesial');
                             setBreakfastPortions(bTx.breakfastPortions || 1);
                             setBreakfastDays(bTx.breakfastDays || bTx.duration);
-                            setBreakfastStatus(bTx.breakfastStatus || 'MENUNGGU');
+                            setBreakfastStatus((bTx.breakfastStatus as any) || 'MENUNGGU');
                             setIncludeExtraBed(!!bTx.extraBed);
                             setExtraBedCount(bTx.extraBedCount || 1);
                             setExtraBedNotes(bTx.extraBedNotes || '1 Kasur Lipat + Bantal & Sprei Bersih');
@@ -4102,7 +4102,7 @@ export function Modals() {
                     <button
                       key={p}
                       type="button"
-                      onClick={() => setExportPeriod(p)}
+                      onClick={() => setExportPeriod(p as any)}
                       className={`py-2 px-2 rounded-lg font-bold text-xs border text-center transition ${
                         exportPeriod === p
                           ? 'bg-emerald-800 text-white border-emerald-800 shadow-2xs'

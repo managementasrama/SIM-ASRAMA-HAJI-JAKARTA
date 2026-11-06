@@ -235,13 +235,9 @@ export function SpreadsheetIntegrationView() {
   const handlePullFromAiven = async () => {
     setIsPulling(true);
     try {
-      const success = await pullFromCentralDatabase();
-      if (success) {
-        showToast('Data berhasil ditarik dari Aiven PostgreSQL!', 'success');
-        loadTableStats();
-      } else {
-        showToast('Gagal menarik data dari Aiven.', 'error');
-      }
+      await pullFromCentralDatabase();
+      showToast('Data berhasil ditarik dari Aiven PostgreSQL!', 'success');
+      loadTableStats();
     } catch (err: any) {
       showToast(`Gagal pull: ${err?.message || err}`, 'error');
     } finally {

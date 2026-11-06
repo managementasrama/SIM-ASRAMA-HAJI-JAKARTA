@@ -101,6 +101,7 @@ export function BuildingModal({ isOpen, onClose, buildingToEdit }: BuildingModal
         });
       } else {
         await addBuilding({
+          id: `bld_${Date.now()}`,
           name: name.trim(),
           code: code.trim().toUpperCase(),
           floors: Number(floors) || 1,
@@ -487,7 +488,7 @@ export function MeetingRoomModal({ isOpen, onClose, meetingRoomToEdit, defaultCa
       setSessionRate(meetingRoomToEdit.sessionRate || (cat === 'SERBAGUNA' ? 8500000 : 4500000));
       setFacilitiesText((meetingRoomToEdit.facilities || []).join(', '));
       setDescription(meetingRoomToEdit.description || '');
-      setStatus(meetingRoomToEdit.status || 'TERSEDIA');
+      setStatus((meetingRoomToEdit.status as any) || 'TERSEDIA');
     } else {
       const initialCat = defaultCategory || 'AULA';
       setName('');
@@ -556,6 +557,7 @@ export function MeetingRoomModal({ isOpen, onClose, meetingRoomToEdit, defaultCa
       showToast(`Fasilitas ${name.trim()} (${categoryLabel}) berhasil diperbarui!`, 'success');
     } else {
       addMeetingRoom({
+        id: `mr_${Date.now()}`,
         name: name.trim(),
         code: code.trim() || undefined,
         category,

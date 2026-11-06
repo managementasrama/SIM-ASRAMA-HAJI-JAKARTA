@@ -444,12 +444,12 @@ export function BuildingStaffView() {
     if (editingLog.roomId) {
       const r = rooms.find(item => item.id === editingLog.roomId || item.roomNumber === editingLog.roomNumber);
       if (r) {
-        updateRoom({ ...r, qcStatus: editStatus });
+        updateRoom({ ...r, qcStatus: editStatus as any });
       }
     } else if (editingLog.meetingRoomId) {
       const mr = meetingRooms.find(item => item.id === editingLog.meetingRoomId || item.code === editingLog.roomNumber || item.name === editingLog.roomNumber);
       if (mr) {
-        updateMeetingRoom({ ...mr, qcStatus: editStatus });
+        updateMeetingRoom({ ...mr, qcStatus: editStatus as any });
       }
     }
 

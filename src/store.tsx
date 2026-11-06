@@ -202,6 +202,9 @@ interface AppContextType {
     status: 'idle' | 'syncing' | 'connected' | 'error';
     lastSyncTime: string | null;
     errorMessage: string | null;
+    isSyncing?: boolean;
+    lastSyncedAt?: string | null;
+    lastError?: string | null;
   };
   checksumReport: DatabaseChecksumReport;
   verifyDatabaseChecksum: (silent?: boolean) => Promise<DatabaseChecksumReport>;

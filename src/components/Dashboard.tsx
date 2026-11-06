@@ -346,8 +346,8 @@ export function Dashboard() {
         r.qcStatus === 'MENUNGGU_QC' || 
         r.qcStatus === 'PERLU_INSPEKSI' || 
         !r.qcStatus || 
-        r.qcStatus === 'PERLU_PERBAIKAN' ||
-        r.qcStatus === 'REVISI_PERBAIKAN' ||
+        (r.qcStatus as string) === 'PERLU_PERBAIKAN' ||
+        (r.qcStatus as string) === 'REVISI_PERBAIKAN' ||
         ((r.status === 'KOSONG' || r.status === 'READY') && r.qcStatus !== 'LOLOS_QC') ||
         (incomingCheckinRoomIds.has(r.id) && r.qcStatus !== 'LOLOS_QC')
       );
@@ -568,7 +568,7 @@ export function Dashboard() {
 
   // 7-Day Maintenance Trend Data for Recharts Bar Chart (Murni berdasarkan data riil operasional)
   const last7DaysMaintenanceData = useMemo(() => {
-    const days: { dateStr: string; displayDate: string; Selesai: number; Proses: number; Total: number }[] = [];
+    const days: { dateStr: string; displayDate: string; day: string; Selesai: number; Proses: number; Total: number }[] = [];
     const today = new Date();
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
@@ -588,6 +588,7 @@ export function Dashboard() {
       days.push({
         dateStr,
         displayDate,
+        day: displayDate,
         Selesai: selesaiCount,
         Proses: prosesCount,
         Total: selesaiCount + prosesCount

@@ -10,6 +10,7 @@ export interface OnlinePresenceInfo {
   sessionId?: string;
   loginTime?: string;
   activeTab?: string;
+  deviceInfo?: string;
   lastSeenMs: number;
 }
 

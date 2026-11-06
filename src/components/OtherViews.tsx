@@ -465,7 +465,7 @@ export function ReportsView() {
                           {canDeleteTx && (
                             <button
                               type="button"
-                              onClick={() => setItemToDelete({ id: grp.key, name: grp.name, isGroup: true })}
+                              onClick={() => setItemToDelete({ id: grp.key, name: grp.groupName || (grp as any).name || 'Rombongan', isGroup: true })}
                               className="px-2 py-1 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-bold rounded-lg text-xs border border-rose-200 dark:border-rose-700 flex items-center space-x-1 transition cursor-pointer"
                               title="Hapus data transaksi rombongan secara permanen"
                             >
@@ -1126,7 +1126,7 @@ export function MaintenanceReportsView() {
       if (statusFilter !== 'ALL' && m.status !== statusFilter) return false;
       if (urgencyFilter !== 'ALL' && m.urgency !== urgencyFilter) return false;
       if (categoryFilter !== 'ALL' && m.category !== categoryFilter) return false;
-      const isAulaMaint = m.building === 'Ruang Pertemuan' || isMeetingFacility(m.building) || m.facilityType === 'AULA';
+      const isAulaMaint = m.building === 'Ruang Pertemuan' || isMeetingFacility(m.building) || (m.facilityType as string) === 'AULA' || m.facilityType === 'RUANG_PERTEMUAN';
       if (facilityFilter === 'KAMAR' && isAulaMaint) return false;
       if (facilityFilter === 'AULA' && !isAulaMaint) return false;
       if (search && String(search).trim()) {
@@ -2205,7 +2205,7 @@ export function BreakfastOrdersView() {
   const openEditMenu = (item: BreakfastMenuItem) => {
     setEditingMenuItem(item);
     setMenuName(item.name);
-    setMenuCategory(item.category);
+    setMenuCategory(item.category as any);
     setMenuPrice(item.price);
     setMenuDesc(item.description);
     setMenuAllergens(item.allergens || '');
@@ -4096,7 +4096,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
       if (datePreset === 'KEMARIN' && sessionDate !== realYesterday) {
         return false;
       }
-      if (datePreset === 'BULAN_INI' && !sessionDate.startsWith(currentMonthPrefix)) {
+      if ((datePreset as string) === 'BULAN_INI' && !sessionDate.startsWith(currentMonthPrefix)) {
         return false;
       }
       if (datePreset === '3_HARI' && sessionDate < dateMinus3) {
