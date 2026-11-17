@@ -7,8 +7,27 @@ import { Pool } from "pg";
 async function startServer() {
   const app = express();
   const httpServer = createHttpServer(app); // Menggunakan HTTP server terikat
-  const PORT = Number(process.env.PORT) || 3000;
 
+  for (const envName of [".env.development.local", ".env.local", ".env"]) {
+    try {
+      const envPath = path.join(process.cwd(), envName);
+      if (!fs.existsSync(envPath)) continue;
+      const envContent = fs.readFileSync(envPath, "utf-8");
+      for (const line of envContent.split(/\r?\n/)) {
+        const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (!match || process.env[match[1]] !== undefined) continue;
+        let value = match[2].trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        process.env[match[1]] = value;
+      }
+    } catch (err: any) {
+      console.warn(`Could not load ${envName}:`, err?.message || err);
+    }
+  }
+
+  const PORT = Number(process.env.PORT) || 3000;
   app.use(express.json({ limit: "50mb" }));
   app.use(express.text({ type: ["text/plain", "text/*"], limit: "10mb" }));
 
@@ -30,6 +49,13 @@ async function startServer() {
     res.setHeader("Expires", "0");
     next();
   });
+
+  // Only the Neon state API is supported; prevent legacy handlers from reaching other stores.
+  const rejectLegacyStorage = (_req: express.Request, res: express.Response) =>
+    res.status(410).json({ ok: false, error: "Endpoint ini sudah dinonaktifkan. Gunakan Neon sebagai satu-satunya database." });
+  for (const legacyPath of ["/api/aiven", "/api/sheets", "/api/sheets-config", "/api/database", "/api/chat"]) {
+    app.use(legacyPath, rejectLegacyStorage);
+  }
 
   // =========================================================================
   // REAL-TIME MULTI-USER HUB (WORK SESSIONS, LIVE PRESENCE & 2-WAY CHAT)
@@ -98,75 +124,17 @@ async function startServer() {
   // Google Spreadsheet Database Configuration & Real-Time Proxy
   // Menggunakan Google Spreadsheet sebagai basis data utama aplikasi
   // =========================================================================
-  const sheetsConfigFilePath = path.join(process.cwd(), "google_sheets_config.json");
   const envFilePath = path.join(process.cwd(), ".env");
-
-  function parseEnvForSheets(): { webAppUrl?: string; sheetId?: string; apiKey?: string } {
-    try {
-      if (fs.existsSync(envFilePath)) {
-        const raw = fs.readFileSync(envFilePath, "utf-8");
-        let webAppUrl: string | undefined;
-        let sheetId: string | undefined;
-        let apiKey: string | undefined;
-
-        const urlMatch = raw.match(/(?:GOOGLE_SHEETS_WEBAPP_URL|VITE_SHEET_WEBAPP_URL)\s*=\s*["']?([^\r\n"']+)["']?/);
-        if (urlMatch && urlMatch[1]) {
-          webAppUrl = urlMatch[1].trim();
-        }
-
-        const idMatch = raw.match(/(?:GOOGLE_SHEETS_ID|VITE_GOOGLE_SHEETS_ID)\s*=\s*["']?([^\r\n"']+)["']?/);
-        if (idMatch && idMatch[1]) {
-          sheetId = idMatch[1].trim();
-        }
-
-        const keyMatch = raw.match(/GOOGLE_SHEETS_API_KEY\s*=\s*["']?([^\r\n"']+)["']?/);
-        if (keyMatch && keyMatch[1]) {
-          apiKey = keyMatch[1].trim();
-        }
-
-        return { webAppUrl, sheetId, apiKey };
-      }
-    } catch (_) {}
-    return {};
-  }
-
-  const defaultWebAppUrl = "https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec";
-  const defaultSheetDocUrl = "https://docs.google.com/spreadsheets/d/15loY6F6CMmIJ5qZaafidY6AB0vvrEpsSsE_B0XXBqP4/edit?gid=0#gid=0";
-
-  const envSheetsConfig = parseEnvForSheets();
+  const sheetsConfigFilePath = path.join(process.cwd(), "google_sheets_config.json");
+  const defaultSheetDocUrl = "";
   let activeSheetsConfig = {
-    webAppUrl: envSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || process.env.VITE_SHEET_WEBAPP_URL || defaultWebAppUrl,
-    sheetId: envSheetsConfig.sheetId || process.env.GOOGLE_SHEETS_ID || process.env.VITE_GOOGLE_SHEETS_ID || defaultSheetDocUrl,
-    sheetDocUrl: defaultSheetDocUrl,
-    apiKey: envSheetsConfig.apiKey || process.env.GOOGLE_SHEETS_API_KEY || "",
-    isConfigured: true,
+    webAppUrl: "",
+    sheetId: "",
+    sheetDocUrl: "",
+    apiKey: "",
+    isConfigured: false,
     updatedAt: new Date().toISOString(),
   };
-
-  try {
-    if (fs.existsSync(sheetsConfigFilePath)) {
-      const rawCfg = fs.readFileSync(sheetsConfigFilePath, "utf-8");
-      const parsed = JSON.parse(rawCfg);
-      if (parsed) {
-        const rawSheetId = parsed.sheetId || activeSheetsConfig.sheetId;
-        const finalDocUrl = parsed.sheetDocUrl || rawSheetId || defaultSheetDocUrl;
-        const safeDocUrl = (finalDocUrl && !finalDocUrl.includes("1AsramaHajiEmbarkasiJakartaSIM")) ? finalDocUrl : defaultSheetDocUrl;
-        activeSheetsConfig = {
-          webAppUrl: parsed.webAppUrl || activeSheetsConfig.webAppUrl,
-          sheetId: safeDocUrl,
-          sheetDocUrl: safeDocUrl,
-          apiKey: parsed.apiKey || activeSheetsConfig.apiKey,
-          isConfigured: Boolean(parsed.webAppUrl || activeSheetsConfig.webAppUrl),
-          updatedAt: parsed.updatedAt || new Date().toISOString(),
-        };
-      }
-    } else if (activeSheetsConfig.webAppUrl) {
-      activeSheetsConfig.isConfigured = true;
-      fs.writeFileSync(sheetsConfigFilePath, JSON.stringify(activeSheetsConfig, null, 2), "utf-8");
-    }
-  } catch (err) {
-    console.warn("Failed to load google_sheets_config.json:", err);
-  }
 
   // File cache lokal di server untuk database authoritatif saat offline / backup
   const serverDbCachePath = path.join(process.cwd(), "server_database_cache.json");
@@ -300,7 +268,7 @@ async function startServer() {
     try {
       if (fs.existsSync(envFilePath)) {
         const raw = fs.readFileSync(envFilePath, "utf-8");
-        const uriMatch = raw.match(/(?:AIVEN_DATABASE_URL|DATABASE_URL|AIVEN_SERVICE_URI)\s*=\s*["']?([^\r\n"']+)["']?/);
+        const uriMatch = raw.match(/(?:AIVEN_DATABASE_URL|AIVEN_SERVICE_URI)\s*=\s*["']?([^\r\n"']+)["']?/);
         if (uriMatch && uriMatch[1]) {
           return { serviceUri: uriMatch[1].trim() };
         }
@@ -326,7 +294,7 @@ async function startServer() {
   }
 
   const envAiven = parseEnvForAiven();
-  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || "";
+  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.AIVEN_SERVICE_URI || "";
 
   let activeAivenConfig: {
     serviceUri?: string;
@@ -427,6 +395,101 @@ async function startServer() {
     }
     return aivenPool;
   }
+
+  const neonStatePool = process.env.DATABASE_URL
+    ? new Pool({
+        connectionString: process.env.DATABASE_URL,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000,
+        max: 8,
+        keepAlive: true
+      })
+    : null;
+  neonStatePool?.on("error", (err: any) => {
+    console.warn("Neon pool connection error:", err?.message || err);
+  });
+
+  app.get("/api/neon/state", async (_req, res) => {
+    if (!neonStatePool) {
+      return res.status(503).json({ ok: false, error: "Neon DATABASE_URL belum tersedia." });
+    }
+
+    try {
+      const result = await neonStatePool.query(
+        "SELECT payload, revision, updated_at FROM public.sim_haji_database_state WHERE id = $1 LIMIT 1",
+        ["primary"]
+      );
+      if (!result.rows.length) {
+        return res.json({ ok: true, data: null, revision: 0, updatedAt: null });
+      }
+      const row = result.rows[0];
+      return res.json({
+        ok: true,
+        data: row.payload,
+        revision: Number(row.revision),
+        updatedAt: row.updated_at
+      });
+    } catch (err: any) {
+      console.error("Neon state read failed:", err?.message || err);
+      return res.status(500).json({ ok: false, error: "Gagal membaca state aplikasi dari Neon." });
+    }
+  });
+
+  app.put("/api/neon/state", async (req, res) => {
+    if (!neonStatePool) {
+      return res.status(503).json({ ok: false, error: "Neon DATABASE_URL belum tersedia." });
+    }
+
+    const { data, expectedRevision } = req.body || {};
+    if (
+      !data || typeof data !== "object" || Array.isArray(data) ||
+      !Number.isSafeInteger(expectedRevision) || expectedRevision < 0 ||
+      !Array.isArray(data.users) || !Array.isArray(data.rooms) ||
+      !Array.isArray(data.transactions) || !Array.isArray(data.buildings)
+    ) {
+      return res.status(400).json({ ok: false, error: "Payload database tidak valid." });
+    }
+
+    try {
+      const result = expectedRevision === 0
+        ? await neonStatePool.query(
+            `INSERT INTO public.sim_haji_database_state (id, payload, revision, updated_at)
+             VALUES ($1, $2::jsonb, 1, now())
+             ON CONFLICT (id) DO NOTHING
+             RETURNING revision, updated_at`,
+            ["primary", JSON.stringify(data)]
+          )
+        : await neonStatePool.query(
+            `UPDATE public.sim_haji_database_state
+             SET payload = $1::jsonb, revision = revision + 1, updated_at = now()
+             WHERE id = $2 AND revision = $3
+             RETURNING revision, updated_at`,
+            [JSON.stringify(data), "primary", expectedRevision]
+          );
+
+      if (!result.rows.length) {
+        const latest = await neonStatePool.query(
+          "SELECT revision, updated_at FROM public.sim_haji_database_state WHERE id = $1 LIMIT 1",
+          ["primary"]
+        );
+        return res.status(409).json({
+          ok: false,
+          conflict: true,
+          revision: latest.rows.length ? Number(latest.rows[0].revision) : 0,
+          error: "Data berubah di perangkat lain. Tarik ulang data terbaru sebelum menyimpan."
+        });
+      }
+
+      return res.json({
+        ok: true,
+        revision: Number(result.rows[0].revision),
+        updatedAt: result.rows[0].updated_at
+      });
+    } catch (err: any) {
+      console.error("Neon state write failed:", err?.message || err);
+      return res.status(500).json({ ok: false, error: "Gagal menyimpan state aplikasi ke Neon." });
+    }
+  });
 
   const AIVEN_TABLE_DEFS: Record<string, string> = {
     buildings: `
@@ -4514,98 +4577,6 @@ async function startServer() {
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-
-    // Self-boot initial connection & table sync with Aiven PostgreSQL
-    (async () => {
-      try {
-        const pool = getActiveAivenPool();
-        if (!pool) return;
-        const start = Date.now();
-        const client = await pool.connect();
-        try {
-          const vQr = await client.query("SELECT NOW(), version();");
-          const latency = Date.now() - start;
-          activeAivenConfig.lastConnectedAt = new Date().toISOString();
-          activeAivenConfig.lastError = null;
-          activeAivenConfig.latencyMs = latency;
-          activeAivenConfig.pgVersion = vQr.rows[0]?.version || null;
-
-          // Ensure tables and columns exist
-          for (const [tName, ddl] of Object.entries(AIVEN_TABLE_DEFS)) {
-            await client.query(ddl);
-          }
-          await ensureTableColumns(client);
-
-          // Check if Aiven has records
-          const countQr = await client.query("SELECT COUNT(*) FROM buildings;");
-          const bldCount = Number(countQr.rows[0]?.count || 0);
-
-          if (bldCount > 0) {
-            console.log(`[Aiven Init] Terhubung ke Aiven Cloud PostgreSQL (${latency}ms). Memuat ${bldCount} gedung...`);
-            // Load fresh data from Aiven into serverDatabaseCache
-            const tableList = [
-              'buildings', 'rooms', 'meeting_rooms', 'room_capacity_rates',
-              'breakfast_menu_items', 'transactions', 'users', 'maintenances',
-              'qc_inspections', 'breakfast_orders', 'cleaning_logs', 'work_sessions',
-              'audit_logs'
-            ];
-            const aivenData: any = {};
-            for (const t of tableList) {
-              try {
-                const qr = await client.query(`SELECT * FROM ${t};`);
-                aivenData[t] = qr.rows.map(row => (row.raw_data && typeof row.raw_data === 'object' ? { ...row.raw_data, ...row } : row));
-              } catch (_) {
-                aivenData[t] = [];
-              }
-            }
-            try {
-              const setQr = await client.query(`SELECT value FROM app_settings WHERE key = 'general' LIMIT 1;`);
-              if (setQr.rows.length > 0 && setQr.rows[0].value) {
-                aivenData.appSettings = setQr.rows[0].value;
-              }
-            } catch (_) {}
-
-            serverDatabaseCache = {
-              ...serverDatabaseCache,
-              buildings: aivenData.buildings || [],
-              rooms: aivenData.rooms || [],
-              meetingRooms: aivenData.meeting_rooms || [],
-              roomCapacityRates: aivenData.room_capacity_rates || [],
-              breakfastMenuItems: aivenData.breakfast_menu_items || [],
-              transactions: aivenData.transactions || [],
-              users: aivenData.users || [],
-              maintenances: aivenData.maintenances || [],
-              qcInspections: aivenData.qc_inspections || [],
-              breakfastOrders: aivenData.breakfast_orders || [],
-              cleaningLogs: aivenData.cleaning_logs || [],
-              workSessions: aivenData.work_sessions || [],
-              auditLogs: aivenData.audit_logs || [],
-              appSettings: aivenData.appSettings || serverDatabaseCache?.appSettings
-            };
-
-            try {
-              fs.writeFileSync(serverDbCachePath, JSON.stringify(serverDatabaseCache, null, 2), "utf-8");
-            } catch (_) {}
-
-            if (Array.isArray(serverDatabaseCache.workSessions) && serverDatabaseCache.workSessions.length > 0 && realtimeState.workSessions.length === 0) {
-              realtimeState.workSessions = serverDatabaseCache.workSessions;
-            }
-          } else if (serverDatabaseCache && Array.isArray(serverDatabaseCache.buildings) && serverDatabaseCache.buildings.length > 0) {
-            console.log("[Aiven Init] Database Aiven baru/kosong. Menginisialisasi data awal dari server cache...");
-            await pushDatasetToAiven(serverDatabaseCache);
-          }
-
-          try {
-            fs.writeFileSync(aivenConfigFilePath, JSON.stringify(activeAivenConfig, null, 2), "utf-8");
-          } catch (_) {}
-        } finally {
-          client.release();
-        }
-      } catch (err: any) {
-        console.warn("[Aiven Init] Gagal inisialisasi awal ke Aiven PostgreSQL:", err?.message || err);
-        activeAivenConfig.lastError = err?.message || String(err);
-      }
-    })();
   });
 }
 

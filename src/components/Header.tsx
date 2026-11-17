@@ -7,7 +7,7 @@ import { getRealTodayDate, getTxDays, addDaysToDateStr } from '../lib/utils';
 export function Header() {
   const { 
     currentUser, login, logout, activeTab, setActiveTab, openModal, users, showToast, isDarkMode, toggleDarkMode, appSettings,
-    supabaseSyncState, manualSyncSupabase, emergencyRecoverData, updateAppSettings, runManualAutoCheckout, transactions
+    neonSyncState, manualSyncNeon, emergencyRecoverData, updateAppSettings, runManualAutoCheckout, transactions
   } = useAppContext();
   const [isSwitchOpen, setIsSwitchOpen] = useState(false);
   const [isExecutingAutoCheckout, setIsExecutingAutoCheckout] = useState(false);
@@ -67,7 +67,7 @@ export function Header() {
       id: 'gedung', 
       label: 'Manajemen Gedung', 
       icon: 'fa-building', 
-      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager'] 
+      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
     },
     { 
       id: 'pesananSarapan', 
@@ -95,9 +95,15 @@ export function Header() {
     },
     { 
       id: 'laporanKamar', 
-      label: 'Laporan & Kwitansi', 
-      icon: 'fa-file-invoice', 
-      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager', 'Manager Keuangan', 'Bendahara / Keuangan', 'Bendahara', 'Keuangan', 'Staff Keuangan'] 
+      label: 'Laporan Operasional',
+      icon: 'fa-chart-column', 
+      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager QC', 'Quality Control', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager']
+    },
+    { 
+      id: 'keuangan', 
+      label: 'Keuangan', 
+      icon: 'fa-wallet', 
+      roles: ['Super Admin', 'Admin', 'Manager Keuangan', 'Bendahara / Keuangan', 'Bendahara', 'Keuangan', 'Staff Keuangan'] 
     },
     { 
       id: 'auditLog', 
@@ -112,8 +118,8 @@ export function Header() {
       roles: ['Super Admin', 'Admin'] 
     },
     { 
-      id: 'spreadsheetSync', 
-      label: 'Basis Data Aiven', 
+      id: 'neonDatabase',
+      label: 'Basis Data Neon',
       icon: 'fa-database', 
       roles: ['Super Admin', 'Admin'] 
     }
@@ -338,7 +344,7 @@ export function Header() {
                       </button>
                     </div>
 
-                    {/* 3b. Status Sync dengan Database (Aiven PostgreSQL Cloud) */}
+                    {/* 3b. Status Sync dengan Database (Neon PostgreSQL Cloud) */}
                     <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-1.5 shadow-2xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center space-x-2">
@@ -347,37 +353,37 @@ export function Header() {
                           </div>
                           <div>
                             <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Basis Data Cloud</span>
-                            <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold block">Aiven PostgreSQL</span>
+                            <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold block">Neon PostgreSQL</span>
                           </div>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
-                          supabaseSyncState?.isSyncing
+                          neonSyncState?.isSyncing
                             ? 'bg-blue-100 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 animate-pulse'
-                            : supabaseSyncState?.lastError
+                            : neonSyncState?.lastError
                             ? 'bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
                             : 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${
-                            supabaseSyncState?.isSyncing
+                            neonSyncState?.isSyncing
                               ? 'bg-blue-600 dark:bg-blue-400'
-                              : supabaseSyncState?.lastError
+                              : neonSyncState?.lastError
                               ? 'bg-rose-600 dark:bg-rose-400'
                               : 'bg-emerald-600 dark:bg-emerald-400 animate-ping'
                           }`}></span>
                           <span>
-                            {supabaseSyncState?.isSyncing
+                            {neonSyncState?.isSyncing
                               ? 'Menyinkronkan...'
-                              : supabaseSyncState?.lastError
+                              : neonSyncState?.lastError
                               ? 'Gangguan Koneksi'
                               : 'Terhubung Cloud'}
                           </span>
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
-                        <span>Database PostgreSQL Aiven</span>
-                        {supabaseSyncState?.lastSyncedAt && (
+                        <span>Database PostgreSQL Neon</span>
+                        {neonSyncState?.lastSyncedAt && (
                           <span className="font-mono font-bold text-indigo-700 dark:text-indigo-400">
-                            {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
+                            {new Date(neonSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
                               hour: '2-digit',
                               minute: '2-digit',
                               second: '2-digit'
@@ -387,7 +393,7 @@ export function Header() {
                       </div>
                     </div>
 
-                    {/* 3c. Integrasi Basis Data Cloud Aiven (Khusus Admin & Super Admin) */}
+                    {/* 3c. Integrasi Basis Data Cloud Neon (Khusus Admin & Super Admin) */}
                     {currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin') && (
                       <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-2 shadow-2xs">
                         <div className="flex items-center justify-between">
@@ -396,24 +402,24 @@ export function Header() {
                               <i className="fa-solid fa-database"></i>
                             </div>
                             <div>
-                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Basis Data Aiven</span>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Basis Data Neon</span>
                               <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Koneksi PostgreSQL &amp; Skema Cloud</span>
                             </div>
                           </div>
                           <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/80 text-indigo-800 dark:text-indigo-300 px-1.5 py-0.5 rounded font-bold border border-indigo-300 dark:border-indigo-700">
-                            Aiven Cloud
+                            Neon Cloud
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => {
                             setIsSwitchOpen(false);
-                            setActiveTab('spreadsheetSync');
+                            setActiveTab('neonDatabase');
                           }}
                           className="w-full py-1.5 px-3 bg-indigo-50 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
                         >
                           <i className="fa-solid fa-arrow-right-to-bracket text-indigo-600 dark:text-indigo-400"></i>
-                          <span>Buka Panel Aiven Database</span>
+                          <span>Buka Panel Neon Database</span>
                         </button>
                       </div>
                     )}

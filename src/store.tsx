@@ -29,14 +29,13 @@ import { playNotificationSound } from './lib/sound';
 import { getRealTodayDate, formatIndonesianDate, addDaysToDateStr, getTxDays, getRealLocalDateTimeStr, parseLocalTimeString, formatRupiah, deduplicateRoomCapacityRates, normalizeBuildingName } from './lib/utils';
 import { dataStorage, DataStorageService, StorageNamespace, AppSettings, CompleteStorageDatabase } from './services/dataStorage';
 import { realtimeService, OnlinePresenceInfo } from './services/realtimeService';
-import { 
-  validateDatabaseChecksumAgainstSpreadsheet, 
-  computeDatasetChecksums, 
+import {
+  validateDatabaseChecksumAgainstNeon,
+  computeDatasetChecksums,
   DatabaseChecksumReport,
-  pushChatMessageToSpreadsheet,
-  pushWorkSessionToSpreadsheet,
-  fetchLiveChatAndPresenceFromSpreadsheet
-} from './services/spreadsheetStorage';
+  persistNeonChanges,
+  fetchLiveChatAndPresenceFromNeon
+} from './services/neonStorage';
 import { useBodyScrollLock } from './lib/scrollLock';
 import { 
   getEmailNotifications, 
@@ -197,8 +196,8 @@ interface AppContextType {
   appSettings: AppSettings;
   updateAppSettings: (newTitleOrUpdates?: string | Partial<AppSettings>, newLogo?: string) => void;
 
-  // Spreadsheet Cloud Sync & Checksum Validation
-  supabaseSyncState: {
+  // Neon Database Sync & Checksum Validation
+  neonSyncState: {
     status: 'idle' | 'syncing' | 'connected' | 'error';
     lastSyncTime: string | null;
     errorMessage: string | null;
@@ -210,8 +209,8 @@ interface AppContextType {
   verifyDatabaseChecksum: (silent?: boolean) => Promise<DatabaseChecksumReport>;
   triggerBackgroundSync: (reason?: string) => Promise<void>;
   pullFromCentralDatabase: () => Promise<void>;
-  manualSyncSupabase: () => Promise<void>;
-  pushAllToSupabase: () => Promise<void>;
+  manualSyncNeon: () => Promise<void>;
+  pushAllToNeon: () => Promise<void>;
 
   // Chat State & Methods
   chatChannels: ChatChannel[];
@@ -669,8 +668,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [currentUser, activeSessionId, workSessions]);
 
-  // Spreadsheet Cloud Sync State & Checksum Validation State
-  const [supabaseSyncState, setSupabaseSyncState] = useState(dataStorage.getSupabaseSyncState());
+  // Neon Database Sync State & Checksum Validation State
+  const [neonSyncState, setNeonSyncState] = useState(dataStorage.getNeonSyncState());
   const [checksumReport, setChecksumReport] = useState<DatabaseChecksumReport>(() => {
     const initialSig = computeDatasetChecksums({
       buildings: dataStorage.getBuildings(),
@@ -710,7 +709,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!silent) {
       setChecksumReport(prev => ({ ...prev, status: 'CHECKING', message: 'Memvalidasi sinkronisasi terhadap Database Pusat...' }));
     }
-    const report = await validateDatabaseChecksumAgainstSpreadsheet(dataset);
+    const report = await validateDatabaseChecksumAgainstNeon(dataset);
     setChecksumReport(report);
     if (!silent) {
       if (report.status === 'SYNCED') {
@@ -722,10 +721,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return report;
   };
 
-  // Sinkronisasi periodik status koneksi Google Spreadsheet
+  // Sinkronisasi periodik status koneksi Neon
   useEffect(() => {
     const updateSyncBadge = () => {
-      setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
+      setNeonSyncState(dataStorage.getNeonSyncState());
     };
     updateSyncBadge();
     const timer = setInterval(() => {
@@ -737,7 +736,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Dengarkan event sinkronisasi latar belakang dari setiap mutasi dataStorage (misal: booking kamar, check-in, edit gedung/kamar)
   useEffect(() => {
     const unsubscribe = dataStorage.onSyncEvent(async (event) => {
-      setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+      setNeonSyncState(dataStorage.getNeonSyncState());
       if (event.status === 'syncing') {
         const localSig = computeDatasetChecksums({
           buildings: event.db.buildings,
@@ -990,7 +989,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function loadCloudDatabase() {
       try {
-        const cloudDb = await dataStorage.hydrateFromSupabase(true);
+        const cloudDb = await dataStorage.hydrateFromNeon(true);
         if (cloudDb) {
           setUsers(cloudDb.users);
           setBuildings(cloudDb.buildings || []);
@@ -1015,7 +1014,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setPasswordResetRequests(cloudDb.passwordResetRequests);
           }
           if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
-          setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+          setNeonSyncState(dataStorage.getNeonSyncState());
           if (hasChanges) {
             dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
           }
@@ -1041,7 +1040,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     loadCloudDatabase();
     const unsubscribe = dataStorage.onSyncEvent(() => {
-      setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+      setNeonSyncState(dataStorage.getNeonSyncState());
     });
     return () => {
       unsubscribe();
@@ -1072,7 +1071,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
 
       // Tarik pembaruan dari Database Pusat (mode non-destructive, utamakan data lokal)
-      const cloudDb = await dataStorage.hydrateFromSupabase(false);
+      const cloudDb = await dataStorage.hydrateFromNeon(false);
       if (cloudDb) {
         setUsers(cloudDb.users);
         setBuildings(cloudDb.buildings || []);
@@ -1100,7 +1099,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (hasChanges) {
           dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
         }
-        setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+        setNeonSyncState(dataStorage.getNeonSyncState());
         await verifyDatabaseChecksum(true, {
           buildings: cloudDb.buildings || [],
           rooms: nextRooms,
@@ -1111,7 +1110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setSupabaseSyncState(dataStorage.getSupabaseSyncState());
+      setNeonSyncState(dataStorage.getNeonSyncState());
     } catch (err) {
       console.warn('Background sync warning:', err);
     }
@@ -1128,9 +1127,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isSyncingLiveRef = useRef<boolean>(false);
-  const lastSpreadsheetHbRef = useRef<number>(0);
+  const lastNeonHeartbeatRef = useRef<number>(0);
 
-  // Sinkronisasi live chat & online presence berkala dari Google Spreadsheet dan saat tab kembali aktif
+  // Sinkronisasi live chat & online presence berkala dari Neon dan saat tab kembali aktif
   useEffect(() => {
     if (!currentUser) return;
 
@@ -1150,8 +1149,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         realtimeService.pollNow();
 
-        // 2. Tarik pesan chat, saluran, dan sesi petugas terbaru langsung dari Google Spreadsheet
-        const liveData = await fetchLiveChatAndPresenceFromSpreadsheet();
+        // 2. Tarik pesan chat, saluran, dan sesi petugas terbaru langsung dari Neon
+        const liveData = await fetchLiveChatAndPresenceFromNeon();
         if (liveData) {
           const hasMessages = Array.isArray(liveData.messages) && liveData.messages.length > 0;
           const hasSessions = Array.isArray(liveData.sessions) && liveData.sessions.length > 0;
@@ -1207,9 +1206,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser?.id, isChatOpen, activeChatChannelId]);
 
   const pullFromCentralDatabase = async () => {
-    showToast('Menarik & menyamakan data dari Basis Data Utama Aiven...', 'info');
+    showToast('Menarik & menyamakan data dari Neon PostgreSQL...', 'info');
     try {
-      const cloudDb = await dataStorage.hydrateFromSpreadsheet(true);
+      const cloudDb = await dataStorage.hydrateFromNeon(true);
       if (cloudDb) {
         setUsers(cloudDb.users);
         setBuildings(cloudDb.buildings || []);
@@ -1245,7 +1244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (hasChanges) {
           dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
         }
-        setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
+        setNeonSyncState(dataStorage.getNeonSyncState());
         await verifyDatabaseChecksum(true, {
           buildings: cloudDb.buildings || [],
           rooms: nextRooms,
@@ -1253,82 +1252,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
           transactions: cloudDb.transactions || [],
           maintenances: cloudDb.maintenances || []
         });
-        showToast(`Sinkronisasi Berhasil: ${cloudDb.buildings?.length || 0} Gedung, ${cloudDb.rooms?.length || 0} Kamar, ${cloudDb.transactions?.length || 0} Transaksi termuat dari Aiven Cloud Database.`, 'success');
+        showToast(`Sinkronisasi berhasil: ${cloudDb.buildings?.length || 0} gedung, ${cloudDb.rooms?.length || 0} kamar, ${cloudDb.transactions?.length || 0} transaksi termuat dari Neon.`, 'success');
       } else {
-        showToast('Tidak dapat menarik data dari Basis Data Utama Aiven.', 'warning');
+        showToast('Tidak dapat menarik data dari Neon PostgreSQL.', 'warning');
       }
     } catch (err: any) {
-      showToast(`Gagal menarik data dari Aiven: ${err?.message || 'Error'}`, 'error');
+      showToast(`Gagal menarik data dari Neon: ${err?.message || 'Error'}`, 'error');
     }
   };
 
-  const manualSyncSupabase = async () => {
-    showToast('Menghubungi Basis Data Utama Aiven Cloud PostgreSQL...', 'info');
-    try {
-      const cloudDb = await dataStorage.hydrateFromSpreadsheet(true);
-      if (cloudDb) {
-        setUsers(cloudDb.users);
-        setBuildings(cloudDb.buildings || []);
-        setMeetingRooms(cloudDb.meetingRooms || []);
-        const { nextRooms, hasChanges } = validateAndSyncRoomStates(
-          cloudDb.rooms || [],
-          cloudDb.transactions || [],
-          cloudDb.maintenances || []
-        );
-        setRooms(nextRooms);
-        setTransactions(cloudDb.transactions || []);
-        setMaintenances(cloudDb.maintenances || []);
-        setAuditLogs(cloudDb.auditLogs || []);
-        mergeAndApplyCloudRealtimeData(cloudDb);
-        setQcInspections(cloudDb.qcInspections || []);
-        setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
-        setBreakfastOrders(cloudDb.breakfastOrders || []);
-        if (cloudDb.cleaningLogs && Array.isArray(cloudDb.cleaningLogs)) {
-          setCleaningLogs(cloudDb.cleaningLogs);
-        }
-        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
-          setRoomCapacityRates(cloudDb.roomCapacityRates);
-        }
-        if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
-          setPasswordResetRequests(cloudDb.passwordResetRequests);
-        }
-        if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
-        setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
-        if (hasChanges) {
-          dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
-        }
-        await verifyDatabaseChecksum(true, {
-          buildings: cloudDb.buildings || [],
-          rooms: nextRooms,
-          meetingRooms: cloudDb.meetingRooms || [],
-          transactions: cloudDb.transactions || [],
-          maintenances: cloudDb.maintenances || []
-        });
-        showToast(`Sinkronisasi Sukses: ${cloudDb.buildings?.length || 0} Gedung, ${cloudDb.rooms?.length || 0} Kamar, ${cloudDb.transactions?.length || 0} Transaksi tersinkron dari Aiven.`, 'success');
-      } else {
-        const pushRes = await dataStorage.pushAllToSpreadsheet();
-        setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
-        await verifyDatabaseChecksum(true);
-        if (pushRes.success) {
-          showToast('Data berhasil disimpan ke Basis Data Utama Aiven!', 'success');
-        } else {
-          showToast(`Koneksi Aiven: ${pushRes.error || 'Terhubung'}`, 'warning');
-        }
-      }
-    } catch (err: any) {
-      showToast(`Gagal sinkronisasi Aiven: ${err?.message || 'Error'}`, 'error');
-    }
+  const manualSyncNeon = async () => {
+    await pullFromCentralDatabase();
   };
 
-  const pushAllToSupabase = async () => {
-    showToast('Menyimpan seluruh basis data ke Basis Data Utama Aiven Cloud (PostgreSQL)...', 'info');
-    const res = await dataStorage.pushAllToSpreadsheet();
-    setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
+  const pushAllToNeon = async () => {
+    showToast('Menyimpan seluruh data aplikasi ke Neon PostgreSQL...', 'info');
+    const res = await dataStorage.pushAllToNeon();
+    setNeonSyncState(dataStorage.getNeonSyncState());
     await verifyDatabaseChecksum(true);
     if (res.success) {
-      showToast('Seluruh data berhasil disimpan & diverifikasi dengan Aiven PostgreSQL!', 'success');
+      showToast('Seluruh data berhasil disimpan ke Neon PostgreSQL.', 'success');
     } else {
-      showToast(`Gagal mengunggah ke Aiven: ${res.error || 'Error'}`, 'error');
+      showToast(`Gagal mengunggah ke Neon: ${res.error || 'Error'}`, 'error');
     }
   };
 
@@ -1354,7 +1299,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAppSettings(db.appSettings || dataStorage.getAppSettings());
   };
 
-  // Kirim langsung setiap perubahan state ke Google Spreadsheet (hanya setelah hidrasi awal selesai)
+  // Kirim langsung setiap perubahan state ke Neon (hanya setelah hidrasi awal selesai)
   useEffect(() => {
     if (!isHydratedFromCloudRef.current) return;
     dataStorage.saveDatabase({
@@ -1827,7 +1772,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         // Fallback cepat via server cache jika payload tidak menyertakan db utuh
-        dataStorage.hydrateFromSpreadsheet(false).then((freshDb) => {
+        dataStorage.hydrateFromNeon(false).then((freshDb) => {
           if (freshDb) {
             if (Array.isArray(freshDb.buildings)) setBuildings(freshDb.buildings);
             if (Array.isArray(freshDb.meetingRooms)) setMeetingRooms(freshDb.meetingRooms);
@@ -1952,11 +1897,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
           realtimeService.broadcastWorkSession(updatedTarget, false);
 
-          // Sinkronkan detak jantung online ke Google Spreadsheet setiap 15 detik
+          // Sinkronkan detak jantung online ke Neon setiap 15 detik
           const nowMs = Date.now();
-          if (nowMs - lastSpreadsheetHbRef.current >= 15000) {
-            lastSpreadsheetHbRef.current = nowMs;
-            pushWorkSessionToSpreadsheet(updatedTarget).catch(() => {});
+          if (nowMs - lastNeonHeartbeatRef.current >= 15000) {
+            lastNeonHeartbeatRef.current = nowMs;
+            persistNeonChanges(updatedTarget).catch(() => {});
           }
 
           setOnlinePresences(realtimeService.getActivePresences());
@@ -2169,10 +2114,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 2. Broadcast real-time to all active accounts (SSE + Broadcast + BroadcastChannel)
     realtimeService.broadcastChatMessage(newMsg, updatedChannel);
 
-    // 3. Simpan dan sinkronkan langsung ke Google Spreadsheet
-    pushChatMessageToSpreadsheet(newMsg, updatedChannel).catch(err => {
-      console.warn('Gagal push chat ke Google Spreadsheet:', err);
-    });
 
     if (isInstruction || priority === 'URGENT') {
       logAudit(
@@ -2333,8 +2274,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } catch (_) {}
 
-    // Tarik data terbaru dari Google Spreadsheet saat berhasil masuk (login) agar aplikasi selalu sinkron
-    dataStorage.hydrateFromSpreadsheet(true).then(cloudDb => {
+    // Tarik data terbaru dari Neon saat berhasil masuk (login) agar aplikasi selalu sinkron
+    dataStorage.hydrateFromNeon(true).then(cloudDb => {
       if (cloudDb) {
         if (Array.isArray(cloudDb.users)) {
           setUsers(cloudDb.users);
@@ -2401,9 +2342,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notes: `Sesi login perangkat terbaru (${user.role} - ${user.department || 'Operasional'})`
     };
 
-    // Simpan langsung ke dataStorage & Google Spreadsheet serta broadcast real-time agar perangkat lain otomatis offline
+    // Simpan langsung ke dataStorage & Neon serta broadcast real-time agar perangkat lain otomatis offline
     dataStorage.saveWorkSession(newSession);
-    pushWorkSessionToSpreadsheet(newSession).catch(() => {});
+    persistNeonChanges(newSession).catch(() => {});
     setWorkSessions(prev => {
       const sanitized = prev.map(s => {
         if (s.userId === user.id && s.status === 'AKTIF') {
@@ -2417,7 +2358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             durationFormatted: formatHMS(sDur)
           };
           dataStorage.saveWorkSession(finishedSession);
-          pushWorkSessionToSpreadsheet(finishedSession).catch(() => {});
+          persistNeonChanges(finishedSession).catch(() => {});
           realtimeService.broadcastWorkSession(finishedSession, false);
           return finishedSession;
         }
@@ -2471,7 +2412,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             status: 'SELESAI' as const
           };
           dataStorage.saveWorkSession(finishedSession);
-          pushWorkSessionToSpreadsheet(finishedSession).catch(() => {});
+          persistNeonChanges(finishedSession).catch(() => {});
           realtimeService.broadcastWorkSession(finishedSession, false);
           return finishedSession;
         }
@@ -3783,7 +3724,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastOrders(dataStorage.getBreakfastOrders());
     showToast(res.message, 'info');
     logAudit('HAPUS_TRANSAKSI', `Menghapus transaksi secara permanen: ${target?.guestName || txId} (${txId})`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus transaksi:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push hapus transaksi:', e));
     return true;
   };
 
@@ -3805,7 +3746,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastOrders(dataStorage.getBreakfastOrders());
     showToast(`Berhasil menghapus ${ids.length} transaksi rombongan '${grpName}' secara permanen.`, 'info');
     logAudit('HAPUS_ROMBONGAN', `Menghapus seluruh transaksi rombongan: ${grpName} (${ids.length} kamar)`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push batch hapus transaksi:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push batch hapus transaksi:', e));
     return true;
   };
 
@@ -4561,7 +4502,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast(`Laporan QC tersimpan: ${inspection.roomNumber} TIDAK LAYAK. Diteruskan ke Manager Teknisi!`, "warning");
     }
 
-    // Persistensi permanen ke dataStorage & sinkronisasi Google Spreadsheet
+    // Persistensi permanen ke dataStorage & sinkronisasi Neon
     try {
       const currentDb = dataStorage.getDatabase();
       let nextRooms = [...(currentDb.rooms || rooms)];
@@ -4671,7 +4612,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRooms(dataStorage.getRooms());
     showToast('Tiket pemeliharaan berhasil dihapus.', 'info');
     logAudit('HAPUS_MAINTENANCE', `Menghapus tiket pemeliharaan ID ${maintId}`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus maintenance:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push hapus maintenance:', e));
     return true;
   };
 
@@ -4681,7 +4622,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast('Laporan inspeksi QC berhasil dihapus.', 'info');
     logAudit('HAPUS_QC', `Menghapus laporan inspeksi QC ID ${qcId}`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus qc:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push hapus qc:', e));
     return true;
   };
 
@@ -4838,7 +4779,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dataStorage.saveTransactions(updatedTxs);
       setRooms(updatedRooms);
       dataStorage.saveRooms(updatedRooms);
-      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push auto checkout ke spreadsheet:', e));
+      dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push auto checkout ke spreadsheet:', e));
 
       logAudit(
         'Manual Trigger Auto Cekout',
@@ -4885,8 +4826,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setCurrentUser(db.users[0]);
       }
       
-      // Kirim pembersihan dan data awal ke Google Spreadsheet
-      await dataStorage.pushAllToSpreadsheet(db);
+      // Kirim pembersihan dan data awal ke Neon
+      await dataStorage.pushAllToNeon(db);
       await verifyDatabaseChecksum(true, {
         buildings: db.buildings || [],
         rooms: db.rooms || [],
@@ -4894,7 +4835,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transactions: [],
         maintenances: []
       });
-      showToast('Basis data berhasil direset! Seluruh master data telah bersih dan disinkronkan ke Google Spreadsheet.', 'success');
+      showToast('Basis data berhasil direset! Seluruh master data telah bersih dan disinkronkan ke Neon.', 'success');
     } catch (err: any) {
       showToast(`Gagal mereset database: ${err?.message || 'Error'}`, 'error');
     }
@@ -4918,7 +4859,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQcInspections(dataStorage.getQcInspections());
 
       // Sinkronisasi latar belakang instan (non-blocking)
-      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Push gedung baru notice:', e));
+      dataStorage.pushAllToNeon().catch(e => console.warn('Push gedung baru notice:', e));
 
       showToast(`Gedung "${building.name}" berhasil ditambahkan dan disimpan ke database!`, 'success');
       logAudit('Tambah Gedung', `Menambahkan gedung baru: ${building.name} (${building.code}) - ${building.totalRooms} Kamar`);
@@ -4952,7 +4893,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       
       // Sinkronisasi latar belakang instan (non-blocking)
-      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Push update gedung notice:', e));
+      dataStorage.pushAllToNeon().catch(e => console.warn('Push update gedung notice:', e));
 
       showToast(`Data gedung "${savedBuilding.name}" berhasil diperbarui dan tersimpan permanen!`, 'success');
       logAudit('Ubah Gedung', `Memperbarui profil gedung: ${previousName && previousName !== savedBuilding.name ? `${previousName} -> ` : ''}${savedBuilding.name}`);
@@ -4982,7 +4923,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQcInspections(dataStorage.getQcInspections());
 
       // Sinkronisasi latar belakang instan (non-blocking)
-      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Push hapus gedung notice:', e));
+      dataStorage.pushAllToNeon().catch(e => console.warn('Push hapus gedung notice:', e));
 
       showToast(res.message, 'info');
       logAudit('Hapus Gedung', `Menghapus gedung: ${bld?.name || buildingId}`);
@@ -5009,7 +4950,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMaintenances(dataStorage.getMaintenances());
     showToast(`Ruang Pertemuan "${mr.name}" berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Ruang Pertemuan', `Menambahkan ruang pertemuan: ${mr.name} (Kapasitas: ${mr.capacity} orang)`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push meeting room baru:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push meeting room baru:', e));
   };
 
   const updateMeetingRoom = async (mr: MeetingRoom) => {
@@ -5025,7 +4966,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTransactions(dataStorage.getTransactions());
       setMaintenances(dataStorage.getMaintenances());
 
-      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push update meeting room:', e));
+      dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push update meeting room:', e));
 
       showToast(`Data ruang pertemuan "${mr.name}" berhasil diperbarui dan tersimpan permanen!`, 'success');
       logAudit('Ubah Ruang Pertemuan', `Memperbarui ruang pertemuan: ${mr.name}`);
@@ -5053,7 +4994,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(res.message, 'info');
     logAudit('Hapus Ruang Pertemuan', `Menghapus ruang pertemuan: ${mr?.name || mrId}`);
 
-    dataStorage.pushAllToSpreadsheet().catch(err => console.warn('Gagal sinkronisasi penghapusan ruang pertemuan:', err));
+    dataStorage.pushAllToNeon().catch(err => console.warn('Gagal sinkronisasi penghapusan ruang pertemuan:', err));
     return true;
   };
 
@@ -5074,7 +5015,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setQcInspections(dataStorage.getQcInspections());
     showToast(`Kamar ${room.roomNumber} (${room.building}) berhasil ditambahkan ke database!`, 'success');
     logAudit('Tambah Kamar', `Menambah kamar: No ${room.roomNumber}, Gedung ${room.building}, Tipe ${room.type}`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push kamar baru:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push kamar baru:', e));
   };
 
   const updateRoom = async (room: Room) => {
@@ -5091,7 +5032,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMaintenances(dataStorage.getMaintenances());
       setQcInspections(dataStorage.getQcInspections());
 
-      dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push update kamar:', e));
+      dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push update kamar:', e));
 
       showToast(`Data kamar ${room.roomNumber} berhasil diperbarui dan tersimpan permanen!`, 'success');
       logAudit('Ubah Kamar', `Memperbarui kamar: ${room.roomNumber} (${room.building})`);
@@ -5120,7 +5061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(res.message, 'info');
     logAudit('Hapus Kamar', `Menghapus kamar: ${room?.roomNumber || roomId} (${room?.building || ''})`);
 
-    dataStorage.pushAllToSpreadsheet().catch(err => console.warn('Gagal sinkronisasi penghapusan kamar:', err));
+    dataStorage.pushAllToNeon().catch(err => console.warn('Gagal sinkronisasi penghapusan kamar:', err));
     return true;
   };
 
@@ -5134,7 +5075,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     dataStorage.saveRoomCapacityRate(rate);
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push tarif ke spreadsheet:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push tarif ke spreadsheet:', e));
 
     showToast(`Konfigurasi kamar ${rate.roomType} (${rate.bedType} - Rp ${rate.pricePerNight.toLocaleString('id-ID')}) berhasil disimpan!`, 'success');
     logAudit('Tambah Tarif Kamar', `Menambah konfigurasi kapasitas: ${rate.roomType} - ${rate.bedType} (Rp ${rate.pricePerNight})`);
@@ -5147,7 +5088,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     dataStorage.saveRoomCapacityRate(rate);
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push tarif ke spreadsheet:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push tarif ke spreadsheet:', e));
 
     showToast(`Konfigurasi kamar ${rate.roomType} (${rate.bedType}) berhasil diperbarui!`, 'success');
     logAudit('Ubah Tarif Kamar', `Memperbarui konfigurasi kapasitas: ${rate.roomType} - ${rate.bedType} (Rp ${rate.pricePerNight})`);
@@ -5165,7 +5106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return false;
     }
     setRoomCapacityRates(dataStorage.getRoomCapacityRates());
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus tarif:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push hapus tarif:', e));
 
     showToast(res.message, 'info');
     logAudit('Hapus Tarif Kamar', `Menghapus konfigurasi: ${item?.roomType || ''} - ${item?.bedType || rateId}`);
@@ -5179,7 +5120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const fresh = dataStorage.resetRoomCapacityRates();
     setRoomCapacityRates(fresh);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push reset tarif:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push reset tarif:', e));
     showToast('Katalog kapasitas dan tarif kamar berhasil direset ke standar resmi UPT Asrama Haji.', 'success');
     logAudit('Reset Tarif Kamar', 'Mereset katalog kapasitas dan tarif kamar ke standar baku UPT');
   };
@@ -5353,7 +5294,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showToast(`Pesanan sarapan ${roomLabel} berhasil dihapus permanen dan disinkronkan ke kamar.`, 'info');
     logAudit('Hapus Pesanan Sarapan', `Menghapus pesanan sarapan ID ${orderId} (${roomLabel})`);
 
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus order:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push hapus order:', e));
   };
 
   const updateBreakfastOrderStatusState = (orderId: string, status: BreakfastOrder['status']) => {
@@ -5449,7 +5390,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addBreakfastMenuItem = (item: BreakfastMenuItem) => {
     dataStorage.saveBreakfastMenuItem(item);
     setBreakfastMenuItems(prev => [...prev.filter(m => m.id !== item.id), item]);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push menu item:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push menu item:', e));
     showToast(`Menu sarapan "${item.name}" berhasil ditambahkan ke katalog dapur!`, 'success');
     logAudit('Tambah Menu Sarapan', `Katalog menu ditambah: ${item.name} (Rp ${item.price.toLocaleString('id-ID')})`);
   };
@@ -5457,7 +5398,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateBreakfastMenuItem = (item: BreakfastMenuItem) => {
     dataStorage.saveBreakfastMenuItem(item);
     setBreakfastMenuItems(prev => prev.map(m => m.id === item.id ? item : m));
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push menu item:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push menu item:', e));
     showToast(`Menu sarapan "${item.name}" berhasil diperbarui!`, 'success');
     logAudit('Ubah Menu Sarapan', `Katalog menu diubah: ${item.name}`);
   };
@@ -5468,7 +5409,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBreakfastMenuItems(prev => prev.filter(m => m.id !== itemId));
     showToast(`Menu sarapan "${target?.name || itemId}" dihapus dari katalog.`, 'info');
     logAudit('Hapus Menu Sarapan', `Menghapus menu sarapan ID ${itemId}`);
-    dataStorage.pushAllToSpreadsheet().catch(e => console.warn('Gagal push hapus menu item:', e));
+    dataStorage.pushAllToNeon().catch(e => console.warn('Gagal push hapus menu item:', e));
   };
 
   const sendMaintenanceEmail = (params: any): EmailNotificationItem => {
@@ -5535,7 +5476,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       passwordResetRequests, requestPasswordReset, approvePasswordReset, rejectPasswordReset, registerAccountRequest, approveUserRegistration, rejectUserRegistration,
       login, logout, clearWorkSessions, deleteWorkSession, deleteWorkSessionsBatch, forceEndWorkSession, startManualWorkSession, setActiveTab, selectedBuilding, setSelectedBuilding, addUser, updateUser, toggleUserStatus, deleteUser, addTransaction, addGroupBooking, updateGroupBooking, updateTransaction, updateBreakfastStatus, checkoutRoom, transferRoom, activateCheckin, cancelBooking, batchCancelGroup, deleteTransaction, batchDeleteGroup, extendTransaction, batchCheckinGroup, batchCheckoutGroup,
       addMaintenance, deleteMaintenance, assignTechnicianToMaintenance, markMaintenanceRepaired, updateMaintenanceStatus, finishMaintenance, addQcInspection, deleteQcInspection, logAudit, addAuditLog, clearAuditLogs, showToast, removeToast, openModal, closeModal,
-      supabaseSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncSupabase, pushAllToSupabase,
+      neonSyncState, checksumReport, verifyDatabaseChecksum, triggerBackgroundSync, pullFromCentralDatabase, manualSyncNeon, pushAllToNeon,
       dataStorage, exportDatabaseBackup, importDatabaseBackup, emergencyRecoverData, runManualAutoCheckout, resetDatabase
     }}>
       {children}

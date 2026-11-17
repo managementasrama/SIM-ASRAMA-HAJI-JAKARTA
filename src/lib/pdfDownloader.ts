@@ -187,6 +187,7 @@ export async function renderInvoicePdfContent(
     });
 
     const roomNumbers: string[] = Array.from(roomNumberSet);
+    const totalAllocatedRooms = Math.max(roomNumbers.length, Number(tx.allocatedRoomsCount || 0));
 
     const rentedRooms = roomNumbers.map(rn => {
       const rObj = allRooms.find(r => r.roomNumber === rn);
@@ -232,15 +233,12 @@ export async function renderInvoicePdfContent(
         rate: number;
       }> = {};
 
-      const sourceRooms = rentedRooms.length > 0 
-        ? rentedRooms 
-        : (tx.roomNumber ? [{
-            number: tx.roomNumber,
-            building: tx.building,
-            type: room?.type || tx.category || 'Standar',
-            capacity: 4,
-            status: tx.status
-          }] : []);
+      const quotaCount = Math.max(0, Number(tx.allocatedRoomsCount || 0));
+      const sourceRooms = rentedRooms.length > 0
+        ? rentedRooms
+        : quotaCount > 0
+          ? Array.from({ length: quotaCount }, (_, index) => ({ number: '', building: tx.building, type: room?.type || tx.category || 'Standar', capacity: 4, status: tx.status }))
+          : (tx.roomNumber ? [{ number: tx.roomNumber, building: tx.building, type: room?.type || tx.category || 'Standar', capacity: 4, status: tx.status }] : []);
 
       sourceRooms.forEach(rm => {
         const rObj = allRooms.find(r => r.roomNumber === rm.number) || room;
@@ -269,7 +267,7 @@ export async function renderInvoicePdfContent(
         subtotalRooms += itemSubtotal;
         invoicePriceItems.push({
           label: `Sewa Kamar Hunian: ${g.type} (${g.building})`,
-          subDesc: `Kamar: ${g.rooms.join(', ')} (${count} unit kamar)`,
+          subDesc: g.rooms.some(Boolean) ? `Kamar: ${g.rooms.filter(Boolean).join(', ')} (${count} unit kamar)` : `Kuota: ${count} kamar (belum diplot)`,
           unitRate: g.rate,
           rateUnitLabel: '/mlm',
           qty: `${count} Kamar`,
@@ -277,16 +275,16 @@ export async function renderInvoicePdfContent(
           subtotal: itemSubtotal
         });
       });
-      if (invoicePriceItems.length === 0 && tx.roomNumber) {
-        const defaultRate = room?.pricePerNight || 480000;
-        const defSub = defaultRate * nights;
+      if (invoicePriceItems.length === 0 && totalAllocatedRooms > 0) {
+        const defaultRate = room?.pricePerNight || tx.pricePerNight || findRoomRate(room?.type || tx.category || 'Standar', room?.bedType, roomCapacityRates)?.pricePerNight || 480000;
+        const defSub = defaultRate * nights * totalAllocatedRooms;
         subtotalRooms += defSub;
         invoicePriceItems.push({
-          label: `Sewa Kamar Hunian: ${tx.building} (${tx.roomNumber})`,
-          subDesc: `Kamar: ${tx.roomNumber} (1 unit kamar)`,
+          label: `Sewa Kamar Hunian: ${tx.building} (kuota)`,
+          subDesc: roomNumbers.length ? `Kamar: ${roomNumbers.join(', ')} (${roomNumbers.length} unit kamar)` : `Kuota: ${totalAllocatedRooms} kamar (belum diplot)`,
           unitRate: defaultRate,
           rateUnitLabel: '/mlm',
-          qty: '1 Kamar',
+          qty: `${totalAllocatedRooms} Kamar`,
           duration: `${nights} Malam`,
           subtotal: defSub
         });
@@ -2333,8 +2331,8 @@ export async function renderKwitansiPdfContent(
   const paymentDate = options?.paymentDate || tx.paymentDate || tx.dpDate || getRealTodayDate();
   const kwitansiNo = options?.autoKwitansiNo || options?.kwitansiNo || tx.kwitansiNo || `KWT/KHU-UPTAHJ/${new Date().getFullYear()}/${tx.id}`;
 
-  const treasurerName = options?.treasurerName || 'Hj. Siti Aisyah, S.E.';
-  const treasurerNip = options?.treasurerNip || '19820412 200801 2 004';
+  const treasurerName = options?.treasurerName || '';
+  const treasurerNip = options?.treasurerNip || '';
   const treasurerTitle = options?.treasurerTitle || 'Bendahara Penerimaan / Kasir';
 
   const method = options?.paymentMethod || tx.paymentMethod || tx.dpMethod || 'VA_UPT';
@@ -2634,33 +2632,28 @@ export async function renderKwitansiPdfContent(
   doc.setTextColor(...colorDarkBrown);
   doc.text(treasurerTitle.toUpperCase(), sigCenterX, 159, { align: 'center' });
 
-  // Stamp Box (Electronic Signature)
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(5, 150, 105);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(82, 162.5, 46, 7.5, 1, 1, 'FD');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.2);
-  doc.setTextColor(4, 120, 87);
-  doc.text('DITANDATANGANI SECARA ELEKTRONIK', sigCenterX, 166.2, { align: 'center' });
-  doc.setFontSize(4.5);
-  doc.text('UPT ASRAMA HAJI JAKARTA', sigCenterX, 168.8, { align: 'center' });
-
-  // Treasurer Name & NIP
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.2);
-  doc.setTextColor(...colorDarkBrown);
-  doc.text(treasurerName, sigCenterX, 175.5, { align: 'center' });
-  const nameWidth = doc.getTextWidth(treasurerName);
-  doc.setDrawColor(...colorDarkBrown);
-  doc.setLineWidth(0.3);
-  doc.line(sigCenterX - nameWidth / 2, 176.5, sigCenterX + nameWidth / 2, 176.5);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.4);
-  doc.setTextColor(...colorLightSlate);
-  doc.text(`NIP. ${treasurerNip}`, sigCenterX, 180, { align: 'center' });
+  // Leave a wet-signature area when an authorized cashier identity is unavailable.
+  doc.setDrawColor(...colorLightSlate);
+  doc.setLineDashPattern([1, 1], 0);
+  doc.line(82, 171, 128, 171);
+  doc.setLineDashPattern([], 0);
+  if (treasurerName) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(...colorDarkBrown);
+    doc.text(treasurerName, sigCenterX, 175.5, { align: 'center' });
+    if (treasurerNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.4);
+      doc.setTextColor(...colorLightSlate);
+      doc.text(`NIP. ${treasurerNip}`, sigCenterX, 180, { align: 'center' });
+    }
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.4);
+    doc.setTextColor(...colorLightSlate);
+    doc.text('Tanda tangan basah Bendahara Penerimaan / Kasir', sigCenterX, 176, { align: 'center' });
+  }
 
   // 5. OFFICIAL FOOTER NOTE
   doc.setFont('helvetica', 'italic');
@@ -2688,18 +2681,146 @@ export async function renderKwitansiPdfContent(
   return { cleanFilename };
 }
 
+async function renderLandscapeKwitansiPdfContent(doc: jsPDF, tx: Transaction, options: DirectKwitansiPdfOptions = {}) {
+  const settings = dataStorage.getAppSettings();
+  const isLunas = tx.paymentStatus === 'LUNAS';
+  const isDp = !isLunas && (tx.paymentStatus === 'DP' || Number(tx.dpAmount || tx.paidAmount || 0) > 0);
+  const group = options.groupRecord;
+  const memberTransactions = options.memberTransactions || group?.memberTransactions || [];
+  const roomNumbers = Array.from(new Set([
+    ...(group?.allRoomNumbers || []),
+    ...(tx.allocatedRoomNumbers || []),
+    ...memberTransactions.map(member => member.roomNumber).filter(Boolean),
+    ...(!isMeetingFacility(tx.roomNumber || '') && tx.roomNumber ? [tx.roomNumber] : [])
+  ])).filter(Boolean);
+  const roomCount = Math.max(roomNumbers.length, Number(tx.allocatedRoomsCount || 0));
+  const nights = tx.durationUnit === 'Malam' ? Math.max(1, tx.duration || 1) : Math.max(1, tx.duration >= 24 ? Math.ceil(tx.duration / 24) : 1);
+  const room = options.room;
+  const rateConfig = dataStorage.getRoomCapacityRates();
+  const matchedRate = findRoomRate(room?.type || tx.category || 'Standar', room?.bedType, rateConfig);
+  const roomRate = room?.pricePerNight || tx.pricePerNight || matchedRate?.pricePerNight || 480000;
+  const grandTotal = options.pricingDetails?.grandTotal ?? tx.totalAmount ?? tx.totalPrice ?? roomCount * roomRate * nights;
+  const paid = options.paidAmount ?? Number(tx.paidAmount || tx.dpAmount || 0);
+  const date = options.paymentDate || tx.paymentDate || tx.dpDate || getRealTodayDate();
+  const receiptNo = options.autoKwitansiNo || options.kwitansiNo || tx.kwitansiNo || `KWT/KHU-UPTAHJ/${tx.id}`;
+  const payer = group?.groupName || tx.groupName || tx.guestName || 'Tamu';
+  const titleColor: [number, number, number] = [65, 40, 19];
+  const gold: [number, number, number] = [184, 134, 11];
+  const muted: [number, number, number] = [71, 85, 105];
+  const qr = generateQrCodeDataUrl(`UPT-KWITANSI:${receiptNo}:${tx.id}`);
+
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, 210, 148, 'F');
+  doc.setDrawColor(...titleColor);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(6, 6, 198, 136, 2, 2, 'S');
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(7.5, 7.5, 195, 133, 1.5, 1.5, 'S');
+  doc.setFillColor(...titleColor);
+  doc.rect(8, 8, 194, 20, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(255, 255, 255);
+  doc.text((settings.organizationName || 'UPT ASRAMA HAJI JAKARTA').toUpperCase(), 14, 16);
+  doc.setFontSize(7);
+  doc.setTextColor(253, 224, 71);
+  doc.text(settings.ministryName || 'KEMENTERIAN HAJI DAN UMRAH REPUBLIK INDONESIA', 14, 21);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(226, 232, 240);
+  doc.text(settings.address || '', 14, 25);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...titleColor);
+  doc.text(isDp ? 'BUKTI PENERIMAAN UANG MUKA' : 'KWITANSI PEMBAYARAN', 14, 38);
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  doc.text(`Nomor: ${receiptNo}`, 14, 44);
+  doc.text(`Referensi invoice: INV-OPR/${tx.id}`, 14, 49);
+  doc.text(`Tanggal: ${formatIndonesianDate(date)}`, 14, 54);
+  doc.setDrawColor(226, 232, 240);
+  doc.line(14, 59, 126, 59);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  doc.text('DITERIMA DARI', 14, 66);
+  doc.setFontSize(11);
+  doc.setTextColor(...titleColor);
+  doc.text(doc.splitTextToSize(payer, 108), 14, 73);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  const facility = isMeetingFacility(tx.building || '') || isMeetingFacility(tx.roomNumber || '')
+    ? `Sewa fasilitas ${tx.roomNumber || tx.building}`
+    : `Sewa hunian ${tx.building || ''} • ${roomCount} kamar${roomNumbers.length ? ` (${roomNumbers.join(', ')})` : ' (kuota, belum diplot)'}`;
+  doc.text(doc.splitTextToSize(facility, 108), 14, 83);
+  doc.text(`Periode: ${formatIndonesianDate(tx.startDate)} s.d. ${formatIndonesianDate(addDaysToDateStr(tx.startDate, nights))} • ${nights} malam`, 14, 96);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.text('TERBILANG', 14, 109);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.text(doc.splitTextToSize(angkaKeTerbilang(paid), 108), 14, 115);
+  doc.setFillColor(254, 250, 240);
+  doc.setDrawColor(...gold);
+  doc.roundedRect(134, 35, 58, 41, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...titleColor);
+  doc.text(isDp ? 'JUMLAH DITERIMA (DP)' : 'JUMLAH DITERIMA', 163, 45, { align: 'center' });
+  doc.setFontSize(14);
+  doc.text(formatRupiah(paid), 163, 57, { align: 'center' });
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  doc.text(`Total tagihan: ${formatRupiah(grandTotal)}`, 163, 66, { align: 'center' });
+  doc.addImage(qr, 'PNG', 143, 83, 26, 26);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  doc.text('Kode referensi dokumen', 156, 112, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  doc.text(`Jakarta, ${formatIndonesianDate(date)}`, 177, 86, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  doc.text((options.treasurerTitle || 'Bendahara Penerimaan / Kasir').toUpperCase(), 177, 92, { align: 'center' });
+  doc.setDrawColor(100, 116, 139);
+  doc.setLineDashPattern([1, 1], 0);
+  doc.line(158, 119, 196, 119);
+  doc.setLineDashPattern([], 0);
+  if (options.treasurerName) {
+    doc.setTextColor(...titleColor);
+    doc.text(options.treasurerName, 177, 125, { align: 'center' });
+    if (options.treasurerNip) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.text(`NIP. ${options.treasurerNip}`, 177, 130, { align: 'center' });
+    }
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(...muted);
+    doc.text('Tanda tangan basah', 177, 125, { align: 'center' });
+  }
+  doc.setFontSize(5.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Dokumen referensi ${receiptNo} • ${settings.subTitle || 'SIM Asrama Haji Jakarta'}`, 14, 135);
+  const safePayer = payer.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return { cleanFilename: `Kwitansi-${isLunas ? 'Lunas' : 'DP'}-${tx.id}-${safePayer}.pdf` };
+}
+
 export async function downloadDirectKwitansiPdf(
   tx: Transaction,
   options?: DirectKwitansiPdfOptions
 ): Promise<void> {
   try {
     const doc = new jsPDF({
-      orientation: 'portrait',
+      orientation: 'landscape',
       unit: 'mm',
       format: 'a5',
       compress: true
     });
-    const { cleanFilename } = await renderKwitansiPdfContent(doc, tx, options);
+    const { cleanFilename } = await renderLandscapeKwitansiPdfContent(doc, tx, options);
     doc.save(cleanFilename);
   } catch (err) {
     console.error('Error in downloadDirectKwitansiPdf:', err);
@@ -2737,9 +2858,9 @@ export async function downloadCombinedInvoiceAndKwitansiPdf(
       invoiceOptions?.memberTransactions || []
     );
 
-    // Halaman 2: Lembar Kwitansi Pembayaran Resmi (Portrait A5)
-    doc.addPage('a5', 'portrait');
-    await renderKwitansiPdfContent(doc, tx, kwitansiOptions);
+    // Halaman 2: Lembar Kwitansi Pembayaran Resmi (Landscape A5)
+    doc.addPage('a5', 'landscape');
+    await renderLandscapeKwitansiPdfContent(doc, tx, kwitansiOptions);
 
     const safePayer = (tx.groupPic || tx.guestName || 'Tamu').replace(/[^a-zA-Z0-9_-]/g, '_');
     const safeRoom = (tx.roomNumber || 'Unit').replace(/[^a-zA-Z0-9_-]/g, '_');

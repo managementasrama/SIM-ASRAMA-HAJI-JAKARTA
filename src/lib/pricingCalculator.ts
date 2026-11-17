@@ -227,7 +227,8 @@ export function calculateTransactionPricing(
       safeType.includes('superior') ? 500000 :
       safeType.includes('ekonomi') ? 380000 : 480000
     );
-    subtotalRooms = rate * nights;
+    const roomCount = Math.max(1, Number(tx.allocatedRoomsCount || 0), tx.allocatedRoomNumbers?.length || 0);
+    subtotalRooms = rate * nights * roomCount;
     ratePerUnit = rate;
     ratePerUnitLabel = `${formatRupiah(rate)} / Malam`;
   }
@@ -306,9 +307,10 @@ export function calculateGroupPricing(
 
   const nights = Math.max(1, grp.duration || grp.representativeTx?.duration || 1);
   const roomNumbers = grp.allRoomNumbers || (grp.representativeTx?.allocatedRoomNumbers) || (grp.representativeTx?.roomNumber ? [grp.representativeTx.roomNumber] : []);
+  const quotaRoomCount = Math.max(roomNumbers.length, Number((grp as any).allocatedRoomsCount || grp.representativeTx?.allocatedRoomsCount || 0));
 
   let subtotalRooms = 0;
-  roomNumbers.forEach(rn => {
+  (roomNumbers.length < quotaRoomCount ? [] : roomNumbers).forEach(rn => {
     const rObj = rooms.find(r => r.roomNumber === rn);
     const matchedRate = findRoomRate(rObj?.type || 'Standar', rObj?.bedType, roomCapacityRates);
     const safeType = String(rObj?.type || '').toLowerCase().trim();
@@ -318,6 +320,14 @@ export function calculateGroupPricing(
     );
     subtotalRooms += rate * nights;
   });
+
+  if (roomNumbers.length < quotaRoomCount) {
+    const representative = grp.representativeTx;
+    const fallbackRoom = representative ? rooms.find(r => r.id === representative.roomId) : undefined;
+    const matchedRate = findRoomRate(fallbackRoom?.type || representative?.category || 'Standar', fallbackRoom?.bedType, roomCapacityRates);
+    const rate = fallbackRoom?.pricePerNight || representative?.pricePerNight || matchedRate?.pricePerNight || 480000;
+    subtotalRooms = rate * nights * quotaRoomCount;
+  }
 
   // Aula Sewa dalam Paket Rombongan
   let subtotalAula = 0;
@@ -348,7 +358,7 @@ export function calculateGroupPricing(
 
   // Catering / Breakfast
   let subtotalCatering = 0;
-  const totalPax = grp.totalPax || (roomNumbers.length * 4) || 1;
+  const totalPax = grp.totalPax || (quotaRoomCount * 4) || 1;
   const days = grp.representativeTx?.breakfastDays || nights;
 
   if (grp.cateringPackage && grp.cateringPackage !== 'TIDAK') {
@@ -371,10 +381,10 @@ export function calculateGroupPricing(
   }
 
   const grandTotal = subtotalRooms + subtotalAula + subtotalExtraBed + subtotalCatering;
-  const avgRoomRate = roomNumbers.length > 0 ? Math.round(subtotalRooms / (roomNumbers.length * nights)) : 480000;
+  const avgRoomRate = quotaRoomCount > 0 ? Math.round(subtotalRooms / (quotaRoomCount * nights)) : 480000;
 
   const parts: string[] = [];
-  if (subtotalRooms > 0) parts.push(`${roomNumbers.length} Kamar: ${formatRupiah(subtotalRooms)}`);
+  if (subtotalRooms > 0) parts.push(`${quotaRoomCount || roomNumbers.length} Kamar: ${formatRupiah(subtotalRooms)}`);
   if (subtotalAula > 0) parts.push(`Aula: ${formatRupiah(subtotalAula)}`);
   if (subtotalExtraBed > 0) parts.push(`Extra Bed: ${formatRupiah(subtotalExtraBed)}`);
   if (subtotalCatering > 0) parts.push(`Konsumsi: ${formatRupiah(subtotalCatering)}`);

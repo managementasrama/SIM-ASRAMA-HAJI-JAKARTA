@@ -93,6 +93,10 @@ export function Modals() {
   const [aulaPax, setAulaPax] = useState<number>(50);
   const [checkinMode, setCheckinMode] = useState<'SELECT_BOOKING' | 'NEW_GUEST'>('NEW_GUEST');
   const [selectedBookingTxId, setSelectedBookingTxId] = useState<string | null>(null);
+  const selectedPaymentTx = transactions.find(tx => tx.id === selectedBookingTxId);
+  const [isPaymentGuardOpen, setIsPaymentGuardOpen] = useState(false);
+  const [paymentGuardBypass, setPaymentGuardBypass] = useState(false);
+  const [checkinDispensationAllowed, setCheckinDispensationAllowed] = useState(false);
 
   const [payStatus, setPayStatus] = useState<'BELUM_LUNAS' | 'DP' | 'LUNAS'>('BELUM_LUNAS');
   const [payMethod, setPayMethod] = useState<'VA_UPT' | 'TRANSFER' | 'CASH'>('VA_UPT');
@@ -273,15 +277,15 @@ export function Modals() {
   const isKamar = !!room && !isAula;
   const isSameDayBooking = startDate <= realToday;
   const isFutureBooking = startDate > realToday;
-  const isPaymentRestrictedToFull = isKamar && isSameDayBooking;
+  const isPaymentRestrictedToFull = false;
 
-  // Aturan Pembayaran SIM Asrama Haji:
-  // Untuk pemesanan kamar (bukan aula) hari ini (same-day), wajib bayar lunas (tidak bisa DP / belum bayar)
   useEffect(() => {
-    if (isCheckinOpen && isPaymentRestrictedToFull && payStatus !== 'LUNAS') {
-      setPayStatus('LUNAS');
+    if (isCheckinOpen) {
+      setIsPaymentGuardOpen(false);
+      setPaymentGuardBypass(false);
+      setCheckinDispensationAllowed(false);
     }
-  }, [isCheckinOpen, isPaymentRestrictedToFull, payStatus]);
+  }, [isCheckinOpen, checkinData?.txToEdit?.id]);
 
   // Real-time capacity calculation on selected startDate and duration span for Ruang Pertemuan / Serbaguna
   const proposedDays = isAula ? Math.max(1, aulaRentalDays) : duration;
@@ -355,6 +359,14 @@ export function Modals() {
   const handleCheckin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!room || !currentUser) return;
+
+    const paymentIsUnsettled = selectedPaymentTx
+      ? selectedPaymentTx.paymentStatus !== 'LUNAS' && !(selectedPaymentTx.isPaid && !selectedPaymentTx.remainingAmount)
+      : payStatus !== 'LUNAS';
+    if (!isAula && checkinData?.actionType === 'CHECKIN' && paymentIsUnsettled && !paymentGuardBypass) {
+      setIsPaymentGuardOpen(true);
+      return;
+    }
 
     if (isPaymentRestrictedToFull && payStatus !== 'LUNAS') {
       showToast('Pemesanan kamar hari ini wajib dibayar lunas penuh (tidak dapat menggunakan DP atau Belum Bayar).', 'warning');
@@ -461,6 +473,8 @@ export function Modals() {
         extraBedPrice: finalExtraBed ? extraBedPrice : undefined,
         extraBedNotes: finalExtraBed ? extraBedNotes : undefined,
         ...paymentFields,
+        paymentDispensation: checkinDispensationAllowed,
+        dispensationNote: checkinDispensationAllowed ? (notes.trim() || 'Dispensasi pembayaran saat check-in') : undefined,
       });
       showToast(`Data reservasi ${guestName} berhasil disesuaikan!`, 'success');
       closeModal('modalCheckin');
@@ -511,6 +525,8 @@ export function Modals() {
       const finalUpdatedTx = {
         ...updatedTx,
         ...paymentFields,
+        paymentDispensation: checkinDispensationAllowed,
+        dispensationNote: checkinDispensationAllowed ? (notes.trim() || 'Dispensasi pembayaran saat check-in') : undefined,
       };
       updateTransaction(finalUpdatedTx);
       activateCheckin(room.id, selectedBookingTxId);
@@ -559,7 +575,9 @@ export function Modals() {
       extraBedCount: (includeExtraBed && !isAula) ? Number(extraBedCount) : undefined,
       extraBedPrice: (includeExtraBed && !isAula) ? extraBedPrice : undefined,
       extraBedNotes: (includeExtraBed && !isAula) ? extraBedNotes : undefined,
-      ...paymentFields
+      ...paymentFields,
+      paymentDispensation: checkinDispensationAllowed,
+      dispensationNote: checkinDispensationAllowed ? (notes.trim() || 'Dispensasi pembayaran saat check-in') : undefined
     };
     addTransaction(tx);
     closeModal('modalCheckin');
@@ -960,7 +978,7 @@ export function Modals() {
         buildingFilter: exportBuilding,
         qcMode: exportQcMode,
         breakfastPriorityFilter: exportBreakfastPriority,
-        transactions,
+        transactions: modalState.modalExport?.data?.transactions || transactions,
         maintenances,
         rooms,
         qcInspections: qcInspections || [],
@@ -992,13 +1010,17 @@ export function Modals() {
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden"
           onClick={() => closeModal('modalCheckin')}
         >
-          <div 
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="checkin-modal-title"
+            data-responsive-modal
             className={`bg-white dark:bg-slate-800 rounded-2xl shadow-2xl ${isAula ? 'max-w-2xl' : 'max-w-xl'} w-full overflow-hidden border border-slate-100 dark:border-slate-700 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh] my-auto min-w-0`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
+            <div data-modal-header className="sticky top-0 z-10 bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
               <div>
-                <h3 className="font-bold text-base flex items-center space-x-2 flex-wrap gap-1">
+                <h3 id="checkin-modal-title" className="font-bold text-base flex items-center space-x-2 flex-wrap gap-1">
                   <span>
                     {checkinData.actionType === 'EDIT_BOOKING'
                       ? `Sesuaikan Data Reservasi`
@@ -1180,6 +1202,11 @@ export function Modals() {
                             setIncludeExtraBed(!!bTx.extraBed);
                             setExtraBedCount(bTx.extraBedCount || 1);
                             setExtraBedNotes(bTx.extraBedNotes || '1 Kasur Lipat + Bantal & Sprei Bersih');
+                            setPayStatus((bTx.paymentStatus as 'BELUM_LUNAS' | 'DP' | 'LUNAS') || (bTx.isPaid ? 'LUNAS' : 'BELUM_LUNAS'));
+                            setPayDpAmount(Number(bTx.dpAmount || bTx.paidAmount || 0));
+                            setPayMethod((bTx.paymentMethod || bTx.dpMethod || 'VA_UPT') as any);
+                            setPayBank(bTx.bankName || 'BRI');
+                            setPayDate(bTx.paymentDate || bTx.dpDate || realToday);
                             setSelectedBookingTxId(bTx.id);
                             setCheckinMode('NEW_GUEST');
                           }}
@@ -1193,7 +1220,20 @@ export function Modals() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (room) {
+                            setSelectedBookingTxId(bTx.id);
+                            setCategory(bTx.category);
+                            setGuestName(bTx.guestName);
+                            setStartDate(bTx.startDate);
+                            setDuration(bTx.duration);
+                            setPayStatus((bTx.paymentStatus as 'BELUM_LUNAS' | 'DP' | 'LUNAS') || (bTx.isPaid ? 'LUNAS' : 'BELUM_LUNAS'));
+                            setPayDpAmount(Number(bTx.dpAmount || bTx.paidAmount || 0));
+                            setPayMethod((bTx.paymentMethod || bTx.dpMethod || 'VA_UPT') as any);
+                            setPayBank(bTx.bankName || 'BRI');
+                            setPayDate(bTx.paymentDate || bTx.dpDate || realToday);
+                            setCheckinMode('NEW_GUEST');
+                            setPaymentGuardBypass(false);
+                            if (bTx.paymentStatus !== 'LUNAS' && !bTx.isPaid) setIsPaymentGuardOpen(true);
+                            else if (room) {
                               activateCheckin(room.id, bTx.id);
                               closeModal('modalCheckin');
                               openModal('modalInvoice', { transaction: { ...bTx, status: 'TERISI' }, room, returnToRoomId: room.id });
@@ -1239,7 +1279,7 @@ export function Modals() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleCheckin} className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto overflow-x-hidden flex-1 custom-scrollbar w-full min-w-0">
+              <form id="checkin-form" data-modal-body onSubmit={handleCheckin} className="max-h-[75vh] p-4 sm:p-6 space-y-4 text-xs overflow-y-auto overflow-x-hidden flex-1 custom-scrollbar w-full min-w-0">
                 {checkinData.actionType === 'CHECKIN' && !isAula && transactions.filter(t => t.roomId === room?.id && t.status === 'BOOKED').length > 0 && (
                   <div className="flex items-center justify-between bg-blue-50 p-2.5 rounded-lg border border-blue-200">
                     <div className="flex items-center space-x-1.5 text-xs text-blue-900">
@@ -2551,7 +2591,7 @@ export function Modals() {
                   )}
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-700">
+                <div data-modal-footer className="sticky bottom-0 flex items-center justify-between gap-2 bg-white pt-3 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700">
                   {(checkinData.actionType === 'EDIT_BOOKING' || checkinData.returnToRoomId) ? (
                     <button 
                       type="button" 
@@ -2605,6 +2645,20 @@ export function Modals() {
               </form>
             )}
           </div>
+        </div>
+      )}
+
+      {isPaymentGuardOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4" onClick={() => setIsPaymentGuardOpen(false)}>
+          <section role="alertdialog" aria-modal="true" aria-labelledby="payment-guard-title" className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-5 shadow-2xl dark:border-amber-800 dark:bg-slate-900" onClick={event => event.stopPropagation()}>
+            <h2 id="payment-guard-title" className="text-base font-black text-slate-900 dark:text-white">Pembayaran belum lunas</h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Pilih proses sebelum check-in. Untuk pelunasan, simpan data lalu lanjutkan ke invoice/kasir. Dispensasi hanya tersedia untuk reservasi instansi dan akan tercatat di laporan.</p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setIsPaymentGuardOpen(false)} className="min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Kembali</button>
+              <button type="button" onClick={() => { setPaymentGuardBypass(true); setCheckinDispensationAllowed(false); setIsPaymentGuardOpen(false); showToast('Simpan check-in untuk membuka invoice dan lanjutkan pembayaran melalui kasir.', 'info'); }} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white">Lanjut ke kasir / invoice</button>
+              <button type="button" disabled={category !== 'INSTANSI' && selectedPaymentTx?.groupType !== 'INSTANSI'} onClick={() => { setPaymentGuardBypass(true); setCheckinDispensationAllowed(true); setIsPaymentGuardOpen(false); showToast('Dispensasi dicatat. Tekan Konfirmasi Check-In untuk menyimpan statusnya.', 'warning'); }} className="min-h-11 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Izinkan masuk (dispensasi SPJ)</button>
+            </div>
+          </section>
         </div>
       )}
 

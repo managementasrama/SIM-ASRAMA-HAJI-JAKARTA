@@ -72,11 +72,11 @@ export function RoleWorkspaceBanner({
   const hasAssignedZone = assignedBuilding && !assignedBuilding.includes('Semua') && assignedBuilding !== '-';
 
   const {
-    supabaseSyncState
+    neonSyncState
   } = useAppContext();
 
-  const lastSyncFormatted = supabaseSyncState?.lastSyncedAt
-    ? new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
+  const lastSyncFormatted = neonSyncState?.lastSyncedAt
+    ? new Date(neonSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit'
@@ -131,37 +131,37 @@ export function RoleWorkspaceBanner({
               {/* STATUS SYNC DENGAN DATABASE */}
               <span
                 title={
-                  supabaseSyncState?.lastError
-                    ? `Gangguan sinkronisasi: ${supabaseSyncState.lastError}`
+                  neonSyncState?.lastError
+                    ? `Gangguan sinkronisasi: ${neonSyncState.lastError}`
                     : lastSyncFormatted
-                    ? `Terhubung ke Google Spreadsheet (Sinkron terakhir pukul ${lastSyncFormatted} WIB)`
-                    : 'Terhubung langsung dengan Database Google Spreadsheet'
+                    ? `Terhubung ke Neon (Sinkron terakhir pukul ${lastSyncFormatted} WIB)`
+                    : 'Terhubung langsung dengan Database Neon'
                 }
                 className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1.5 shadow-2xs ${
-                  supabaseSyncState?.isSyncing
+                  neonSyncState?.isSyncing
                     ? 'bg-blue-500/20 text-blue-200 border-blue-400/40'
-                    : supabaseSyncState?.lastError
+                    : neonSyncState?.lastError
                     ? 'bg-rose-500/25 text-rose-200 border-rose-400/50'
                     : 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40'
                 }`}
               >
-                {supabaseSyncState?.isSyncing ? (
+                {neonSyncState?.isSyncing ? (
                   <>
                     <i className="fa-solid fa-arrows-rotate fa-spin text-[9px] text-blue-300"></i>
-                    <span>Sync Spreadsheet: Menyinkronkan...</span>
+                    <span>Sinkronisasi Neon: Menyinkronkan...</span>
                   </>
-                ) : supabaseSyncState?.lastError ? (
+                ) : neonSyncState?.lastError ? (
                   <>
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
                     <i className="fa-solid fa-triangle-exclamation text-[9px] text-rose-300"></i>
-                    <span>Sync Spreadsheet: Gangguan Koneksi</span>
+                    <span>Sinkronisasi Neon: Gangguan Koneksi</span>
                   </>
                 ) : (
                   <>
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                     <i className="fa-solid fa-file-excel text-[9px] text-emerald-300"></i>
                     <span>
-                      Sync Spreadsheet: Terhubung
+                      Sinkronisasi Neon: Terhubung
                       {lastSyncFormatted ? ` (${lastSyncFormatted})` : ''}
                     </span>
                   </>

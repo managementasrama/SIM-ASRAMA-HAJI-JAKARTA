@@ -161,6 +161,7 @@ export function consolidateGroupTransactions(
       startDate: primaryTx.startDate,
       duration: primaryTx.duration,
       durationUnit: primaryTx.durationUnit || 'Malam',
+      allocatedRoomsCount: Math.max(allRoomNumbers.length, Number(primaryTx.allocatedRoomsCount || 0)),
       totalPax: primaryTx.totalPax || (allRoomNumbers.length * 4),
       status,
       createdUser: primaryTx.createdUser,

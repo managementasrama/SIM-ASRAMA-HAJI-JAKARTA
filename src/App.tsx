@@ -8,7 +8,8 @@ import { ReportsView, MaintenanceReportsView, AuditLogView, BreakfastOrdersView 
 import { QualityControlView } from './components/QualityControlView';
 import { BuildingStaffView } from './components/BuildingStaffView';
 import { UserManagementView } from './components/UserManagementView';
-import { SpreadsheetIntegrationView } from './components/SpreadsheetIntegrationView';
+import { NeonDatabaseView } from './components/NeonDatabaseView';
+import { FinanceReceiptsView } from './components/FinanceReceiptsView';
 import { Modals } from './components/Modals';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
 
@@ -84,7 +85,7 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
   },
   gedung: {
     title: 'Gedung & Kamar',
-    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager']
+    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
   },
   qualityControl: {
     title: 'Quality Control (QC)',
@@ -95,8 +96,12 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     roles: ['Super Admin', 'Admin', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager QC', 'Quality Control', 'Manager']
   },
   laporanKamar: {
-    title: 'Laporan Kamar, Pemesanan & Kwitansi',
-    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
+    title: 'Laporan Operasional',
+    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager QC', 'Quality Control', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager']
+  },
+  keuangan: {
+    title: 'Keuangan & Kwitansi',
+    roles: ['Super Admin', 'Admin', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan']
   },
   laporanMaintenance: {
     title: 'Laporan Maintenance & Perbaikan',
@@ -118,8 +123,8 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     title: 'Kelola Petugas & Anggota',
     roles: ['Super Admin', 'Admin']
   },
-  spreadsheetSync: {
-    title: 'Basis Data Cloud (Aiven Database)',
+  neonDatabase: {
+    title: 'Basis Data Cloud (Neon)',
     roles: ['Super Admin', 'Admin']
   }
 };
@@ -188,9 +193,10 @@ function MainApp() {
             {resolvedTab === 'qualityControl' && <QualityControlView />}
             {resolvedTab === 'buildingStaff' && <BuildingStaffView />}
             {resolvedTab === 'laporanKamar' && <ReportsView />}
+            {resolvedTab === 'keuangan' && <FinanceReceiptsView />}
             {resolvedTab === 'laporanMaintenance' && <MaintenanceReportsView />}
             {resolvedTab === 'pesananSarapan' && <BreakfastOrdersView />}
-            {resolvedTab === 'spreadsheetSync' && <SpreadsheetIntegrationView />}
+            {resolvedTab === 'neonDatabase' && <NeonDatabaseView />}
             {resolvedTab === 'auditLog' && <AuditLogView defaultSubView={undefined} />}
             {resolvedTab === 'verifyPdf' && <AuditLogView defaultSubView="PDF_DOWNLOAD_LOGS" />}
             {resolvedTab === 'kelolaAnggota' && <UserManagementView />}

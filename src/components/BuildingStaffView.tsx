@@ -670,7 +670,7 @@ export function BuildingStaffView() {
                 </span>
               </div>
 
-              <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1.5 custom-scrollbar">
+              <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-col sm:gap-2 max-h-none sm:max-h-[560px] overflow-visible sm:overflow-y-auto sm:pr-1.5 custom-scrollbar">
                 {buildingNames.map(bName => {
                   const bRooms = groupedLodgingRooms[bName] || [];
                   const bObj = lodgingBuildings.find(b => b.name.toLowerCase() === bName.toLowerCase());
@@ -680,10 +680,12 @@ export function BuildingStaffView() {
                   const bPerlu = bRooms.filter(r => !r.qcStatus || r.qcStatus === 'PERLU_INSPEKSI').length;
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={bName}
                       onClick={() => setActiveBuildingName(bName)}
-                      className={`p-3 rounded-xl border transition-all cursor-pointer space-y-2 ${
+                      aria-pressed={isSelected}
+                      className={`min-h-12 p-2 sm:p-3 rounded-xl border text-left transition-all cursor-pointer space-y-2 ${
                         isSelected
                           ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-950/40 shadow-xs ring-2 ring-teal-500/20'
                           : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750'
@@ -699,12 +701,9 @@ export function BuildingStaffView() {
                             <i className={`fa-solid ${getBuildingIcon(bName, bObj?.category)}`}></i>
                           </div>
                           <div className="min-w-0">
-                            <h4 className="font-bold text-xs text-slate-900 dark:text-white truncate">
-                              {bName}
-                            </h4>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                              {bRooms.length} Kamar Tidur
-                            </p>
+                            <h4 className="hidden truncate text-xs font-bold text-slate-900 dark:text-white sm:block">{bName}</h4>
+                            <span className="truncate text-sm font-black text-slate-900 dark:text-white sm:hidden">{bObj?.code || bName}</span>
+                            <p className="hidden truncate text-[10px] text-slate-500 dark:text-slate-400 sm:block">{bRooms.length} Kamar Tidur</p>
                           </div>
                         </div>
 
@@ -717,7 +716,7 @@ export function BuildingStaffView() {
                         </span>
                       </div>
 
-                      <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-slate-100 dark:border-slate-700 tabular-nums">
+                      <div className="hidden items-center justify-between text-[10px] pt-1.5 border-t border-slate-100 dark:border-slate-700 tabular-nums sm:flex">
                         <div className="flex items-center flex-wrap gap-1.5 text-slate-600 dark:text-slate-300 font-semibold">
                           <span className="text-emerald-700 dark:text-emerald-400 font-bold">{bLolos} Lolos</span>
                           <span aria-hidden="true">·</span>
@@ -739,7 +738,7 @@ export function BuildingStaffView() {
                           </span>
                         )}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -980,7 +979,7 @@ export function BuildingStaffView() {
                                     type: 'ROOM',
                                     category: room.type
                                   })}
-                                  className={`w-full py-1.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow-2xs cursor-pointer ${
+                                  className={`w-full min-h-[52px] px-3 py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 shadow-2xs cursor-pointer ${
                                     qc === 'PERLU_INSPEKSI'
                                       ? 'bg-teal-600 hover:bg-teal-700 text-white font-extrabold shadow-sm'
                                       : 'bg-slate-100 dark:bg-slate-700 hover:bg-teal-600 hover:text-white text-slate-700 dark:text-slate-200'
@@ -1132,7 +1131,7 @@ export function BuildingStaffView() {
                           type: 'MEETING',
                           category: mr.category
                         })}
-                        className="w-full py-2 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 shadow-2xs cursor-pointer"
+                        className="w-full min-h-[52px] px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 shadow-2xs cursor-pointer"
                       >
                         <i className="fa-solid fa-camera"></i>
                         <span>Buka Kamera / Selesai Bersih</span>
@@ -1429,7 +1428,7 @@ export function BuildingStaffView() {
                 <button
                   type="submit"
                   disabled={!watermarkedPhotoUrl || isProcessingWatermark}
-                  className={`px-5 py-2.5 rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-2 cursor-pointer ${
+                  className={`min-h-[52px] px-5 py-2.5 rounded-xl text-sm font-bold shadow-md transition flex items-center gap-2 cursor-pointer ${
                     watermarkedPhotoUrl && !isProcessingWatermark
                       ? 'bg-teal-600 hover:bg-teal-700 text-white'
                       : 'bg-slate-300 text-slate-500 cursor-not-allowed'

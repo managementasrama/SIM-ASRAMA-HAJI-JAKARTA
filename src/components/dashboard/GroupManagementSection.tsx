@@ -622,7 +622,7 @@ export function GroupManagementSection({
               {/* Peringatan Sistem */}
               <div className="bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl border border-rose-200 dark:border-rose-900 text-[11px] text-rose-800 dark:text-rose-300 font-medium leading-relaxed">
                 <i className="fa-solid fa-triangle-exclamation mr-1.5 text-rose-600"></i>
-                Seluruh {cancelGroupTarget.roomNumbers.length} kamar akan dilepas status booking-nya menjadi <strong>READY</strong>. Semua transaksi terkait akan diubah menjadi <strong>DIBATALKAN</strong> dan alasan pembatalan ini akan dicatat ke database Google Spreadsheet &amp; log audit.
+                Seluruh {cancelGroupTarget.roomNumbers.length} kamar akan dilepas status booking-nya menjadi <strong>READY</strong>. Semua transaksi terkait akan diubah menjadi <strong>DIBATALKAN</strong> dan alasan pembatalan ini akan dicatat ke database Neon &amp; log audit.
               </div>
             </div>
 

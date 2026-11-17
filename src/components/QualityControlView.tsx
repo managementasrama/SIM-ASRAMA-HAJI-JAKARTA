@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAppContext, isQcRole } from '../store';
 import { Room, MeetingRoom, Building } from '../types';
-import { compareBuildingOrder, formatRupiah, isMeetingFacility, getRoomBuildingKey, resolveRoomBuildingName, isRoomMatchingBuilding, extractFloorFromRoomNumber } from '../lib/utils';
+import { compareBuildingOrder, isMeetingFacility, getRoomBuildingKey, resolveRoomBuildingName, isRoomMatchingBuilding, extractFloorFromRoomNumber } from '../lib/utils';
 import { OFFICIAL_TARIFFS } from '../data';
 
 // Helper for distinctive building-related icons for penginapan and other facilities (synchronized with RoomsView)
@@ -366,12 +366,6 @@ export function QualityControlView() {
               )}
             </div>
           </div>
-
-          {room.pricePerNight && room.pricePerNight > 0 ? (
-            <div className="text-[10px] text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 pt-0.5">
-              {formatRupiah(room.pricePerNight)} <span className="text-[9px] font-sans text-slate-400 font-normal">/mlm</span>
-            </div>
-          ) : null}
 
           {/* QC Audit Details */}
           <div className="mt-2 space-y-1 bg-slate-50 dark:bg-slate-900 p-1.5 rounded-lg border border-slate-100 dark:border-slate-700 text-[10px]">
@@ -1153,14 +1147,6 @@ export function QualityControlView() {
                             </div>
 
                             <div className="mt-2 text-[10px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 space-y-1">
-                              <div className="flex justify-between">
-                                <span className="text-slate-400">Tarif 8 Jam:</span>
-                                <strong className="font-mono text-slate-800">{formatRupiah(m.sessionRate || 7000000)}</strong>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400">Tarif 12 Jam:</span>
-                                <strong className="font-mono text-slate-800">{formatRupiah(m.dailyRate || 12000000)}</strong>
-                              </div>
                               {(m as any).lastQcNotes && (
                                 <div className="italic text-slate-700 pt-1 border-t border-slate-200/60" title={(m as any).lastQcNotes}>
                                   "{(m as any).lastQcNotes}"

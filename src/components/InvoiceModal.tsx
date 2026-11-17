@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Transaction, Room, ConsolidatedGroupRecord } from '../types';
 import { formatIndonesianDate, addDaysToDateStr, getRealTodayDate, formatRupiah, isMeetingFacility } from '../lib/utils';
-import { useAppContext } from '../store';
+import { useAppContext, isKeuanganRole } from '../store';
 import { findRoomRate, INDONESIAN_BANKS, OFFICIAL_VA_CONFIG } from '../data';
 import { downloadDirectInvoicePdf, downloadDirectKwitansiPdf, downloadCombinedInvoiceAndKwitansiPdf, printInvoiceDocument } from '../lib/pdfDownloader';
 import { useBodyScrollLock } from '../lib/scrollLock';
@@ -243,6 +243,7 @@ function InvoiceModalInner({
   );
 
   // Map detailed room objects
+  const receiptRooms = rooms.filter(r => allocatedRoomNumbers.includes(r.roomNumber));
   const detailedAllocatedRooms = allocatedRoomNumbers.map((rNum, idx) => {
     const roomObj = rooms.find(r => r.roomNumber === rNum);
     const memTx = memberTransactions.find(m => m.roomNumber === rNum);
@@ -309,7 +310,7 @@ function InvoiceModalInner({
       };
     }
 
-    const nights = Math.max(1, tx.duration || 1);
+      const nights = tx.durationUnit === 'Malam' ? Math.max(1, tx.duration || 1) : Math.max(1, tx.duration >= 24 ? Math.ceil(tx.duration / 24) : 1);
 
     // 1. Biaya Sewa Kamar Hunian
     let roomItems: {
@@ -335,24 +336,17 @@ function InvoiceModalInner({
         rate: number;
       }> = {};
 
-      const sourceRooms = detailedAllocatedRooms.length > 0 
-        ? detailedAllocatedRooms 
-        : (tx.roomNumber ? [{
-            index: 1,
-            number: tx.roomNumber,
-            roomId: tx.roomId || 'room-1',
-            building: tx.building,
-            floor: 1,
-            type: currentRoom?.type || tx.category || 'Standar',
-            capacity: 4,
-            status: tx.status,
-            facilities: []
-          }] : []);
+      const quotaCount = Math.max(0, Number(tx.allocatedRoomsCount || 0));
+      const sourceRooms = detailedAllocatedRooms.length > 0
+        ? detailedAllocatedRooms
+        : quotaCount > 0
+          ? Array.from({ length: quotaCount }, (_, index) => ({ index: index + 1, number: '', roomId: `quota-${index + 1}`, building: tx.building, floor: 1, type: currentRoom?.type || tx.category || 'Standar', capacity: 4, status: tx.status, facilities: [] }))
+          : (tx.roomNumber ? [{ index: 1, number: tx.roomNumber, roomId: tx.roomId || 'room-1', building: tx.building, floor: 1, type: currentRoom?.type || tx.category || 'Standar', capacity: 4, status: tx.status, facilities: [] }] : []);
 
       sourceRooms.forEach(rm => {
         const rObj = rooms.find(r => r.roomNumber === rm.number) || currentRoom;
         const matchedRate = findRoomRate(rObj?.type || rm.type, rObj?.bedType, roomCapacityRates);
-        const rate = rObj?.pricePerNight || matchedRate?.pricePerNight || (
+        const rate = rObj?.pricePerNight || tx.pricePerNight || matchedRate?.pricePerNight || (
           rm.type.toLowerCase().includes('superior') ? 500000 :
           rm.type.toLowerCase().includes('ekonomi') ? 380000 : 480000
         );
@@ -697,7 +691,7 @@ function InvoiceModalInner({
         room: currentRoom,
         groupKey,
         groupRecord,
-        allRooms: rooms,
+        allRooms: receiptRooms,
         memberTransactions,
         paymentMethod: payMethod,
         bankName: selectedBank,
@@ -706,9 +700,9 @@ function InvoiceModalInner({
         bankAccountNumber: activeVaNumber,
         paymentDate: payDate,
         autoKwitansiNo: autoKwtNo,
-        treasurerName: 'Hj. Siti Aisyah, S.E.',
-        treasurerNip: '19820412 200801 2 004',
-        treasurerTitle: 'Bendahara Penerimaan / Kasir',
+        treasurerName: currentUser?.fullName && isKeuanganRole(currentUser.role, currentUser.department) ? currentUser.fullName : undefined,
+        treasurerNip: currentUser && isKeuanganRole(currentUser.role, currentUser.department) ? currentUser.nip : undefined,
+        treasurerTitle: currentUser?.role === 'Manager Keuangan' ? 'Manager Keuangan / Perbendaharaan' : currentUser?.role === 'Staff Keuangan' ? 'Staf Keuangan / Kasir' : 'Bendahara Penerimaan / Kasir',
         paidAmount: isLunas ? pricingDetails.grandTotal : alreadyPaid,
         pricingDetails
       };
@@ -772,13 +766,17 @@ function InvoiceModalInner({
       className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:overflow-visible print:block print:z-auto"
       onClick={onClose}
     >
-      <div 
-        id="invoice-modal-card" 
+      <div
+        id="invoice-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invoice-modal-title"
+        data-responsive-modal
         className={`bg-white rounded-2xl shadow-2xl ${activeDocTab === 'BOTH' ? 'max-w-[96vw] xl:max-w-7xl' : 'max-w-5xl'} w-full overflow-hidden border border-slate-200 flex flex-col max-h-[94vh] my-auto animate-in fade-in zoom-in duration-150 print:max-h-none print:h-auto print:shadow-none print:border-none print:w-full print:overflow-visible print:static print:m-0 print:rounded-none`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header Toolbar */}
-        <div className="bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-3.5 text-white flex items-center justify-between shrink-0 print:hidden border-b border-gold-500/20">
+        <div id="invoice-modal-title" className="sticky top-0 z-10 bg-gradient-to-r from-hajj-800 to-hajj-900 px-6 py-3.5 text-white flex items-center justify-between shrink-0 print:hidden border-b border-gold-500/20">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-gold-500/20 border border-gold-400/40 text-gold-300 flex items-center justify-center font-bold text-sm">
               <i className="fa-solid fa-print"></i>
@@ -874,7 +872,7 @@ function InvoiceModalInner({
         {/* Modal Content / Printable Document Body */}
         {activeDocTab === 'KWITANSI' ? (
           isLunas ? (
-            <div className="overflow-y-auto custom-scrollbar flex-1 bg-white">
+            <div data-modal-body className="overflow-y-auto custom-scrollbar flex-1 bg-white">
               <KwitansiPrintSheet
                 tx={activeTx}
                 room={currentRoom}
