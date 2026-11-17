@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppContext, isSuperAdmin, isKeuanganRole } from '../store';
 import { OperationalNotifications, OperationalSummaryRibbon } from './OperationalNotifications';
+import { GlobalNavigationSearch } from './GlobalNavigationSearch';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { getRealTodayDate, getTxDays, addDaysToDateStr } from '../lib/utils';
 
@@ -567,22 +568,27 @@ export function Header() {
       <OperationalSummaryRibbon />
 
       <div className="bg-hajj-900/95 border-t border-white/10 px-2 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto flex space-x-1 overflow-x-auto custom-scrollbar py-1">
-          {tabs.map(tab => (
-            <button 
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)} 
-              className={`px-2.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-xs transition-all flex items-center space-x-1.5 shrink-0 whitespace-nowrap ${
-                activeTab === tab.id 
-                  ? 'text-gold-400 bg-white/12 font-bold shadow-2xs' 
-                  : 'text-slate-300 hover:text-white hover:bg-white/5 font-medium'
-              }`}
-            >
-              <i className={`fa-solid ${tab.icon} text-[10px] sm:text-[11px]`}></i>
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
+        <nav aria-label="Navigasi utama" className="max-w-7xl mx-auto flex items-center gap-1 py-1">
+          <GlobalNavigationSearch items={tabs} activeTab={activeTab} onNavigate={setActiveTab} />
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto custom-scrollbar">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={`min-h-10 px-3 sm:px-3.5 rounded-lg text-xs transition-all flex items-center space-x-1.5 shrink-0 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-300 ${
+                  activeTab === tab.id
+                    ? 'text-gold-300 bg-white/12 font-bold shadow-2xs'
+                    : 'text-slate-200 hover:text-white hover:bg-white/5 font-medium'
+                }`}
+              >
+                <i aria-hidden="true" className={`fa-solid ${tab.icon} text-[11px]`}></i>
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
       </div>
     </header>
   );
