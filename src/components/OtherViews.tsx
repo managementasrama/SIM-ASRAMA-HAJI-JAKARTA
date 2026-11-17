@@ -8,7 +8,7 @@ import { findRoomRate } from '../data';
 import { useBodyScrollLock } from '../lib/scrollLock';
 import { VerifyPdfView } from './VerifyPdfView';
 import { RolePermissionsSection } from './RolePermissionsSection';
-import { SpreadsheetIntegrationView } from './SpreadsheetIntegrationView';
+import { NeonDatabaseView } from './NeonDatabaseView';
 import { getDirectChannelId } from '../chatData';
 
 export function ReportsView() {
@@ -1024,7 +1024,7 @@ export function ReportsView() {
               </div>
               <div>
                 <h4 className="font-bold text-slate-900 dark:text-slate-100 text-base">Hapus Transaksi Permanen</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Data akan dihapus dari penyimpanan lokal dan Google Spreadsheet</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Data akan dihapus dari database Neon</p>
               </div>
             </div>
 
@@ -3897,7 +3897,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
     exportDatabaseBackup, importDatabaseBackup, resetDatabase, clearWorkSessions, clearAuditLogs,
     buildings = [], rooms = [], transactions = [], maintenances = [], users = [],
     breakfastOrders = [], breakfastMenuItems = [], qcInspections = [],
-    supabaseSyncState, manualSyncSupabase, pushAllToSupabase, setActiveTab, dataStorage,
+    neonSyncState, manualSyncNeon, pushAllToNeon, setActiveTab, dataStorage,
     updateUser, appSettings, updateAppSettings,
     onlinePresences = [], openChat, forceEndWorkSession, deleteWorkSession, deleteWorkSessionsBatch
   } = useAppContext();
@@ -6327,7 +6327,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
           )}
         </div>
       ) : activeSubView === 'DATABASE_MGMT' ? (
-        /* Pusat Manajemen Basis Data (Google Spreadsheet) */
+        /* Pusat Manajemen Basis Data Neon */
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* Unified Central Database Banner & Real-Time Sync Control */}
           <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-indigo-500/30 relative overflow-hidden">
@@ -6345,24 +6345,24 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     </div>
 
                     <div className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
-                      supabaseSyncState?.isSyncing
+                      neonSyncState?.isSyncing
                         ? 'bg-sky-500/20 text-sky-200 border-sky-400/40 animate-pulse'
-                        : supabaseSyncState?.lastError
+                        : neonSyncState?.lastError
                         ? 'bg-rose-500/20 text-rose-200 border-rose-400/40'
                         : 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40'
                     }`}>
                       <span className={`w-2 h-2 rounded-full ${
-                        supabaseSyncState?.isSyncing
+                        neonSyncState?.isSyncing
                           ? 'bg-sky-400'
-                          : supabaseSyncState?.lastError
+                          : neonSyncState?.lastError
                           ? 'bg-rose-400'
                           : 'bg-emerald-400 animate-ping'
                       }`}></span>
                       <span>
-                        {supabaseSyncState?.isSyncing
+                        {neonSyncState?.isSyncing
                           ? 'Status Sync: Menyinkronkan...'
-                          : supabaseSyncState?.lastError
-                          ? `Status Sync: ${supabaseSyncState.lastError}`
+                          : neonSyncState?.lastError
+                          ? `Status Sync: ${neonSyncState.lastError}`
                           : 'Status Sync: Terhubung & Sinkron dengan Neon Cloud PostgreSQL'}
                       </span>
                     </div>
@@ -6382,13 +6382,13 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     type="button"
                     onClick={async () => {
                       setIsCloudSyncing(true);
-                      await manualSyncSupabase();
+                      await manualSyncNeon();
                       setIsCloudSyncing(false);
                     }}
-                    disabled={isCloudSyncing || supabaseSyncState?.isSyncing}
+                    disabled={isCloudSyncing || neonSyncState?.isSyncing}
                     className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
-                    <i className={`fa-solid ${isCloudSyncing || supabaseSyncState?.isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
+                    <i className={`fa-solid ${isCloudSyncing || neonSyncState?.isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
                     <span>Tarik Data Terbaru dari Neon</span>
                   </button>
 
@@ -6396,10 +6396,10 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     type="button"
                     onClick={async () => {
                       setIsCloudSyncing(true);
-                      await pushAllToSupabase();
+                      await pushAllToNeon();
                       setIsCloudSyncing(false);
                     }}
-                    disabled={isCloudSyncing || supabaseSyncState?.isSyncing}
+                    disabled={isCloudSyncing || neonSyncState?.isSyncing}
                     className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <i className="fa-solid fa-cloud-arrow-up text-indigo-300"></i>
@@ -6433,8 +6433,8 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Sinkronisasi Terakhir:</span>
                   <span className="font-mono text-indigo-300 font-bold text-[11px]">
-                    {supabaseSyncState?.lastSyncedAt
-                      ? `${new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB`
+                    {neonSyncState?.lastSyncedAt
+                      ? `${new Date(neonSyncState.lastSyncedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB`
                       : 'Real-Time Otomatis'}
                   </span>
                 </div>
@@ -6618,7 +6618,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
         </div>
       ) : activeSubView === 'SPREADSHEET_MGMT' ? (
         <div className="space-y-5 animate-in fade-in duration-200">
-          <SpreadsheetIntegrationView />
+          <NeonDatabaseView />
         </div>
       ) : (
         /* Fallback Empty */
@@ -6869,7 +6869,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 </p>
               </div>
               <p className="text-rose-700 text-[11px] font-semibold">
-                Tindakan ini tidak dapat dibatalkan. Seluruh data sesi dan akumulasi jam kerja petugas pada tanggal ini akan dihapus dari sistem dan Google Spreadsheet secara permanen.
+                Tindakan ini tidak dapat dibatalkan. Seluruh data sesi dan akumulasi jam kerja petugas pada tanggal ini akan dihapus dari sistem di Neon secara permanen.
               </p>
             </div>
 

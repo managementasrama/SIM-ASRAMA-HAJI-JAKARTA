@@ -10,8 +10,8 @@ interface NeonStateResponse {
   error?: string;
 }
 
-export function SpreadsheetIntegrationView() {
-  const { pullFromCentralDatabase, showToast, supabaseSyncState } = useAppContext();
+export function NeonDatabaseView() {
+  const { pullFromCentralDatabase, showToast, neonSyncState } = useAppContext();
   const [state, setState] = useState<NeonStateResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPushing, setIsPushing] = useState(false);
@@ -91,7 +91,7 @@ export function SpreadsheetIntegrationView() {
             <button
               type="button"
               onClick={handlePush}
-              disabled={isPushing || supabaseSyncState.status === 'syncing'}
+              disabled={isPushing || neonSyncState.status === 'syncing'}
               className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">↑</span>{isPushing ? 'Menyimpan...' : 'Simpan sekarang'}
@@ -109,8 +109,8 @@ export function SpreadsheetIntegrationView() {
           </div>
           {state?.error && <p role="alert" className="mt-2 text-sm text-red-700">{state.error}</p>}
           <p className="mt-2 text-sm text-slate-600">
-            Status sinkronisasi: <span className="font-semibold">{supabaseSyncState.status}</span>
-            {supabaseSyncState.errorMessage ? ` — ${supabaseSyncState.errorMessage}` : ''}
+            Status sinkronisasi: <span className="font-semibold">{neonSyncState.status}</span>
+            {neonSyncState.errorMessage ? ` — ${neonSyncState.errorMessage}` : ''}
           </p>
         </article>
 
@@ -144,7 +144,7 @@ export function SpreadsheetIntegrationView() {
       </article>
 
       <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
-        Google Sheets tetap tersedia sebagai integrasi terpisah. Perubahan data utama aplikasi sekarang disinkronkan melalui Neon; revisi yang berubah di perangkat lain memerlukan tarik ulang sebelum penulisan berikutnya.
+        Seluruh data aplikasi dibaca dan disimpan melalui Neon. Jika revisi berubah dari perangkat lain, tarik data terbaru sebelum menyimpan perubahan berikutnya.
       </p>
     </section>
   );

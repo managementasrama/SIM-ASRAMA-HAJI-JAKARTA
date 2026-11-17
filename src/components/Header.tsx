@@ -7,7 +7,7 @@ import { getRealTodayDate, getTxDays, addDaysToDateStr } from '../lib/utils';
 export function Header() {
   const { 
     currentUser, login, logout, activeTab, setActiveTab, openModal, users, showToast, isDarkMode, toggleDarkMode, appSettings,
-    supabaseSyncState, manualSyncSupabase, emergencyRecoverData, updateAppSettings, runManualAutoCheckout, transactions
+    neonSyncState, manualSyncNeon, emergencyRecoverData, updateAppSettings, runManualAutoCheckout, transactions
   } = useAppContext();
   const [isSwitchOpen, setIsSwitchOpen] = useState(false);
   const [isExecutingAutoCheckout, setIsExecutingAutoCheckout] = useState(false);
@@ -118,7 +118,7 @@ export function Header() {
       roles: ['Super Admin', 'Admin'] 
     },
     { 
-      id: 'spreadsheetSync', 
+      id: 'neonDatabase',
       label: 'Basis Data Neon',
       icon: 'fa-database', 
       roles: ['Super Admin', 'Admin'] 
@@ -357,23 +357,23 @@ export function Header() {
                           </div>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
-                          supabaseSyncState?.isSyncing
+                          neonSyncState?.isSyncing
                             ? 'bg-blue-100 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 animate-pulse'
-                            : supabaseSyncState?.lastError
+                            : neonSyncState?.lastError
                             ? 'bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
                             : 'bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${
-                            supabaseSyncState?.isSyncing
+                            neonSyncState?.isSyncing
                               ? 'bg-blue-600 dark:bg-blue-400'
-                              : supabaseSyncState?.lastError
+                              : neonSyncState?.lastError
                               ? 'bg-rose-600 dark:bg-rose-400'
                               : 'bg-emerald-600 dark:bg-emerald-400 animate-ping'
                           }`}></span>
                           <span>
-                            {supabaseSyncState?.isSyncing
+                            {neonSyncState?.isSyncing
                               ? 'Menyinkronkan...'
-                              : supabaseSyncState?.lastError
+                              : neonSyncState?.lastError
                               ? 'Gangguan Koneksi'
                               : 'Terhubung Cloud'}
                           </span>
@@ -381,9 +381,9 @@ export function Header() {
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
                         <span>Database PostgreSQL Neon</span>
-                        {supabaseSyncState?.lastSyncedAt && (
+                        {neonSyncState?.lastSyncedAt && (
                           <span className="font-mono font-bold text-indigo-700 dark:text-indigo-400">
-                            {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
+                            {new Date(neonSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
                               hour: '2-digit',
                               minute: '2-digit',
                               second: '2-digit'
@@ -414,7 +414,7 @@ export function Header() {
                           type="button"
                           onClick={() => {
                             setIsSwitchOpen(false);
-                            setActiveTab('spreadsheetSync');
+                            setActiveTab('neonDatabase');
                           }}
                           className="w-full py-1.5 px-3 bg-indigo-50 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
                         >

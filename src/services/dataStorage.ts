@@ -34,14 +34,19 @@ import {
 import { initialChatChannels, initialChatMessages } from '../chatData';
 import { normalizeBuildingName, deduplicateRoomCapacityRates, getRoomBuildingKey, deduplicateRoomsByBuildingAndNumber, isRoomMatchingBuilding, resolveRoomBuildingName, getNextSequentialId, isMeetingFacility } from '../lib/utils';
 import { OFFICIAL_APP_LOGO } from '../officialLogo';
-import {
-  fetchFullDatabaseFromSpreadsheet,
-  type SpreadsheetSyncState
-} from './spreadsheetStorage';
 import { realtimeService } from './realtimeService';
 
-// Alias tipe untuk kompatibilitas ke belakang
-export type SupabaseSyncState = SpreadsheetSyncState;
+export interface NeonSyncState {
+  status: 'idle' | 'syncing' | 'connected' | 'error';
+  lastSyncTime: string | null;
+  errorMessage: string | null;
+  isConfigured: boolean;
+  isSyncing?: boolean;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
+}
+
+
 
 export type StorageNamespace = 'LOCAL' | 'PROD' | 'DEMO';
 
@@ -175,32 +180,11 @@ export class DataStorageService {
   }
 
   private loadFromStorage(): CompleteStorageDatabase | null {
-    if (typeof window === 'undefined' || !window.localStorage) return null;
-    try {
-      const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rooms) && parsed.rooms.length > 0) {
-          if (Array.isArray(parsed.workSessions)) {
-            parsed.workSessions = parsed.workSessions.filter((s: any) => s && s.id && !this.deletedWorkSessionIds.has(s.id));
-          }
-          if (!Array.isArray(parsed.transactions) || parsed.transactions.length === 0) {
-            parsed.transactions = [...initialTransactions];
-          }
-          return parsed;
-        }
-      }
-    } catch (_) {}
     return null;
   }
 
-  private saveToStorage(db: CompleteStorageDatabase): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    try {
-      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(db));
-    } catch (e) {
-      console.warn('Gagal menyimpan cache ke localStorage:', e);
-    }
+  private saveToStorage(_db: CompleteStorageDatabase): void {
+    // Application records are persisted only through the Neon state endpoint.
   }
 
   constructor() {
@@ -249,7 +233,7 @@ export class DataStorageService {
     }
     const dbToPush = this.pendingSyncDb || this.getDatabase();
     this.pendingSyncDb = null;
-    return this.pushAllToSpreadsheet(dbToPush);
+    return this.pushAllToNeon(dbToPush);
   }
 
   private async checkInitialNeonConnection() {
@@ -282,7 +266,7 @@ export class DataStorageService {
     return this.lastSyncTime;
   }
 
-  public getSpreadsheetSyncState(): SpreadsheetSyncState {
+  public getNeonSyncState(): NeonSyncState {
     return {
       status: this.syncStatus,
       lastSyncTime: this.lastSyncTime,
@@ -294,147 +278,59 @@ export class DataStorageService {
     };
   }
 
-  // Alias ke SupabaseSyncState untuk kompatibilitas UI
-  public getSupabaseSyncState(): SpreadsheetSyncState {
-    return this.getSpreadsheetSyncState();
-  }
-
-  /**
-   * Hidrasi data terbaru dari Neon PostgreSQL saat aplikasi dibuka
-   */
-  public async hydrateFromSpreadsheet(_forceCloudOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
+  /** Load and persist the canonical application state exclusively through Neon. */
+  public async hydrateFromNeon(_forceCloudOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
     try {
       this.syncStatus = 'syncing';
       this.notifySyncListeners({ status: 'syncing', db: this.getDatabase() });
 
-      let sheetDb: CompleteStorageDatabase | null = null;
-      let neonStateEmpty = false;
+      const response = await fetch('/api/neon/state', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Neon returned HTTP ${response.status}`);
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.error || 'Gagal membaca state dari Neon.');
 
-      // Neon is the source of truth. Legacy sources are read only once to seed the new state row.
-      try {
-        const neonRes = await fetch('/api/neon/state', { cache: 'no-store' });
-        if (!neonRes.ok) throw new Error(`Neon returned HTTP ${neonRes.status}`);
-        const neonJson = await neonRes.json();
-        if (neonJson.ok && neonJson.data && Array.isArray(neonJson.data.rooms)) {
-          this.cloudRevision = Number(neonJson.revision) || 0;
-          sheetDb = neonJson.data as CompleteStorageDatabase;
-        } else if (neonJson.ok && neonJson.data === null) {
-          this.cloudRevision = 0;
-          neonStateEmpty = true;
-        } else {
-          throw new Error('State yang diterima dari Neon tidak valid.');
+      this.cloudRevision = Number(result.revision) || 0;
+      const base = this.cache || generateInitialDatabase(false);
+      const cloudDb = result.data && Array.isArray(result.data.rooms)
+        ? result.data as CompleteStorageDatabase
+        : base;
+      const mergedDb = result.data
+        ? this.mergeDatabases(base, cloudDb, !_forceCloudOverwrite ? !this.hasHydratedFromCloud : true)
+        : base;
+
+      if (this.cache && result.data) {
+        const sessions = new Map<string, WorkSession>();
+        for (const session of mergedDb.workSessions || []) {
+          if (session?.id && !this.deletedWorkSessionIds.has(session.id)) sessions.set(session.id, session);
         }
-      } catch (neonErr) {
-        console.warn('Gagal membaca state aplikasi dari Neon:', neonErr);
-        throw neonErr;
+        for (const session of this.cache.workSessions || []) {
+          if (!session?.id || this.deletedWorkSessionIds.has(session.id)) continue;
+          const remote = sessions.get(session.id);
+          if (!remote && session.status === 'AKTIF') sessions.set(session.id, session);
+          else if (remote && session.status === 'SELESAI' && remote.status !== 'SELESAI') sessions.set(session.id, session);
+          else if (remote && (session.durationSeconds || 0) > (remote.durationSeconds || 0)) sessions.set(session.id, { ...remote, ...session });
+        }
+        mergedDb.workSessions = Array.from(sessions.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
       }
 
-      // Seed Neon from existing sources only when its state row has not been created yet.
-      if (!sheetDb && neonStateEmpty) {
-        try {
-          const aivenRes = await fetch('/api/aiven/pull', { method: 'POST' });
-          if (aivenRes.ok) {
-            const txt = await aivenRes.text();
-            const aivenJson = txt && txt.trim() ? JSON.parse(txt) : { ok: false };
-            if (aivenJson.ok && aivenJson.data && (aivenJson.data.buildings?.length > 0 || aivenJson.data.rooms?.length > 0 || aivenJson.data.transactions?.length > 0)) {
-              sheetDb = {
-                schemaVersion: 4,
-                appName: 'SIM-Akomodasi UPT Asrama Haji Jakarta',
-                exportedAt: new Date().toISOString(),
-                appSettings: aivenJson.data.appSettings || this.getAppSettings(),
-                users: aivenJson.data.users || [],
-                buildings: aivenJson.data.buildings || [],
-                rooms: aivenJson.data.rooms || [],
-                meetingRooms: aivenJson.data.meeting_rooms || [],
-                transactions: aivenJson.data.transactions || [],
-                maintenances: aivenJson.data.maintenances || [],
-                qcInspections: aivenJson.data.qc_inspections || [],
-                breakfastOrders: aivenJson.data.breakfast_orders || [],
-                breakfastMenuItems: aivenJson.data.breakfast_menu_items || [],
-                cleaningLogs: aivenJson.data.cleaning_logs || [],
-                workSessions: aivenJson.data.work_sessions || [],
-                auditLogs: aivenJson.data.audit_logs || [],
-                roomCapacityRates: aivenJson.data.room_capacity_rates || [],
-                chatChannels: initialChatChannels,
-                chatMessages: []
-              };
-            }
-          }
-        } catch (aivenErr) {
-          console.warn('Gagal membaca data legacy untuk seed Neon:', aivenErr);
-        }
-
-        if (!sheetDb) {
-          try {
-            sheetDb = await fetchFullDatabaseFromSpreadsheet();
-          } catch (sheetErr) {
-            console.warn('Gagal membaca data legacy dari server:', sheetErr);
-          }
-        }
-      }
-
-      if (sheetDb) {
-        // Gabungkan cerdas dengan master data / cache lokal agar data katalog & relasi tetap lengkap
-        const base = this.cache || this.loadFromStorage() || generateInitialDatabase(false);
-        const preferCloud = _forceCloudOverwrite || !this.hasHydratedFromCloud;
-        const mergedDb = this.mergeDatabases(base, sheetDb, preferCloud);
-
-        // Pertahankan sesi aktif & pesan chat memori (kecuali sesi yang telah dihapus)
-        if (this.cache) {
-          const wsMap = new Map<string, WorkSession>();
-          for (const s of (mergedDb.workSessions || [])) {
-            if (s && s.id && !this.deletedWorkSessionIds.has(s.id)) wsMap.set(s.id, s);
-          }
-          for (const s of (this.cache.workSessions || [])) {
-            if (!s || !s.id || this.deletedWorkSessionIds.has(s.id)) continue;
-            const remoteS = wsMap.get(s.id);
-            if (!remoteS) {
-              if (s.status === 'AKTIF') wsMap.set(s.id, s);
-            } else if (s.status === 'SELESAI' && remoteS.status !== 'SELESAI') {
-              wsMap.set(s.id, s);
-            } else if (remoteS.status === 'SELESAI' && s.status !== 'SELESAI') {
-              wsMap.set(s.id, remoteS);
-            } else if ((s.durationSeconds || 0) > (remoteS.durationSeconds || 0)) {
-              wsMap.set(s.id, { ...remoteS, ...s });
-            }
-          }
-          mergedDb.workSessions = Array.from(wsMap.values()).sort((a, b) => (b.loginTime || '').localeCompare(a.loginTime || ''));
-        }
-
-        this.cache = mergedDb;
-        this.saveToStorage(mergedDb);
-        this.hasHydratedFromCloud = true;
-        if (neonStateEmpty) {
-          await this.pushAllToSpreadsheet(mergedDb);
-        } else {
-          this.lastSyncTime = new Date().toISOString();
-          this.syncStatus = 'connected';
-          this.syncError = null;
-          this.notifySyncListeners({ status: 'connected', db: mergedDb });
-        }
-
-        return mergedDb;
-      }
-
-      const current = this.getDatabase();
-      if (neonStateEmpty) {
-        await this.pushAllToSpreadsheet(current);
+      this.cache = mergedDb;
+      this.hasHydratedFromCloud = true;
+      if (!result.data) {
+        const saved = await this.pushAllToNeon(mergedDb);
+        if (!saved.success) throw new Error(saved.error || 'Gagal menyimpan state awal ke Neon.');
       } else {
         this.syncStatus = 'connected';
-        this.notifySyncListeners({ status: 'connected', db: current });
+        this.lastSyncTime = result.updatedAt || new Date().toISOString();
+        this.syncError = null;
+        this.notifySyncListeners({ status: 'connected', db: mergedDb });
       }
-      return current;
+      return mergedDb;
     } catch (err: any) {
       this.syncStatus = 'error';
       this.syncError = err?.message || 'Gagal mengambil data dari Neon';
       this.notifySyncListeners({ status: 'error', db: this.getDatabase(), error: this.syncError });
       return null;
     }
-  }
-
-  // Alias kompatibilitas
-  public async hydrateFromSupabase(forceOverwrite: boolean = false): Promise<CompleteStorageDatabase | null> {
-    return this.hydrateFromSpreadsheet(forceOverwrite);
   }
 
   /**
@@ -634,77 +530,21 @@ export class DataStorageService {
     };
   }
 
-  /**
-   * Pemindaian dan pemulihan darurat seluruh data dari cadangan lokal dan server cache
-   */
   public tryRecoverLostData(): { recovered: boolean; message: string; recoveredDb?: CompleteStorageDatabase } {
-    if (typeof window === 'undefined' || !window.localStorage) {
-      return { recovered: false, message: 'LocalStorage tidak tersedia di browser ini.' };
-    }
-
-    let bestDb: CompleteStorageDatabase | null = null;
-    let maxScore = -1;
-
-    const candidateKeys = [
-      LOCAL_STORAGE_BACKUP_KEY,
-      LOCAL_STORAGE_KEY,
-      'UPT_ASRAMA_HAJI_DATABASE_V4_CLEAN',
-      'UPT_ASRAMA_HAJI_AUTO_BACKUP_LATEST',
-      'UPT_ASRAMA_HAJI_DATABASE_V3_CLEAN',
-      'UPT_ASRAMA_HAJI_LOCAL_DATABASE_V1'
-    ];
-
-    for (const key of candidateKeys) {
-      try {
-        const raw = window.localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rooms)) {
-            const txCount = Array.isArray(parsed.transactions) ? parsed.transactions.length : 0;
-            const roomCount = Array.isArray(parsed.rooms) ? parsed.rooms.length : 0;
-            const score = txCount * 10 + roomCount;
-            if (score > maxScore) {
-              maxScore = score;
-              bestDb = parsed;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (!bestDb || !Array.isArray(bestDb.transactions) || bestDb.transactions.length === 0) {
-      const fallback = generateInitialDatabase(false);
-      if (Array.isArray(fallback.transactions) && fallback.transactions.length > 0) {
-        bestDb = fallback;
-        maxScore = fallback.transactions.length * 10 + fallback.rooms.length;
-      }
-    }
-
-    if (bestDb && maxScore > 0) {
-      const current = this.cache || generateInitialDatabase(false);
-      const merged = this.mergeDatabases(current, bestDb, true);
-      this.cache = merged;
-      this.saveToStorage(merged);
-      const txCount = Array.isArray(merged.transactions) ? merged.transactions.length : 0;
-      const roomCount = Array.isArray(merged.rooms) ? merged.rooms.length : 0;
-      return {
-        recovered: true,
-        message: `Berhasil memulihkan ${txCount} data transaksi, ${roomCount} kamar, dan seluruh master data dari cadangan sistem!`,
-        recoveredDb: merged
-      };
-    }
-
-    return { recovered: false, message: 'Tidak ditemukan cadangan data yang tersimpan di memori lokal.' };
+    return {
+      recovered: false,
+      message: 'Pemulihan data hanya dilakukan dari Neon. Muat ulang data pusat untuk memeriksa koneksi.'
+    };
   }
 
   public async hydrateFromServer(_ns?: any): Promise<CompleteStorageDatabase | null> {
-    return this.hydrateFromSupabase();
+    return this.hydrateFromNeon();
   }
 
   /**
    * Sinkronisasi seluruh basis data ke Neon PostgreSQL
    */
-  public async pushAllToSpreadsheet(customDb?: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
+  public async pushAllToNeon(customDb?: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
     const db = customDb || this.getDatabase();
     this.syncStatus = 'syncing';
     this.notifySyncListeners({ status: 'syncing', db });
@@ -734,15 +574,10 @@ export class DataStorageService {
     }
   }
 
-  // Alias kompatibilitas
-  public async pushAllToSupabase(customDb?: CompleteStorageDatabase): Promise<{ success: boolean; error?: string }> {
-    return this.pushAllToSpreadsheet(customDb);
-  }
-
   /**
    * Mengirim data ke Neon secara ter-debounce instan setiap ada perubahan
    */
-  public triggerSpreadsheetSync(db: CompleteStorageDatabase) {
+  public triggerNeonSync(db: CompleteStorageDatabase) {
     this.pendingSyncDb = db;
     this.syncStatus = 'syncing';
     this.notifySyncListeners({ status: 'syncing', db });
@@ -757,13 +592,8 @@ export class DataStorageService {
       this.pendingSyncDb = null;
       this.syncDebounceTimer = null;
 
-      await this.pushAllToSpreadsheet(payload);
+      await this.pushAllToNeon(payload);
     }, 100);
-  }
-
-  // Alias kompatibilitas
-  public triggerSupabaseSync(db: CompleteStorageDatabase) {
-    this.triggerSpreadsheetSync(db);
   }
 
   public setNamespace(_ns: any): CompleteStorageDatabase {
@@ -860,7 +690,7 @@ export class DataStorageService {
     } catch (_) {}
 
     if (options?.skipCloudSync) return;
-    this.triggerSpreadsheetSync(updated);
+    this.triggerNeonSync(updated);
   }
 
   // ==========================================
@@ -2295,7 +2125,7 @@ export class DataStorageService {
     this.cache = initDb;
     this.saveDatabase(initDb);
       // Segera dorong reset ke Neon
-      this.pushAllToSpreadsheet(initDb).catch(() => {});
+      this.pushAllToNeon(initDb).catch(() => {});
     return initDb;
   }
 

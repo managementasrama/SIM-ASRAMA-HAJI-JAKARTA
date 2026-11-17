@@ -50,6 +50,13 @@ async function startServer() {
     next();
   });
 
+  // Only the Neon state API is supported; prevent legacy handlers from reaching other stores.
+  const rejectLegacyStorage = (_req: express.Request, res: express.Response) =>
+    res.status(410).json({ ok: false, error: "Endpoint ini sudah dinonaktifkan. Gunakan Neon sebagai satu-satunya database." });
+  for (const legacyPath of ["/api/aiven", "/api/sheets", "/api/sheets-config", "/api/database", "/api/chat"]) {
+    app.use(legacyPath, rejectLegacyStorage);
+  }
+
   // =========================================================================
   // REAL-TIME MULTI-USER HUB (WORK SESSIONS, LIVE PRESENCE & 2-WAY CHAT)
   // =========================================================================
@@ -117,75 +124,17 @@ async function startServer() {
   // Google Spreadsheet Database Configuration & Real-Time Proxy
   // Menggunakan Google Spreadsheet sebagai basis data utama aplikasi
   // =========================================================================
-  const sheetsConfigFilePath = path.join(process.cwd(), "google_sheets_config.json");
   const envFilePath = path.join(process.cwd(), ".env");
-
-  function parseEnvForSheets(): { webAppUrl?: string; sheetId?: string; apiKey?: string } {
-    try {
-      if (fs.existsSync(envFilePath)) {
-        const raw = fs.readFileSync(envFilePath, "utf-8");
-        let webAppUrl: string | undefined;
-        let sheetId: string | undefined;
-        let apiKey: string | undefined;
-
-        const urlMatch = raw.match(/(?:GOOGLE_SHEETS_WEBAPP_URL|VITE_SHEET_WEBAPP_URL)\s*=\s*["']?([^\r\n"']+)["']?/);
-        if (urlMatch && urlMatch[1]) {
-          webAppUrl = urlMatch[1].trim();
-        }
-
-        const idMatch = raw.match(/(?:GOOGLE_SHEETS_ID|VITE_GOOGLE_SHEETS_ID)\s*=\s*["']?([^\r\n"']+)["']?/);
-        if (idMatch && idMatch[1]) {
-          sheetId = idMatch[1].trim();
-        }
-
-        const keyMatch = raw.match(/GOOGLE_SHEETS_API_KEY\s*=\s*["']?([^\r\n"']+)["']?/);
-        if (keyMatch && keyMatch[1]) {
-          apiKey = keyMatch[1].trim();
-        }
-
-        return { webAppUrl, sheetId, apiKey };
-      }
-    } catch (_) {}
-    return {};
-  }
-
-  const defaultWebAppUrl = "https://script.google.com/macros/s/AKfycby9Tok8-zgcVsTuXfQBDA0prmRSpUs9kxpeyczsw9SRVjwZBEk6Y8st3tBv7LK7j_X6/exec";
-  const defaultSheetDocUrl = "https://docs.google.com/spreadsheets/d/15loY6F6CMmIJ5qZaafidY6AB0vvrEpsSsE_B0XXBqP4/edit?gid=0#gid=0";
-
-  const envSheetsConfig = parseEnvForSheets();
+  const sheetsConfigFilePath = path.join(process.cwd(), "google_sheets_config.json");
+  const defaultSheetDocUrl = "";
   let activeSheetsConfig = {
-    webAppUrl: envSheetsConfig.webAppUrl || process.env.GOOGLE_SHEETS_WEBAPP_URL || process.env.VITE_SHEET_WEBAPP_URL || defaultWebAppUrl,
-    sheetId: envSheetsConfig.sheetId || process.env.GOOGLE_SHEETS_ID || process.env.VITE_GOOGLE_SHEETS_ID || defaultSheetDocUrl,
-    sheetDocUrl: defaultSheetDocUrl,
-    apiKey: envSheetsConfig.apiKey || process.env.GOOGLE_SHEETS_API_KEY || "",
-    isConfigured: true,
+    webAppUrl: "",
+    sheetId: "",
+    sheetDocUrl: "",
+    apiKey: "",
+    isConfigured: false,
     updatedAt: new Date().toISOString(),
   };
-
-  try {
-    if (fs.existsSync(sheetsConfigFilePath)) {
-      const rawCfg = fs.readFileSync(sheetsConfigFilePath, "utf-8");
-      const parsed = JSON.parse(rawCfg);
-      if (parsed) {
-        const rawSheetId = parsed.sheetId || activeSheetsConfig.sheetId;
-        const finalDocUrl = parsed.sheetDocUrl || rawSheetId || defaultSheetDocUrl;
-        const safeDocUrl = (finalDocUrl && !finalDocUrl.includes("1AsramaHajiEmbarkasiJakartaSIM")) ? finalDocUrl : defaultSheetDocUrl;
-        activeSheetsConfig = {
-          webAppUrl: parsed.webAppUrl || activeSheetsConfig.webAppUrl,
-          sheetId: safeDocUrl,
-          sheetDocUrl: safeDocUrl,
-          apiKey: parsed.apiKey || activeSheetsConfig.apiKey,
-          isConfigured: Boolean(parsed.webAppUrl || activeSheetsConfig.webAppUrl),
-          updatedAt: parsed.updatedAt || new Date().toISOString(),
-        };
-      }
-    } else if (activeSheetsConfig.webAppUrl) {
-      activeSheetsConfig.isConfigured = true;
-      fs.writeFileSync(sheetsConfigFilePath, JSON.stringify(activeSheetsConfig, null, 2), "utf-8");
-    }
-  } catch (err) {
-    console.warn("Failed to load google_sheets_config.json:", err);
-  }
 
   // File cache lokal di server untuk database authoritatif saat offline / backup
   const serverDbCachePath = path.join(process.cwd(), "server_database_cache.json");
@@ -319,7 +268,7 @@ async function startServer() {
     try {
       if (fs.existsSync(envFilePath)) {
         const raw = fs.readFileSync(envFilePath, "utf-8");
-        const uriMatch = raw.match(/(?:AIVEN_DATABASE_URL|DATABASE_URL|AIVEN_SERVICE_URI)\s*=\s*["']?([^\r\n"']+)["']?/);
+        const uriMatch = raw.match(/(?:AIVEN_DATABASE_URL|AIVEN_SERVICE_URI)\s*=\s*["']?([^\r\n"']+)["']?/);
         if (uriMatch && uriMatch[1]) {
           return { serviceUri: uriMatch[1].trim() };
         }
@@ -345,7 +294,7 @@ async function startServer() {
   }
 
   const envAiven = parseEnvForAiven();
-  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.DATABASE_URL || "";
+  const initialAivenUri = envAiven.serviceUri || process.env.AIVEN_DATABASE_URL || process.env.AIVEN_SERVICE_URI || "";
 
   let activeAivenConfig: {
     serviceUri?: string;

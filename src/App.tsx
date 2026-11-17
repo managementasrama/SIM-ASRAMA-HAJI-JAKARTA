@@ -8,7 +8,7 @@ import { ReportsView, MaintenanceReportsView, AuditLogView, BreakfastOrdersView 
 import { QualityControlView } from './components/QualityControlView';
 import { BuildingStaffView } from './components/BuildingStaffView';
 import { UserManagementView } from './components/UserManagementView';
-import { SpreadsheetIntegrationView } from './components/SpreadsheetIntegrationView';
+import { NeonDatabaseView } from './components/NeonDatabaseView';
 import { FinanceReceiptsView } from './components/FinanceReceiptsView';
 import { Modals } from './components/Modals';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
@@ -123,7 +123,7 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     title: 'Kelola Petugas & Anggota',
     roles: ['Super Admin', 'Admin']
   },
-  spreadsheetSync: {
+  neonDatabase: {
     title: 'Basis Data Cloud (Neon)',
     roles: ['Super Admin', 'Admin']
   }
@@ -196,7 +196,7 @@ function MainApp() {
             {resolvedTab === 'keuangan' && <FinanceReceiptsView />}
             {resolvedTab === 'laporanMaintenance' && <MaintenanceReportsView />}
             {resolvedTab === 'pesananSarapan' && <BreakfastOrdersView />}
-            {resolvedTab === 'spreadsheetSync' && <SpreadsheetIntegrationView />}
+            {resolvedTab === 'neonDatabase' && <NeonDatabaseView />}
             {resolvedTab === 'auditLog' && <AuditLogView defaultSubView={undefined} />}
             {resolvedTab === 'verifyPdf' && <AuditLogView defaultSubView="PDF_DOWNLOAD_LOGS" />}
             {resolvedTab === 'kelolaAnggota' && <UserManagementView />}
