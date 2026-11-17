@@ -9,6 +9,7 @@ import { QualityControlView } from './components/QualityControlView';
 import { BuildingStaffView } from './components/BuildingStaffView';
 import { UserManagementView } from './components/UserManagementView';
 import { SpreadsheetIntegrationView } from './components/SpreadsheetIntegrationView';
+import { FinanceReceiptsView } from './components/FinanceReceiptsView';
 import { Modals } from './components/Modals';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
 
@@ -95,8 +96,12 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     roles: ['Super Admin', 'Admin', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager QC', 'Quality Control', 'Manager']
   },
   laporanKamar: {
-    title: 'Laporan Kamar, Pemesanan & Kwitansi',
+    title: 'Laporan Pemesanan',
     roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
+  },
+  keuangan: {
+    title: 'Keuangan & Kwitansi',
+    roles: ['Super Admin', 'Admin', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan']
   },
   laporanMaintenance: {
     title: 'Laporan Maintenance & Perbaikan',
@@ -188,6 +193,7 @@ function MainApp() {
             {resolvedTab === 'qualityControl' && <QualityControlView />}
             {resolvedTab === 'buildingStaff' && <BuildingStaffView />}
             {resolvedTab === 'laporanKamar' && <ReportsView />}
+            {resolvedTab === 'keuangan' && <FinanceReceiptsView />}
             {resolvedTab === 'laporanMaintenance' && <MaintenanceReportsView />}
             {resolvedTab === 'pesananSarapan' && <BreakfastOrdersView />}
             {resolvedTab === 'spreadsheetSync' && <SpreadsheetIntegrationView />}

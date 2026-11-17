@@ -95,9 +95,15 @@ export function Header() {
     },
     { 
       id: 'laporanKamar', 
-      label: 'Laporan & Kwitansi', 
-      icon: 'fa-file-invoice', 
+      label: 'Laporan Pemesanan', 
+      icon: 'fa-chart-column', 
       roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager', 'Manager Keuangan', 'Bendahara / Keuangan', 'Bendahara', 'Keuangan', 'Staff Keuangan'] 
+    },
+    { 
+      id: 'keuangan', 
+      label: 'Keuangan', 
+      icon: 'fa-wallet', 
+      roles: ['Super Admin', 'Admin', 'Manager Keuangan', 'Bendahara / Keuangan', 'Bendahara', 'Keuangan', 'Staff Keuangan'] 
     },
     { 
       id: 'auditLog', 
