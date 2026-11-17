@@ -274,13 +274,13 @@ export function Login() {
   };
 
   return (
-    <div className="h-screen w-full bg-[#2e1d11] relative flex items-center justify-center p-2 sm:p-4 overflow-hidden font-sans select-none">
+    <div className="h-screen w-full bg-[#2e1d11] relative flex items-center justify-center p-3 sm:p-4 overflow-hidden font-sans">
       {/* Official Geometric Ambient Background */}
       <div className="absolute inset-0 bg-[radial-gradient(#cca241_1px,transparent_1px)] [background-size:28px_28px] opacity-15 pointer-events-none"></div>
       <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-hajj-700/40 blur-3xl pointer-events-none"></div>
       <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-gold-500/25 blur-3xl pointer-events-none"></div>
 
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden border border-gold-500/40 relative z-10 flex flex-col max-h-[calc(100vh-1rem)] my-auto">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-gold-500/40 relative z-10 flex flex-col max-h-[calc(100vh-1.5rem)] my-auto">
         {/* Official Header Banner - Kementerian Haji dan Umrah RI */}
         <div className="bg-gradient-to-b from-hajj-900 via-hajj-800 to-hajj-900 px-4 py-3 sm:px-5 sm:py-3.5 text-white text-center relative border-b-2 border-gold-500 shrink-0">
           <div className="flex items-center justify-center mb-1.5">
@@ -305,10 +305,10 @@ export function Login() {
         </div>
 
         {/* Login Form Container */}
-        <div className="p-3.5 sm:p-4 space-y-2.5 bg-white flex-1 overflow-y-auto custom-scrollbar">
-          <form onSubmit={executeLogin} className="space-y-2.5">
+        <div className="p-4 sm:p-5 space-y-4 bg-white flex-1 overflow-y-auto custom-scrollbar">
+          <form onSubmit={executeLogin} className="space-y-4">
             <div>
-              <label className="block text-[10px] font-bold text-slate-800 uppercase tracking-wider mb-1">
+              <label htmlFor="login-username" className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
                 Username / NIP Petugas
               </label>
               <div className="relative">
@@ -316,18 +316,20 @@ export function Login() {
                   <i className="fa-solid fa-id-card-clip text-xs"></i>
                 </span>
                 <input 
+                  id="login-username"
                   type="text" 
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required 
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-hajj-600 focus:border-hajj-600 focus:bg-white outline-none transition font-medium text-slate-900" 
+                  className="w-full min-h-11 pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-hajj-600 focus:border-hajj-600 focus:bg-white outline-none transition font-medium text-slate-900"
                   placeholder="Masukkan Username" 
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-slate-800 uppercase tracking-wider mb-1">
+              <label htmlFor="login-password" className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
                 Kata Sandi
               </label>
               <div className="relative">
@@ -335,11 +337,13 @@ export function Login() {
                   <i className="fa-solid fa-lock text-xs"></i>
                 </span>
                 <input 
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'} 
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required 
-                  className="w-full pl-8 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-hajj-600 focus:border-hajj-600 focus:bg-white outline-none transition font-medium text-slate-900" 
+                  className="w-full min-h-11 pl-9 pr-10 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-hajj-600 focus:border-hajj-600 focus:bg-white outline-none transition font-medium text-slate-900"
                   placeholder="Masukkan Kata Sandi" 
                 />
                 <button
@@ -374,16 +378,16 @@ export function Login() {
                       }
                     } catch (_) {}
                   }}
-                  className="rounded text-hajj-700 focus:ring-hajj-600 w-3.5 h-3.5 cursor-pointer accent-hajj-800" 
+                  className="rounded text-hajj-700 focus:ring-hajj-600 w-4 h-4 cursor-pointer accent-hajj-800"
                 />
-                <span className="text-[10px] font-medium text-slate-700">Ingat sesi saya di perangkat ini (otomatis keluar jika browser ditutup)</span>
+                <span className="text-[11px] leading-relaxed font-medium text-slate-700">Ingat sesi saya di perangkat ini (otomatis keluar jika browser ditutup)</span>
               </label>
             </div>
 
             <button 
               type="submit" 
               disabled={isLoggingIn}
-              className="w-full py-2.5 bg-gradient-to-r from-hajj-800 to-hajj-700 hover:from-hajj-900 hover:to-hajj-800 disabled:opacity-90 disabled:cursor-wait text-white font-bold rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center space-x-2 cursor-pointer mt-0.5 text-xs select-none"
+              className="w-full min-h-11 py-2.5 bg-gradient-to-r from-hajj-800 to-hajj-700 hover:from-hajj-900 hover:to-hajj-800 disabled:opacity-90 disabled:cursor-wait text-white font-bold rounded-lg shadow-sm hover:shadow transition-all flex items-center justify-center space-x-2 cursor-pointer mt-0.5 text-sm"
             >
               {isLoggingIn ? (
                 <div className="flex items-center space-x-1.5 font-bold tracking-wide text-xs">
@@ -414,7 +418,7 @@ export function Login() {
                   setRegSuccessMsg('');
                   setShowRegisterModal(true);
                 }}
-                className="w-full py-1.5 px-2 rounded-lg border border-hajj-700/25 bg-hajj-50/60 hover:bg-hajj-100/70 text-hajj-900 transition flex items-center justify-center space-x-1.5 text-[10.5px] font-bold cursor-pointer shadow-xs hover:border-hajj-700/40"
+                className="w-full min-h-11 py-2 px-2 rounded-lg border border-hajj-700/25 bg-hajj-50/60 hover:bg-hajj-100/70 text-hajj-900 transition flex items-center justify-center space-x-1.5 text-xs font-bold cursor-pointer shadow-xs hover:border-hajj-700/40"
               >
                 <i className="fa-solid fa-user-plus text-hajj-700 text-xs"></i>
                 <span>Daftar Akun</span>
@@ -428,7 +432,7 @@ export function Login() {
                   if (username.trim()) setFpUsername(username.trim());
                   setShowForgotPasswordModal(true);
                 }}
-                className="w-full py-1.5 px-2 rounded-lg border border-amber-300 bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 transition flex items-center justify-center space-x-1.5 text-[10.5px] font-bold cursor-pointer shadow-xs hover:border-amber-400"
+                className="w-full min-h-11 py-2 px-2 rounded-lg border border-amber-300 bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 transition flex items-center justify-center space-x-1.5 text-xs font-bold cursor-pointer shadow-xs hover:border-amber-400"
               >
                 <i className="fa-solid fa-key text-amber-700 text-xs"></i>
                 <span>Lupa Password?</span>
@@ -436,7 +440,7 @@ export function Login() {
             </div>
 
             <div className="mt-2 px-2.5 py-1 bg-slate-50 border border-slate-200/80 rounded-lg text-center">
-              <p className="text-[9.5px] text-slate-500 font-medium">
+              <p className="text-[11px] leading-relaxed text-slate-600 font-medium">
                 Pendaftaran akun dan permohonan lupa password akan diverifikasi oleh Administrator.
               </p>
             </div>
