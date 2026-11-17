@@ -124,7 +124,7 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     roles: ['Super Admin', 'Admin']
   },
   spreadsheetSync: {
-    title: 'Basis Data Cloud (Aiven Database)',
+    title: 'Basis Data Cloud (Neon)',
     roles: ['Super Admin', 'Admin']
   }
 };

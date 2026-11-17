@@ -119,7 +119,7 @@ export function Header() {
     },
     { 
       id: 'spreadsheetSync', 
-      label: 'Basis Data Aiven', 
+      label: 'Basis Data Neon',
       icon: 'fa-database', 
       roles: ['Super Admin', 'Admin'] 
     }
@@ -344,7 +344,7 @@ export function Header() {
                       </button>
                     </div>
 
-                    {/* 3b. Status Sync dengan Database (Aiven PostgreSQL Cloud) */}
+                    {/* 3b. Status Sync dengan Database (Neon PostgreSQL Cloud) */}
                     <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-1.5 shadow-2xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center space-x-2">
@@ -353,7 +353,7 @@ export function Header() {
                           </div>
                           <div>
                             <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Status Basis Data Cloud</span>
-                            <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold block">Aiven PostgreSQL</span>
+                            <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-semibold block">Neon PostgreSQL</span>
                           </div>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0 ${
@@ -380,7 +380,7 @@ export function Header() {
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/70">
-                        <span>Database PostgreSQL Aiven</span>
+                        <span>Database PostgreSQL Neon</span>
                         {supabaseSyncState?.lastSyncedAt && (
                           <span className="font-mono font-bold text-indigo-700 dark:text-indigo-400">
                             {new Date(supabaseSyncState.lastSyncedAt).toLocaleTimeString('id-ID', {
@@ -393,7 +393,7 @@ export function Header() {
                       </div>
                     </div>
 
-                    {/* 3c. Integrasi Basis Data Cloud Aiven (Khusus Admin & Super Admin) */}
+                    {/* 3c. Integrasi Basis Data Cloud Neon (Khusus Admin & Super Admin) */}
                     {currentUser && (isSuperAdmin(currentUser.role) || currentUser.role === 'Admin') && (
                       <div className="p-3 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-600/70 rounded-xl space-y-2 shadow-2xs">
                         <div className="flex items-center justify-between">
@@ -402,12 +402,12 @@ export function Header() {
                               <i className="fa-solid fa-database"></i>
                             </div>
                             <div>
-                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Basis Data Aiven</span>
+                              <span className="font-bold text-slate-900 dark:text-slate-100 text-xs block">Basis Data Neon</span>
                               <span className="text-[10px] text-slate-500 dark:text-slate-300 block">Koneksi PostgreSQL &amp; Skema Cloud</span>
                             </div>
                           </div>
                           <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/80 text-indigo-800 dark:text-indigo-300 px-1.5 py-0.5 rounded font-bold border border-indigo-300 dark:border-indigo-700">
-                            Aiven Cloud
+                            Neon Cloud
                           </span>
                         </div>
                         <button
@@ -419,7 +419,7 @@ export function Header() {
                           className="w-full py-1.5 px-3 bg-indigo-50 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-500 rounded-lg text-xs font-bold flex items-center justify-center space-x-2 transition cursor-pointer shadow-xs"
                         >
                           <i className="fa-solid fa-arrow-right-to-bracket text-indigo-600 dark:text-indigo-400"></i>
-                          <span>Buka Panel Aiven Database</span>
+                          <span>Buka Panel Neon Database</span>
                         </button>
                       </div>
                     )}

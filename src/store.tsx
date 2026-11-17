@@ -1207,7 +1207,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentUser?.id, isChatOpen, activeChatChannelId]);
 
   const pullFromCentralDatabase = async () => {
-    showToast('Menarik & menyamakan data dari Basis Data Utama Aiven...', 'info');
+    showToast('Menarik & menyamakan data dari Neon PostgreSQL...', 'info');
     try {
       const cloudDb = await dataStorage.hydrateFromSpreadsheet(true);
       if (cloudDb) {
@@ -1253,82 +1253,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
           transactions: cloudDb.transactions || [],
           maintenances: cloudDb.maintenances || []
         });
-        showToast(`Sinkronisasi Berhasil: ${cloudDb.buildings?.length || 0} Gedung, ${cloudDb.rooms?.length || 0} Kamar, ${cloudDb.transactions?.length || 0} Transaksi termuat dari Aiven Cloud Database.`, 'success');
+        showToast(`Sinkronisasi berhasil: ${cloudDb.buildings?.length || 0} gedung, ${cloudDb.rooms?.length || 0} kamar, ${cloudDb.transactions?.length || 0} transaksi termuat dari Neon.`, 'success');
       } else {
-        showToast('Tidak dapat menarik data dari Basis Data Utama Aiven.', 'warning');
+        showToast('Tidak dapat menarik data dari Neon PostgreSQL.', 'warning');
       }
     } catch (err: any) {
-      showToast(`Gagal menarik data dari Aiven: ${err?.message || 'Error'}`, 'error');
+      showToast(`Gagal menarik data dari Neon: ${err?.message || 'Error'}`, 'error');
     }
   };
 
   const manualSyncSupabase = async () => {
-    showToast('Menghubungi Basis Data Utama Aiven Cloud PostgreSQL...', 'info');
-    try {
-      const cloudDb = await dataStorage.hydrateFromSpreadsheet(true);
-      if (cloudDb) {
-        setUsers(cloudDb.users);
-        setBuildings(cloudDb.buildings || []);
-        setMeetingRooms(cloudDb.meetingRooms || []);
-        const { nextRooms, hasChanges } = validateAndSyncRoomStates(
-          cloudDb.rooms || [],
-          cloudDb.transactions || [],
-          cloudDb.maintenances || []
-        );
-        setRooms(nextRooms);
-        setTransactions(cloudDb.transactions || []);
-        setMaintenances(cloudDb.maintenances || []);
-        setAuditLogs(cloudDb.auditLogs || []);
-        mergeAndApplyCloudRealtimeData(cloudDb);
-        setQcInspections(cloudDb.qcInspections || []);
-        setBreakfastMenuItems(cloudDb.breakfastMenuItems || []);
-        setBreakfastOrders(cloudDb.breakfastOrders || []);
-        if (cloudDb.cleaningLogs && Array.isArray(cloudDb.cleaningLogs)) {
-          setCleaningLogs(cloudDb.cleaningLogs);
-        }
-        if (cloudDb.roomCapacityRates && Array.isArray(cloudDb.roomCapacityRates)) {
-          setRoomCapacityRates(cloudDb.roomCapacityRates);
-        }
-        if (cloudDb.passwordResetRequests && Array.isArray(cloudDb.passwordResetRequests)) {
-          setPasswordResetRequests(cloudDb.passwordResetRequests);
-        }
-        if (cloudDb.appSettings) setAppSettings(cloudDb.appSettings);
-        setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
-        if (hasChanges) {
-          dataStorage.saveRooms(nextRooms, { skipCloudSync: true });
-        }
-        await verifyDatabaseChecksum(true, {
-          buildings: cloudDb.buildings || [],
-          rooms: nextRooms,
-          meetingRooms: cloudDb.meetingRooms || [],
-          transactions: cloudDb.transactions || [],
-          maintenances: cloudDb.maintenances || []
-        });
-        showToast(`Sinkronisasi Sukses: ${cloudDb.buildings?.length || 0} Gedung, ${cloudDb.rooms?.length || 0} Kamar, ${cloudDb.transactions?.length || 0} Transaksi tersinkron dari Aiven.`, 'success');
-      } else {
-        const pushRes = await dataStorage.pushAllToSpreadsheet();
-        setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
-        await verifyDatabaseChecksum(true);
-        if (pushRes.success) {
-          showToast('Data berhasil disimpan ke Basis Data Utama Aiven!', 'success');
-        } else {
-          showToast(`Koneksi Aiven: ${pushRes.error || 'Terhubung'}`, 'warning');
-        }
-      }
-    } catch (err: any) {
-      showToast(`Gagal sinkronisasi Aiven: ${err?.message || 'Error'}`, 'error');
-    }
+    await pullFromCentralDatabase();
   };
 
   const pushAllToSupabase = async () => {
-    showToast('Menyimpan seluruh basis data ke Basis Data Utama Aiven Cloud (PostgreSQL)...', 'info');
+    showToast('Menyimpan seluruh data aplikasi ke Neon PostgreSQL...', 'info');
     const res = await dataStorage.pushAllToSpreadsheet();
     setSupabaseSyncState(dataStorage.getSpreadsheetSyncState());
     await verifyDatabaseChecksum(true);
     if (res.success) {
-      showToast('Seluruh data berhasil disimpan & diverifikasi dengan Aiven PostgreSQL!', 'success');
+      showToast('Seluruh data berhasil disimpan ke Neon PostgreSQL.', 'success');
     } else {
-      showToast(`Gagal mengunggah ke Aiven: ${res.error || 'Error'}`, 'error');
+      showToast(`Gagal mengunggah ke Neon: ${res.error || 'Error'}`, 'error');
     }
   };
 
@@ -1354,7 +1300,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAppSettings(db.appSettings || dataStorage.getAppSettings());
   };
 
-  // Kirim langsung setiap perubahan state ke Google Spreadsheet (hanya setelah hidrasi awal selesai)
+  // Kirim langsung setiap perubahan state ke Neon (hanya setelah hidrasi awal selesai)
   useEffect(() => {
     if (!isHydratedFromCloudRef.current) return;
     dataStorage.saveDatabase({

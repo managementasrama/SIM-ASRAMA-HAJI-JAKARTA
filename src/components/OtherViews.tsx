@@ -4839,7 +4839,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 }`}
               >
                 <i className="fa-solid fa-server text-indigo-600"></i>
-                <span>Basis Data Cloud (Aiven PostgreSQL)</span>
+                <span>Basis Data Cloud (Neon PostgreSQL)</span>
               </button>
             </>
           )}
@@ -6341,7 +6341,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex items-center space-x-2 bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-3 py-1 rounded-full text-xs font-bold">
                       <i className="fa-solid fa-database"></i>
-                      <span>Basis Data Utama (Aiven Cloud PostgreSQL)</span>
+                      <span>Basis Data Utama (Neon Cloud PostgreSQL)</span>
                     </div>
 
                     <div className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
@@ -6363,7 +6363,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                           ? 'Status Sync: Menyinkronkan...'
                           : supabaseSyncState?.lastError
                           ? `Status Sync: ${supabaseSyncState.lastError}`
-                          : 'Status Sync: Terhubung & Sinkron dengan Aiven Cloud PostgreSQL'}
+                          : 'Status Sync: Terhubung & Sinkron dengan Neon Cloud PostgreSQL'}
                       </span>
                     </div>
                   </div>
@@ -6372,7 +6372,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     Basis Data Terpusat SIM-Akomodasi UPT Asrama Haji Jakarta
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Sistem terhubung langsung ke <strong>Basis Data Utama Aiven Cloud (PostgreSQL Enterprise)</strong>. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari database Aiven pusat, dan setiap perubahan transaksi, master gedung, dan kamar disinkronkan secara aman.
+                    Sistem terhubung langsung ke <strong>Basis Data Utama Neon Cloud (PostgreSQL Enterprise)</strong>. Saat aplikasi dibuka dan masuk (login), data terbaru langsung ditarik dari database Neon pusat, dan setiap perubahan transaksi, master gedung, dan kamar disinkronkan secara aman.
                   </p>
                 </div>
 
@@ -6389,7 +6389,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <i className={`fa-solid ${isCloudSyncing || supabaseSyncState?.isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
-                    <span>Tarik Data Terbaru dari Aiven</span>
+                    <span>Tarik Data Terbaru dari Neon</span>
                   </button>
 
                   <button
@@ -6403,17 +6403,17 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                     className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-xs rounded-xl transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     <i className="fa-solid fa-cloud-arrow-up text-indigo-300"></i>
-                    <span>Kirim Pembaruan ke Aiven</span>
+                    <span>Kirim Pembaruan ke Neon</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveSubView('SPREADSHEET_MGMT')}
                     className="px-3.5 py-2.5 bg-indigo-500/30 hover:bg-indigo-500/40 text-indigo-100 border border-indigo-400/50 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
-                    title="Buka Pusat Basis Data Cloud Aiven"
+                    title="Buka Pusat Basis Data Cloud Neon"
                   >
                     <i className="fa-solid fa-server text-indigo-300"></i>
-                    <span>Kelola Basis Data Cloud Aiven</span>
+                    <span>Kelola Basis Data Cloud Neon</span>
                   </button>
                 </div>
               </div>
@@ -6423,7 +6423,7 @@ export function AuditLogView({ defaultSubView }: { defaultSubView?: 'WORK_SESSIO
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">
                   <span className="text-slate-400 text-[11px]">Database Utama:</span>
                   <span className="font-mono text-indigo-300 font-bold text-[11px] truncate max-w-[200px]">
-                    Aiven Cloud Database (PostgreSQL)
+                    Neon Cloud Database (PostgreSQL)
                   </span>
                 </div>
                 <div className="bg-black/25 px-3.5 py-2 rounded-xl border border-white/10 flex items-center justify-between">

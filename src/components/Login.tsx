@@ -103,7 +103,7 @@ export function Login() {
     const startMs = Date.now();
 
     try {
-      // 1. Tarik & sinkronkan data termutakhir dari Basis Data Utama Aiven PostgreSQL agar data di setiap akun yang login identik
+      // 1. Tarik & sinkronkan data termutakhir dari Basis Data Utama Neon PostgreSQL agar data di setiap akun yang login identik
       try {
         await Promise.race([
           pullFromCentralDatabase(),
