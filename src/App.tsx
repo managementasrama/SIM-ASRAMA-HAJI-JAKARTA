@@ -85,7 +85,7 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
   },
   gedung: {
     title: 'Gedung & Kamar',
-    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager']
+    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
   },
   qualityControl: {
     title: 'Quality Control (QC)',
@@ -96,8 +96,8 @@ const TAB_PERMISSIONS: Record<string, { title: string; roles: string[] }> = {
     roles: ['Super Admin', 'Admin', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager QC', 'Quality Control', 'Manager']
   },
   laporanKamar: {
-    title: 'Laporan Pemesanan',
-    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
+    title: 'Laporan Operasional',
+    roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager QC', 'Quality Control', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager']
   },
   keuangan: {
     title: 'Keuangan & Kwitansi',

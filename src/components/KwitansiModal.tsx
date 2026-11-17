@@ -45,16 +45,16 @@ export function KwitansiModal(props: KwitansiModalProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.classList.add('has-kwitansi-open');
-      // Inject temporary A5 portrait print rule for guaranteed A5 portrait page setup
-      let styleTag = document.getElementById('kwitansi-portrait-print-style') as HTMLStyleElement | null;
+      // Keep the receipt print layout aligned with the official A5 landscape document.
+      let styleTag = document.getElementById('kwitansi-landscape-print-style') as HTMLStyleElement | null;
       if (!styleTag) {
         styleTag = document.createElement('style');
-        styleTag.id = 'kwitansi-portrait-print-style';
+        styleTag.id = 'kwitansi-landscape-print-style';
         styleTag.innerHTML = `
           @media print {
             @page {
-              size: A5 portrait !important;
-              margin: 6mm 6mm !important;
+              size: A5 landscape !important;
+              margin: 6mm !important;
             }
           }
         `;
@@ -62,7 +62,7 @@ export function KwitansiModal(props: KwitansiModalProps) {
       }
       return () => {
         document.body.classList.remove('has-kwitansi-open');
-        const st = document.getElementById('kwitansi-portrait-print-style');
+        const st = document.getElementById('kwitansi-landscape-print-style');
         if (st && st.parentNode) {
           st.parentNode.removeChild(st);
         }
@@ -169,6 +169,7 @@ function KwitansiModalInner({
   });
 
   const allocatedRoomNumbers = matchedGroup ? matchedGroup.allRoomNumbers : Array.from(roomNumberSet);
+  const receiptRooms = rooms.filter(r => allocatedRoomNumbers.includes(r.roomNumber));
 
   const detailedAllocatedRooms = allocatedRoomNumbers.map((rNum, idx) => {
     const rObj = rooms.find(r => r.roomNumber === rNum);
@@ -230,21 +231,17 @@ function KwitansiModalInner({
         rate: number;
       }> = {};
 
-      const sourceRooms = detailedAllocatedRooms.length > 0 
-        ? detailedAllocatedRooms 
-        : (tx.roomNumber ? [{
-            index: 1,
-            number: tx.roomNumber,
-            roomId: tx.roomId || 'room-1',
-            building: tx.building,
-            type: currentRoom?.type || tx.category || 'Standar',
-            capacity: 4
-          }] : []);
+      const quotaCount = Math.max(0, Number(tx.allocatedRoomsCount || 0));
+      const sourceRooms = detailedAllocatedRooms.length > 0
+        ? detailedAllocatedRooms
+        : quotaCount > 0
+          ? Array.from({ length: quotaCount }, (_, index) => ({ index: index + 1, number: '', roomId: `quota-${index + 1}`, building: tx.building, type: currentRoom?.type || tx.category || 'Standar', capacity: 4 }))
+          : (tx.roomNumber ? [{ index: 1, number: tx.roomNumber, roomId: tx.roomId || 'room-1', building: tx.building, type: currentRoom?.type || tx.category || 'Standar', capacity: 4 }] : []);
 
       sourceRooms.forEach(rm => {
         const rObj = rooms.find(r => r.roomNumber === rm.number) || currentRoom;
         const matchedRate = findRoomRate(rObj?.type || rm.type, rObj?.bedType, roomCapacityRates);
-        const rate = rObj?.pricePerNight || matchedRate?.pricePerNight || (
+        const rate = rObj?.pricePerNight || tx.pricePerNight || matchedRate?.pricePerNight || (
           rm.type.toLowerCase().includes('superior') ? 500000 :
           rm.type.toLowerCase().includes('ekonomi') ? 380000 : 480000
         );
@@ -451,12 +448,8 @@ function KwitansiModalInner({
 
   // Treasurer Info
   const isFinanceUser = isKeuanganRole(currentUser?.role, currentUser?.department);
-  const treasurerName = currentUser?.fullName && isFinanceUser
-    ? currentUser.fullName
-    : 'Hj. Siti Aisyah, S.E.';
-  const treasurerNip = currentUser && isFinanceUser && currentUser.nip
-    ? currentUser.nip
-    : '19820412 200801 2 004';
+  const treasurerName = currentUser?.fullName && isFinanceUser ? currentUser.fullName : '';
+  const treasurerNip = currentUser && isFinanceUser ? currentUser.nip || '' : '';
   const treasurerTitle = currentUser && isFinanceUser
     ? (currentUser.role === 'Manager Keuangan' ? 'Manager Keuangan / Perbendaharaan' : currentUser.role === 'Staff Keuangan' ? 'Staf Keuangan / Kasir' : 'Bendahara Penerimaan')
     : 'Bendahara Penerimaan / Kasir';
@@ -486,7 +479,7 @@ function KwitansiModalInner({
         room: currentRoom,
         groupKey,
         groupRecord: matchedGroup,
-        allRooms: rooms,
+        allRooms: receiptRooms,
         memberTransactions,
         paymentMethod,
         bankName: selectedBank,
@@ -510,7 +503,7 @@ function KwitansiModalInner({
           const prefix = isLunas ? 'Kwitansi-Lunas' : 'Kwitansi-DP';
           const filename = `${prefix}-${tx.id}-${safeName}.pdf`;
           await downloadElementAsPdf(printableSheetRef.current, filename, {
-            orientation: 'portrait',
+            orientation: 'landscape',
             format: 'a5' as any,
             marginMm: 6,
             title: `Kwitansi Pelunasan Resmi - ${autoKwitansiNo}`
@@ -662,13 +655,17 @@ function KwitansiModalInner({
       onClick={onClose}
     >
       {/* ELEGANT A5 PORTRAIT CONTAINER (THEMED WITH WEBSITE HAJJ & GOLD COLORS) */}
-      <div 
-        id="kwitansi-modal-card" 
-        className="bg-white rounded-2xl shadow-2xl border border-gold-600/40 max-w-3xl w-full my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-150 print:max-h-none print:h-auto print:shadow-none print:border-none print:w-full print:m-0 print:rounded-none"
+      <div
+        id="kwitansi-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kwitansi-modal-title"
+        data-responsive-modal
+        className="bg-white rounded-2xl shadow-2xl border border-gold-600/40 max-w-3xl w-full max-h-[94vh] my-auto overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150 print:max-h-none print:h-auto print:shadow-none print:border-none print:w-full print:m-0 print:rounded-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header Bar (Hidden on Print) */}
-        <div className="no-print bg-gradient-to-r from-hajj-900 via-hajj-800 to-slate-900 text-white px-5 py-3.5 flex items-center justify-between gap-3 border-b border-gold-500/30">
+        <div id="kwitansi-modal-title" className="no-print sticky top-0 z-10 bg-gradient-to-r from-hajj-900 via-hajj-800 to-slate-900 text-white px-5 py-3.5 flex items-center justify-between gap-3 border-b border-gold-500/30">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-gold-500 text-slate-950 flex items-center justify-center text-base font-black shadow-xs shrink-0">
               <i className="fa-solid fa-receipt"></i>
@@ -716,8 +713,9 @@ function KwitansiModalInner({
         {/* ========================================================================= */}
         <div 
           ref={printableSheetRef}
-          id="kwitansi-printable-sheet" 
-          className="p-5 sm:p-7 bg-white text-slate-900 text-xs print:p-0 print:m-0"
+          id="kwitansi-printable-sheet"
+          data-modal-body
+          className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7 bg-white text-slate-900 text-xs print:p-0 print:m-0 print:overflow-visible"
         >
           {/* Double Ornate Border Frame (Guilloche Elegance with Website Hajj & Gold Theme) */}
           <div className="border-[2.5px] border-hajj-900 p-1 sm:p-1.5 rounded-2xl bg-gradient-to-b from-hajj-900/5 via-white to-hajj-900/5 relative">
@@ -925,7 +923,7 @@ function KwitansiModalInner({
                           <td className="py-2 px-3">
                             <div className="font-bold text-slate-900">{item.label}</div>
                             <div className="text-[10px] text-slate-500">
-                              No Kamar: <span className="font-mono text-slate-700 font-semibold">{item.roomsList.join(', ')}</span> ({item.roomCount} unit)
+                              {item.roomsList.some(Boolean) ? <>No Kamar: <span className="font-mono text-slate-700 font-semibold">{item.roomsList.filter(Boolean).join(', ')}</span></> : 'Kuota kamar belum diplot'} ({item.roomCount} unit)
                             </div>
                           </td>
                           <td className="py-2 px-3 text-right font-mono text-slate-700">
@@ -1137,7 +1135,7 @@ function KwitansiModalInner({
         </div>
 
         {/* Modal Footer Controls (Hidden on Print) */}
-        <div className="no-print bg-slate-50 border-t border-slate-200 px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <div data-modal-footer className="no-print sticky bottom-0 z-10 bg-slate-50 border-t border-slate-200 px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <div className="flex items-center space-x-1.5">
             <i className="fa-solid fa-circle-check text-emerald-600"></i>
             <span>
@@ -1300,6 +1298,7 @@ export function KwitansiPrintSheet({
   });
 
   const allocatedRoomNumbers = matchedGroup ? matchedGroup.allRoomNumbers : Array.from(roomNumberSet);
+  const receiptRooms = rooms.filter(r => allocatedRoomNumbers.includes(r.roomNumber));
 
   const detailedAllocatedRooms = allocatedRoomNumbers.map((rNum, idx) => {
     const rObj = rooms.find(r => r.roomNumber === rNum);
@@ -1354,21 +1353,17 @@ export function KwitansiPrintSheet({
         rate: number;
       }> = {};
 
-      const sourceRooms = detailedAllocatedRooms.length > 0 
-        ? detailedAllocatedRooms 
-        : (tx.roomNumber ? [{
-            index: 1,
-            number: tx.roomNumber,
-            roomId: tx.roomId || 'room-1',
-            building: tx.building,
-            type: currentRoom?.type || tx.category || 'Standar',
-            capacity: 4
-          }] : []);
+      const quotaCount = Math.max(0, Number(tx.allocatedRoomsCount || 0));
+      const sourceRooms = detailedAllocatedRooms.length > 0
+        ? detailedAllocatedRooms
+        : quotaCount > 0
+          ? Array.from({ length: quotaCount }, (_, index) => ({ index: index + 1, number: '', roomId: `quota-${index + 1}`, building: tx.building, type: currentRoom?.type || tx.category || 'Standar', capacity: 4 }))
+          : (tx.roomNumber ? [{ index: 1, number: tx.roomNumber, roomId: tx.roomId || 'room-1', building: tx.building, type: currentRoom?.type || tx.category || 'Standar', capacity: 4 }] : []);
 
       sourceRooms.forEach(rm => {
         const rObj = rooms.find(r => r.roomNumber === rm.number) || currentRoom;
         const matchedRate = findRoomRate(rObj?.type || rm.type, rObj?.bedType, roomCapacityRates);
-        const rate = rObj?.pricePerNight || matchedRate?.pricePerNight || (
+        const rate = rObj?.pricePerNight || tx.pricePerNight || matchedRate?.pricePerNight || (
           rm.type.toLowerCase().includes('superior') ? 500000 :
           rm.type.toLowerCase().includes('ekonomi') ? 380000 : 480000
         );
@@ -1558,12 +1553,8 @@ export function KwitansiPrintSheet({
     : tx.phone;
 
   const isFinanceUser = isKeuanganRole(currentUser?.role, currentUser?.department);
-  const treasurerName = currentUser?.fullName && isFinanceUser
-    ? currentUser.fullName
-    : 'Hj. Siti Aisyah, S.E.';
-  const treasurerNip = currentUser && isFinanceUser && currentUser.nip
-    ? currentUser.nip
-    : '19820412 200801 2 004';
+  const treasurerName = currentUser?.fullName && isFinanceUser ? currentUser.fullName : '';
+  const treasurerNip = currentUser && isFinanceUser ? currentUser.nip || '' : '';
   const treasurerTitle = currentUser && isFinanceUser
     ? (currentUser.role === 'Manager Keuangan' ? 'Manager Keuangan / Perbendaharaan' : currentUser.role === 'Staff Keuangan' ? 'Staf Keuangan / Kasir' : 'Bendahara Penerimaan')
     : 'Bendahara Penerimaan / Kasir';
@@ -1706,17 +1697,17 @@ export function KwitansiPrintSheet({
                 <p className="text-[10.5px] font-bold text-hajj-900 uppercase">
                   {treasurerTitle}
                 </p>
-                <div className="h-10 flex items-center justify-center">
-                  <div className="px-2.5 py-0.5 border border-dashed border-emerald-600 rounded-lg text-emerald-700 text-[9px] font-bold bg-emerald-50">
-                    <i className="fa-solid fa-stamp mr-1"></i> TERTANDATANGANI SECARA ELEKTRONIK
-                  </div>
+                <div className="h-10 flex items-end justify-center">
+                  <span className="w-48 border-b border-dashed border-slate-500" aria-hidden="true" />
                 </div>
-                <p className="text-[11px] font-black text-hajj-900 underline">
-                  {treasurerName}
-                </p>
-                <p className="text-[9.5px] text-slate-500 font-mono">
-                  NIP. {treasurerNip}
-                </p>
+                {treasurerName ? (
+                  <>
+                    <p className="text-[11px] font-black text-hajj-900 underline">{treasurerName}</p>
+                    {treasurerNip && <p className="text-[9.5px] text-slate-500 font-mono">NIP. {treasurerNip}</p>}
+                  </>
+                ) : (
+                  <p className="text-[9.5px] text-slate-600 font-semibold">Tanda tangan basah Bendahara Penerimaan / Kasir</p>
+                )}
               </div>
             </div>
           </div>

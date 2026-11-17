@@ -67,7 +67,7 @@ export function Header() {
       id: 'gedung', 
       label: 'Manajemen Gedung', 
       icon: 'fa-building', 
-      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager QC', 'Quality Control', 'Manager Teknisi', 'Teknisi', 'Manager Koperasi', 'Petugas Koperasi', 'Koperasi', 'Manager'] 
+      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager Keuangan', 'Bendahara', 'Keuangan', 'Bendahara / Keuangan', 'Staff Keuangan', 'Manager']
     },
     { 
       id: 'pesananSarapan', 
@@ -95,9 +95,9 @@ export function Header() {
     },
     { 
       id: 'laporanKamar', 
-      label: 'Laporan Pemesanan', 
+      label: 'Laporan Operasional',
       icon: 'fa-chart-column', 
-      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager', 'Manager Keuangan', 'Bendahara / Keuangan', 'Bendahara', 'Keuangan', 'Staff Keuangan'] 
+      roles: ['Super Admin', 'Admin', 'Manager Resepsionis', 'Resepsionis', 'Manager QC', 'Quality Control', 'Manager Petugas Gedung', 'Petugas Gedung', 'Manager']
     },
     { 
       id: 'keuangan', 

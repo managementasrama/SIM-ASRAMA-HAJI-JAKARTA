@@ -1129,6 +1129,38 @@ img, video, table {
 }
 
 @media (max-width: 639px) {
+  [data-responsive-modal] {
+    max-height: calc(100dvh - 0.5rem) !important;
+    min-height: 0;
+  }
+
+  [data-responsive-modal] [data-modal-body] {
+    max-height: 75dvh;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-responsive-modal] [data-modal-header] {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  [data-responsive-modal] [data-modal-footer] {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  [data-responsive-modal] button[type="submit"],
+  [data-responsive-modal] [data-modal-footer] button {
+    min-height: 48px;
+  }
+
   /* On Mobile (< 640px) - Ultra-tight padding */
   .fixed.inset-0.z-50:not(#floating-chat-launcher),
   .fixed.inset-0.z-60 {

@@ -17,7 +17,11 @@ export function ReportsView() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState<'NEWEST_BOOKING' | 'NEWEST_CHECKIN' | 'OLDEST_CHECKIN' | 'GUEST_NAME' | 'HIGHEST_PRICE'>('NEWEST_BOOKING');
   const [search, setSearch] = useState('');
+  const [dateMode, setDateMode] = useState<'ALL' | 'CUSTOM'>('ALL');
+  const [customDateFrom, setCustomDateFrom] = useState('');
+  const [customDateTo, setCustomDateTo] = useState('');
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Record<string, boolean>>({});
+  const [expandedNotesKeys, setExpandedNotesKeys] = useState<Record<string, boolean>>({});
   const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string; isGroup?: boolean } | null>(null);
 
   const canDeleteTx = currentUser?.role === 'Super Admin' || currentUser?.role === 'Admin' || isRecepRole(currentUser?.role);
@@ -50,10 +54,21 @@ export function ReportsView() {
     }));
   };
 
+  const copyTransactionId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      showToast('Kode transaksi disalin.', 'success');
+    } catch {
+      showToast(`Kode transaksi: ${id}`, 'info');
+    }
+  };
+
   // Base filtered transactions
   const filteredTransactions = useMemo(() => {
     return transactions.filter(tx => {
       if (statusFilter !== 'ALL' && tx.status !== statusFilter) return false;
+      if (dateMode === 'CUSTOM' && customDateFrom && tx.startDate < customDateFrom) return false;
+      if (dateMode === 'CUSTOM' && customDateTo && tx.startDate > customDateTo) return false;
       if (search) {
         const q = search.toLowerCase();
         const matchName = tx.guestName?.toLowerCase().includes(q) || tx.groupName?.toLowerCase().includes(q);
@@ -65,7 +80,7 @@ export function ReportsView() {
       }
       return true;
     });
-  }, [transactions, statusFilter, search]);
+  }, [transactions, statusFilter, search, dateMode, customDateFrom, customDateTo]);
 
   // Consolidate into structured entities: Rombongan, Individu, and Aula
   const { rombonganList, individuList, aulaList } = useMemo(() => {
@@ -208,8 +223,8 @@ export function ReportsView() {
         </div>
       </div>
 
-      {/* Baris 2: Keuangan & PNBP Terdaftar (Terletak di Bawahnya) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3.5">
+      {/* Financial totals are restricted to finance roles; operational reports stay amount-free. */}
+      {isKeuangan && <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3.5">
         <div className="bg-white p-3 sm:p-4 rounded-xl shadow-xs border border-emerald-200 bg-emerald-50/40">
           <p className="text-[11px] sm:text-xs font-semibold text-emerald-800 uppercase truncate flex items-center gap-1">
             <i className="fa-solid fa-circle-check text-emerald-600 text-[10px]"></i>
@@ -240,7 +255,7 @@ export function ReportsView() {
           </p>
           <span className="text-[10px] text-slate-300 font-medium truncate block">Tarif Resmi Operasional</span>
         </div>
-      </div>
+      </div>}
 
       {/* Main Container */}
       <div className="bg-white p-3 sm:p-5 rounded-xl shadow-xs border border-slate-200 space-y-4">
@@ -254,14 +269,14 @@ export function ReportsView() {
               Pemisahan data terperinci antara Laporan Rombongan (Grup), Hunian Kamar Individu, dan Ruang Pertemuan (Aula) beserta kalkulasi tarif resmi PNBP UPT Asrama Haji Jakarta.
             </p>
           </div>
-          <button 
-            onClick={() => openModal('modalExport', { defaultType: activeTab === 'AULA' ? 'AULA' : 'KAMAR' })} 
+          {isKeuangan && <button
+            onClick={() => openModal('modalExport', { defaultType: activeTab === 'AULA' ? 'AULA' : 'KAMAR', transactions: filteredTransactions })}
             className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center space-x-1.5 self-start md:self-auto cursor-pointer"
             title="Unduh Laporan Transaksi & Reservasi (PDF / Excel .xlsx)"
           >
             <i className="fa-solid fa-file-arrow-down"></i>
             <span>Unduh Laporan</span>
-          </button>
+          </button>}
         </div>
 
         {/* Filter and Tab Bar */}
@@ -289,7 +304,7 @@ export function ReportsView() {
               className={`px-3 py-1.5 rounded-md transition flex items-center space-x-1.5 whitespace-nowrap ${activeTab === 'INDIVIDU' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
             >
               <i className="fa-solid fa-bed"></i>
-              <span>Penyewaan Kamar ({individuList.length})</span>
+              <span>Kamar Satuan ({individuList.length})</span>
             </button>
             <button
               type="button"
@@ -297,7 +312,7 @@ export function ReportsView() {
               className={`px-3 py-1.5 rounded-md transition flex items-center space-x-1.5 whitespace-nowrap ${activeTab === 'AULA' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
             >
               <i className="fa-solid fa-landmark"></i>
-              <span>Ruang Pertemuan ({aulaList.length})</span>
+              <span>Aula &amp; Manasik ({aulaList.length})</span>
             </button>
           </div>
 
@@ -314,6 +329,14 @@ export function ReportsView() {
               <i className="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
             </div>
 
+            <select aria-label="Rentang tanggal laporan" value={dateMode} onChange={event => setDateMode(event.target.value as 'ALL' | 'CUSTOM')} className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700">
+              <option value="ALL">Semua tanggal</option>
+              <option value="CUSTOM">Pilihan tanggal (Custom)</option>
+            </select>
+            {dateMode === 'CUSTOM' && <div className="flex items-center gap-1.5">
+              <label className="text-[10px] font-semibold text-slate-600">Dari <input type="date" aria-label="Dari tanggal" value={customDateFrom} onChange={event => setCustomDateFrom(event.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs" /></label>
+              <label className="text-[10px] font-semibold text-slate-600">Sampai <input type="date" aria-label="Sampai tanggal" value={customDateTo} onChange={event => setCustomDateTo(event.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs" /></label>
+            </div>}
             {/* Status Filter */}
             <select
               value={statusFilter}
@@ -339,7 +362,7 @@ export function ReportsView() {
               <option value="NEWEST_CHECKIN">📅 Check-In Terbaru</option>
               <option value="OLDEST_CHECKIN">📅 Check-In Terlama</option>
               <option value="GUEST_NAME">🔤 Nama Tamu / Rombongan (A-Z)</option>
-              <option value="HIGHEST_PRICE">💰 Nilai PNBP Terbesar</option>
+              {isKeuangan && <option value="HIGHEST_PRICE">Nilai PNBP Terbesar</option>}
             </select>
           </div>
         </div>
@@ -385,9 +408,10 @@ export function ReportsView() {
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 border border-purple-200 dark:border-purple-800 uppercase tracking-wide">
                               {grp.groupType === 'INSTANSI' ? 'Instansi / Lembaga' : grp.groupType === 'JEMAAH_HAJI' ? 'Jemaah Haji Akbar' : 'Rombongan Umum'}
                             </span>
-                            <h5 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                              {grp.groupName}
-                            </h5>
+                            <h5 className="text-sm font-bold text-slate-900 dark:text-slate-100">{grp.groupName}</h5>
+                            <button type="button" onClick={() => void copyTransactionId(grp.representativeTx.id)} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 hover:bg-slate-200" title={`Salin ${grp.representativeTx.id}`} aria-label="Salin kode transaksi">
+                              #{grp.representativeTx.id.slice(-8)} <span className="sr-only">(salin)</span>
+                            </button>
                             {grp.kloter && (
                               <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
                                 Kloter: {grp.kloter}
@@ -402,11 +426,12 @@ export function ReportsView() {
                                 ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
                                 : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
                             }`}>
-                              {grp.status === 'TERISI' ? 'Check-In (Aktif)' : grp.status === 'BOOKED' ? 'Reservasi Terjadwal' : grp.status === 'DIBATALKAN' ? 'Dibatalkan' : grp.status}
+                              {grp.representativeTx.paymentDispensation ? 'Check-In (Dispensasi / Belum Lunas)' : grp.status === 'TERISI' ? 'Check-In (Aktif)' : grp.status === 'BOOKED' ? 'Reservasi Terjadwal' : grp.status === 'DIBATALKAN' ? 'Dibatalkan' : grp.status}
                             </span>
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 whitespace-nowrap">
+                            {grp.representativeTx.paymentDispensation && <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">Dispensasi SPJ</span>}
+                            {isKeuangan && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 whitespace-nowrap">
                               Tarif PNBP: {grpPrice.formattedGrandTotal}
-                            </span>
+                            </span>}
                           </div>
 
                           <div className="text-[11px] text-slate-600 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -420,25 +445,10 @@ export function ReportsView() {
 
                         {/* Action Buttons */}
                         <div className="flex items-center space-x-1.5 shrink-0 self-start md:self-auto flex-wrap gap-y-1">
-                          <button
-                            type="button"
-                            onClick={() => openModal('modalInvoice', { transaction: grp.representativeTx, groupKey: grp.key, groupRecord: grp })}
-                            className="px-2.5 py-1 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center space-x-1.5 transition cursor-pointer"
-                            title="Buka Lembar Cetak Dokumen: Invoice & Kwitansi Resmi Rombongan"
-                          >
-                            <i className="fa-solid fa-print text-[11px] text-gold-300"></i>
-                            <span>Cetak Dokumen</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleOpenKwitansi({ transaction: grp.representativeTx, groupKey: grp.key, groupRecord: grp })}
-                            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center space-x-1.5 transition cursor-pointer"
-                            title="Buka Lembar Kwitansi Pembayaran Resmi Rombongan (PDF & Cetak)"
-                          >
-                            <i className="fa-solid fa-receipt text-[11px] text-gold-300"></i>
-                            <span>Kwitansi</span>
-                          </button>
+                          {isKeuangan && <>
+                            <button type="button" onClick={() => openModal('modalInvoice', { transaction: grp.representativeTx, groupKey: grp.key, groupRecord: grp })} className="px-2.5 py-1 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-lg text-xs">Cetak Dokumen</button>
+                            <button type="button" onClick={() => handleOpenKwitansi({ transaction: grp.representativeTx, groupKey: grp.key, groupRecord: grp })} className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs">Kwitansi</button>
+                          </>}
 
                           {grp.status === 'TERISI' && (
                             <button
@@ -512,6 +522,8 @@ export function ReportsView() {
                             </div>
                           ))}
 
+                          {grp.allRoomNumbers.length === 0 && Number(grp.allocatedRoomsCount || 0) > 0 && <span className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-900">Kuota {grp.allocatedRoomsCount} kamar • belum diplot</span>}
+
                           {/* Aula Badge */}
                           {(grp.includeAula || grp.rentAulaName) && (
                             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 dark:bg-purple-950/50 rounded-lg border border-purple-200 dark:border-purple-800 text-[11px] text-purple-900 dark:text-purple-200">
@@ -550,15 +562,22 @@ export function ReportsView() {
                           {/* Total Kapasitas & Kamar Pill */}
                           <div className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-300 font-bold text-[11px]">
                             <i className="fa-solid fa-users text-slate-500 text-[10px]"></i>
-                            <span>Total: {grp.allRoomNumbers.length} Kamar • {grp.totalPax} Pax</span>
+                            <span>Total: {Math.max(grp.allRoomNumbers.length, Number(grp.allocatedRoomsCount || 0))} Kamar • {grp.totalPax} Pax</span>
                           </div>
 
                           {/* Tagihan Resmi PNBP Pill */}
-                          <div className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 font-bold text-[11px]">
+                          {isKeuangan && <div className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 font-bold text-[11px]">
                             <i className="fa-solid fa-money-bill-wave text-emerald-600 text-[10px]"></i>
                             <span>Tagihan: {grpPrice.formattedGrandTotal}</span>
-                          </div>
+                          </div>}
                         </div>
+
+                        {grp.notes && <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
+                          <button type="button" aria-expanded={Boolean(expandedNotesKeys[grp.key])} onClick={() => setExpandedNotesKeys(previous => ({ ...previous, [grp.key]: !previous[grp.key] }))} className="text-xs font-semibold text-purple-700 hover:underline dark:text-purple-300">
+                            {expandedNotesKeys[grp.key] ? 'Tutup catatan tambahan' : 'Lihat catatan tambahan'}
+                          </button>
+                          {expandedNotesKeys[grp.key] && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">{grp.notes}</p>}
+                        </div>}
 
                         {/* Detail Expandable Table: Rincian Kamar Per Kamar */}
                         {isExpanded && (
@@ -571,8 +590,7 @@ export function ReportsView() {
                                   <th className="py-1.5 px-2.5 font-mono">No. Kamar</th>
                                   <th className="py-1.5 px-2.5">Tipe / Fasilitas Ruangan</th>
                                   <th className="py-1.5 px-2.5 text-center">Kapasitas Bed</th>
-                                  <th className="py-1.5 px-2.5 text-right">Tarif / Malam</th>
-                                  <th className="py-1.5 px-2.5 text-right">Subtotal</th>
+                                  {isKeuangan && <><th className="py-1.5 px-2.5 text-right">Tarif / Malam</th><th className="py-1.5 px-2.5 text-right">Subtotal</th></>}
                                   <th className="py-1.5 px-2.5 text-center">Status Alokasi</th>
                                 </tr>
                               </thead>
@@ -594,8 +612,7 @@ export function ReportsView() {
                                         <td className="py-1.5 px-2.5 font-bold font-mono text-purple-900 dark:text-purple-300">{rm.roomNumber}</td>
                                         <td className="py-1.5 px-2.5 text-slate-600 dark:text-slate-400">{rm.type} (AC, Kamar Mandi Dalam)</td>
                                         <td className="py-1.5 px-2.5 text-center font-medium">{rm.capacity} Orang</td>
-                                        <td className="py-1.5 px-2.5 text-right font-mono text-slate-600 dark:text-slate-300">{formatRupiah(rate)}</td>
-                                        <td className="py-1.5 px-2.5 text-right font-mono font-bold text-emerald-800 dark:text-emerald-400">{formatRupiah(rmTotal)}</td>
+                                        {isKeuangan && <><td className="py-1.5 px-2.5 text-right font-mono text-slate-600 dark:text-slate-300">{formatRupiah(rate)}</td><td className="py-1.5 px-2.5 text-right font-mono font-bold text-emerald-800 dark:text-emerald-400">{formatRupiah(rmTotal)}</td></>}
                                         <td className="py-1.5 px-2.5 text-center">
                                           <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
                                             rm.status === 'TERISI' 
@@ -656,7 +673,7 @@ export function ReportsView() {
                     <th className="p-3">Tanggal Check-Out</th>
                     <th className="p-3">Durasi</th>
                     <th className="p-3">Extra Bed &amp; Sarapan</th>
-                    <th className="p-3 text-right">Tarif &amp; Total (PNBP)</th>
+                    {isKeuangan && <th className="p-3 text-right">Tarif &amp; Total (PNBP)</th>}
                     <th className="p-3 text-center">Status</th>
                     <th className="p-3 text-center">Aksi Dokumen</th>
                   </tr>
@@ -675,7 +692,7 @@ export function ReportsView() {
                       const txPrice = calculateTransactionPricing(tx, pricingOptions);
                       return (
                         <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition">
-                          <td className="p-3 font-bold font-mono text-emerald-800 dark:text-emerald-400">{tx.id}</td>
+                          <td className="p-3"><button type="button" onClick={() => void copyTransactionId(tx.id)} className="font-mono font-bold text-emerald-800 hover:underline dark:text-emerald-400" title={`Salin ${tx.id}`}>#{tx.id.slice(-8)}</button></td>
                           <td className="p-3 font-bold text-slate-800 dark:text-slate-200">
                             <div className="flex items-center space-x-1.5">
                               <span>{tx.roomNumber}</span>
@@ -753,19 +770,11 @@ export function ReportsView() {
                               )}
                             </div>
                           </td>
-                          <td className="p-3 text-right">
-                            <div className="font-bold text-emerald-700 dark:text-emerald-400 font-mono text-xs">
-                              {txPrice.formattedGrandTotal}
-                            </div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                              {txPrice.ratePerUnitLabel}
-                            </div>
-                            {(txPrice.subtotalExtraBed > 0 || txPrice.subtotalCatering > 0) && (
-                              <div className="text-[9px] text-slate-400 font-normal">
-                                +Fasilitas: {formatRupiah(txPrice.subtotalExtraBed + txPrice.subtotalCatering)}
-                              </div>
-                            )}
-                          </td>
+                          {isKeuangan && <td className="p-3 text-right">
+                            <div className="font-bold text-emerald-700 dark:text-emerald-400 font-mono text-xs">{txPrice.formattedGrandTotal}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{txPrice.ratePerUnitLabel}</div>
+                            {(txPrice.subtotalExtraBed > 0 || txPrice.subtotalCatering > 0) && <div className="text-[9px] text-slate-400 font-normal">+Fasilitas: {formatRupiah(txPrice.subtotalExtraBed + txPrice.subtotalCatering)}</div>}
+                          </td>}
                           <td className="p-3 text-center">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               tx.status === 'TERISI' 
@@ -776,54 +785,17 @@ export function ReportsView() {
                                 ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
                                 : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
                             }`}>
-                              {tx.status}
+                              {tx.paymentDispensation ? 'Check-In (Dispensasi / Belum Lunas)' : tx.status}
                             </span>
                           </td>
                           <td className="p-3">
-                            <div className="flex items-center justify-center space-x-1.5 flex-wrap gap-y-1">
-                              <button
-                                type="button"
-                                onClick={() => openModal('modalInvoice', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })}
-                                className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center space-x-1.5 transition cursor-pointer"
-                                title="Buka Cetak Dokumen: Invoice & Kwitansi Resmi"
-                              >
-                                <i className="fa-solid fa-print text-[11px] text-gold-300"></i>
-                                <span>Cetak Dokumen</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleOpenKwitansi({ transaction: tx, room: rooms.find(r => r.id === tx.roomId) })}
-                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center space-x-1 transition cursor-pointer"
-                                title="Buka Lembar Kwitansi Pembayaran Resmi (PDF & Cetak)"
-                              >
-                                <i className="fa-solid fa-receipt text-[10px] text-gold-300"></i>
-                                <span>Kwitansi</span>
-                              </button>
-
-                              {tx.status === 'TERISI' && (
-                                <button
-                                  type="button"
-                                  onClick={() => openModal('modalExtend', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })}
-                                  className="px-2 py-1 bg-teal-50 dark:bg-teal-950/50 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-300 font-bold rounded-lg text-xs border border-teal-200 dark:border-teal-700 flex items-center space-x-1 transition cursor-pointer"
-                                  title="Perpanjang durasi menginap"
-                                >
-                                  <i className="fa-solid fa-clock-rotate-left text-teal-600 dark:text-teal-400"></i>
-                                  <span>Extend</span>
-                                </button>
-                              )}
-
-                              {canDeleteTx && (
-                                <button
-                                  type="button"
-                                  onClick={() => setItemToDelete({ id: tx.id, name: tx.guestName, isGroup: false })}
-                                  className="px-2 py-1 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 font-bold rounded-lg text-xs border border-rose-200 dark:border-rose-700 flex items-center space-x-1 transition cursor-pointer"
-                                  title="Hapus transaksi ini secara permanen dari sistem"
-                                >
-                                  <i className="fa-solid fa-trash-can text-rose-500 text-[10px]"></i>
-                                  <span>Hapus</span>
-                                </button>
-                              )}
+                            <div className="flex flex-wrap items-center justify-center gap-1.5">
+                              {isKeuangan && <>
+                                <button type="button" onClick={() => openModal('modalInvoice', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })} className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white">Dokumen</button>
+                                <button type="button" onClick={() => handleOpenKwitansi({ transaction: tx, room: rooms.find(r => r.id === tx.roomId) })} className="rounded-lg bg-amber-600 px-2 py-1 font-bold text-white">Kwitansi</button>
+                              </>}
+                              {tx.status === 'TERISI' && <button type="button" onClick={() => openModal('modalExtend', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })} className="rounded-lg border border-teal-300 px-2 py-1 font-bold text-teal-800">Extend</button>}
+                              {canDeleteTx && <button type="button" onClick={() => setItemToDelete({ id: tx.id, name: tx.guestName, isGroup: false })} className="rounded-lg border border-rose-200 px-2 py-1 font-bold text-rose-700">Hapus</button>}
                             </div>
                           </td>
                         </tr>
@@ -836,176 +808,38 @@ export function ReportsView() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* BAGIAN 3: TABEL RUANGAN (RUANG PERTEMUAN / AULA) */}
-        {/* ========================================================================= */}
-        {(activeTab === 'ALL' || activeTab === 'AULA') && (
-          <div className="space-y-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
-                <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-1.5">
-                  <i className="fa-solid fa-landmark text-indigo-600 dark:text-indigo-400"></i>
-                  <span>Laporan Penyewaan Ruang Pertemuan (Aula / Auditorium / Gedung SG)</span>
-                </h4>
-                <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300 text-[10px] font-bold border border-indigo-200 dark:border-indigo-800">
-                  {aulaList.length} Penyewaan Aula
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-xl">
-              <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-                <thead className="bg-slate-100 dark:bg-slate-900 uppercase text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <th className="p-3">ID Transaksi</th>
-                    <th className="p-3">Nama Ruang Pertemuan / Aula</th>
-                    <th className="p-3">Tipe Sewa</th>
-                    <th className="p-3">Penyewa / Instansi</th>
-                    <th className="p-3">Tanggal Pemakaian</th>
-                    <th className="p-3">Tanggal Akhir Pemakaian</th>
-                    <th className="p-3">Durasi Sewa</th>
-                    <th className="p-3">Keterangan / Acara</th>
-                    <th className="p-3 text-right">Tarif Sewa (PNBP)</th>
-                    <th className="p-3">Petugas Input</th>
-                    <th className="p-3 text-center">Status Booking</th>
-                    <th className="p-3 text-center">Aksi Dokumen</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-850">
-                  {aulaList.length === 0 ? (
-                    <tr>
-                      <td colSpan={12} className="p-6 text-center text-slate-400 italic">
-                        Tidak ada transaksi sewa ruang pertemuan yang sesuai dengan filter.
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedAulaList.map(tx => {
-                      const aulaDaysCount = Math.max(1, Math.ceil(tx.duration / 24));
-                      const endDateStr = addDaysToDateStr(tx.startDate, aulaDaysCount - 1);
-                      const aulaPrice = calculateTransactionPricing(tx, pricingOptions);
-                      return (
-                      <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition">
-                        <td className="p-3 font-bold font-mono text-indigo-800 dark:text-indigo-400">{tx.id}</td>
-                        <td className="p-3 font-bold text-slate-900 dark:text-slate-100">
-                          <i className="fa-solid fa-landmark text-indigo-600 dark:text-indigo-400 mr-1.5"></i>
-                          {tx.roomNumber}
-                        </td>
-                        <td className="p-3">
-                          {tx.isGroup || tx.guestType === 'ROMBONGAN' || tx.groupId ? (
-                            <div className="space-y-0.5">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 dark:bg-purple-950/70 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-700 whitespace-nowrap">
-                                <i className="fa-solid fa-users-rectangle mr-1"></i> Rombongan
-                              </span>
-                              {tx.groupName && (
-                                <span className="block text-[10px] text-purple-700 dark:text-purple-300 font-semibold truncate max-w-[120px]" title={tx.groupName}>
-                                  {tx.groupName}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 whitespace-nowrap">
-                              <i className="fa-solid fa-user mr-1"></i> Mandiri / Acara
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">
-                          {tx.guestName}
-                          {tx.phone && <span className="block text-[10px] text-slate-400 font-normal">Telp: {tx.phone}</span>}
-                        </td>
-                        <td className="p-3 font-medium text-slate-900 dark:text-slate-100">{formatIndonesianDate(tx.startDate)}</td>
-                        <td className="p-3 font-medium text-emerald-800 dark:text-emerald-400">{formatIndonesianDate(endDateStr)}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${tx.duration >= 24 ? 'bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800' : 'bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800'}`}>
-                            {tx.duration} Jam {tx.duration >= 24 ? `(${aulaDaysCount} Hari Penuh)` : '(Sesi Harian)'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-600 dark:text-slate-300 max-w-xs truncate" title={tx.notes || '-'}>
-                          {tx.notes || '-'}
-                        </td>
-                        <td className="p-3 text-right">
-                          <div className="font-bold text-indigo-700 dark:text-indigo-400 font-mono text-xs">
-                            {aulaPrice.formattedGrandTotal}
-                          </div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                            {aulaPrice.ratePerUnitLabel}
-                          </div>
-                          {aulaPrice.subtotalCatering > 0 && (
-                            <div className="text-[9px] text-slate-400">
-                              +Konsumsi: {formatRupiah(aulaPrice.subtotalCatering)}
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-3 text-slate-500 dark:text-slate-400 font-medium">{tx.createdUser || 'Resepsionis'}</td>
-                        <td className="p-3 text-center">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            tx.status === 'BOOKED' 
-                              ? 'bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800' 
-                              : tx.status === 'TERISI'
-                              ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                              : tx.status === 'SELESAI'
-                              ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
-                              : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
-                          }`}>
-                            {tx.status === 'BOOKED' ? 'Booked (Terjadwal)' : tx.status === 'DIBATALKAN' ? 'Dibatalkan' : tx.status}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center justify-center space-x-1.5 flex-wrap gap-y-1">
-                            <button
-                              type="button"
-                              onClick={() => openModal('modalInvoice', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })}
-                              className="px-2.5 py-1 bg-indigo-700 hover:bg-indigo-800 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center space-x-1.5 transition cursor-pointer"
-                              title="Buka Cetak Dokumen: Invoice & Kwitansi Resmi Ruang Pertemuan"
-                            >
-                              <i className="fa-solid fa-print text-[11px] text-gold-300"></i>
-                              <span>Cetak Dokumen</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenKwitansi({ transaction: tx, room: rooms.find(r => r.id === tx.roomId) })}
-                              className="px-2 py-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center space-x-1 transition cursor-pointer"
-                              title="Buka Lembar Kwitansi Pembayaran Resmi Ruang Pertemuan (PDF & Cetak)"
-                            >
-                              <i className="fa-solid fa-receipt text-[10px] text-gold-300"></i>
-                              <span>Kwitansi</span>
-                            </button>
-
-                            {tx.status === 'TERISI' && (
-                              <button
-                                type="button"
-                                onClick={() => openModal('modalExtend', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })}
-                                className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-800 font-bold rounded-lg text-xs border border-purple-200 flex items-center space-x-1 transition cursor-pointer"
-                                title="Perpanjang sesi sewa aula"
-                              >
-                                <i className="fa-solid fa-clock-rotate-left text-purple-600"></i>
-                                <span>Extend</span>
-                              </button>
-                            )}
-
-                            {canDeleteTx && (
-                              <button
-                                type="button"
-                                onClick={() => setItemToDelete({ id: tx.id, name: tx.guestName, isGroup: false })}
-                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs border border-rose-200 flex items-center space-x-1 transition cursor-pointer"
-                                title="Hapus transaksi aula ini secara permanen dari sistem"
-                              >
-                                <i className="fa-solid fa-trash-can text-rose-500 text-[10px]"></i>
-                                <span>Hapus</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+        {(activeTab === 'ALL' || activeTab === 'AULA') && <section className="space-y-2 border-t border-slate-200 pt-4">
+          <header className="flex flex-wrap items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-indigo-600" />
+            <h4 className="font-bold text-slate-800 dark:text-slate-200">Laporan Aula &amp; Manasik</h4>
+            <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-800">{aulaList.length} acara</span>
+          </header>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full min-w-[860px] text-left text-xs text-slate-700 dark:text-slate-300">
+              <thead className="bg-slate-100 text-[10px] font-bold uppercase dark:bg-slate-900"><tr>
+                <th className="p-3">ID transaksi</th><th className="p-3">Ruang / penyewa</th><th className="p-3">Tanggal</th><th className="p-3">Durasi</th><th className="p-3">Keterangan</th>{isKeuangan && <th className="p-3 text-right">Tarif</th>}<th className="p-3">Status</th><th className="p-3">Aksi</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {sortedAulaList.map(tx => {
+                  const aulaDaysCount = Math.max(1, Math.ceil(tx.duration / 24));
+                  const aulaPrice = calculateTransactionPricing(tx, pricingOptions);
+                  return <tr key={tx.id}>
+                    <td className="p-3"><button type="button" onClick={() => void copyTransactionId(tx.id)} className="font-mono font-bold hover:underline" title={`Salin ${tx.id}`}>#{tx.id.slice(-8)}</button></td><td className="p-3"><strong>{tx.roomNumber}</strong><span className="block text-[10px] text-slate-500">{tx.groupName || tx.guestName}</span></td>
+                    <td className="p-3">{formatIndonesianDate(tx.startDate)}</td><td className="p-3">{tx.duration} jam / {aulaDaysCount} hari</td><td className="max-w-xs truncate p-3" title={tx.notes || ''}>{tx.notes || '—'}</td>
+                    {isKeuangan && <td className="p-3 text-right font-mono font-bold">{aulaPrice.formattedGrandTotal}</td>}
+                    <td className="p-3">{tx.paymentDispensation ? <span className="rounded bg-amber-100 px-2 py-1 font-bold text-amber-900">Check-In (Dispensasi / Belum Lunas)</span> : tx.status}</td>
+                    <td className="p-3">{isKeuangan && <button type="button" onClick={() => openModal('modalInvoice', { transaction: tx, room: rooms.find(r => r.id === tx.roomId) })} className="rounded-lg bg-indigo-700 px-2 py-1 font-bold text-white">Dokumen</button>}</td>
+                  </tr>;
+                })}
+                {sortedAulaList.length === 0 && <tr><td colSpan={isKeuangan ? 8 : 7} className="p-8 text-center text-slate-500">Tidak ada laporan aula untuk filter ini.</td></tr>}
+              </tbody>
+            </table>
           </div>
-        )}
+        </section>}
+
+
+
+
       </div>
 
       {/* Modal Konfirmasi Hapus Transaksi Permanen */}

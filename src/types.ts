@@ -233,6 +233,7 @@ export interface ConsolidatedGroupRecord {
   startDate: string;
   duration: number;
   durationUnit?: string;
+  allocatedRoomsCount?: number;
   totalPax: number;
   status: 'BOOKED' | 'TERISI' | 'SELESAI' | string;
   createdUser: string;
@@ -326,6 +327,8 @@ export interface Transaction {
   checkInTime?: string;
   checkOutTime?: string;
   paymentStatus?: 'LUNAS' | 'BELUM_LUNAS' | 'DP' | string;
+  paymentDispensation?: boolean;
+  dispensationNote?: string;
   isPaid?: boolean;
   paidAmount?: number;
   dpAmount?: number;
