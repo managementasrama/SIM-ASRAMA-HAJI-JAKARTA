@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createHttpServer } from "http";
 import { Pool } from "pg";
+import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "crypto";
 
 async function startServer() {
   const app = express();
@@ -31,14 +32,8 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.text({ type: ["text/plain", "text/*"], limit: "10mb" }));
 
-  // CORS & Multi-Host Header Support for multi-device cross-network connections
   app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Cache-Control, Pragma");
-    if (req.method === "OPTIONS") {
-      return res.sendStatus(204);
-    }
+    if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
 
@@ -88,19 +83,19 @@ async function startServer() {
   };
 
   const sseClients = new Set<express.Response>();
+  const sseClientUsers = new Map<express.Response, any>();
 
   function broadcastRealtimeEvent(type: string, payload: any, senderClientId?: string) {
-    const message = JSON.stringify({
-      type,
-      payload,
-      senderClientId: senderClientId || null,
-      timestamp: Date.now(),
-    });
     for (const client of sseClients) {
       try {
-        client.write(`data: ${message}\n\n`);
+        const safePayload = filterRealtimeEvent(type, payload, sseClientUsers.get(client));
+        if (safePayload === null) continue;
+        client.write(`data: ${JSON.stringify({
+          type, payload: safePayload, senderClientId: senderClientId || null, timestamp: Date.now()
+        })}\n\n`);
       } catch (_) {
         sseClients.delete(client);
+        sseClientUsers.delete(client);
       }
     }
   }
@@ -213,12 +208,23 @@ async function startServer() {
   }
 
   // 1. Endpoint status konfigurasi Google Spreadsheet
-  app.get("/api/sheets-config", (_req, res) => {
+  app.get("/api/sheets-config", async (req, res) => {
+    const user = await verifySession(req);
+    if (!user) return res.status(401).json({ ok: false, error: "Sesi tidak valid." });
+    if (!new Set(["admin", "super admin", "superadmin"]).has(String(user.role || "").trim().toLowerCase())) {
+      return res.status(403).json({ ok: false, error: "Akses administrator diperlukan." });
+    }
     res.json(activeSheetsConfig);
   });
 
   // 2. Endpoint simpan konfigurasi Google Spreadsheet
-  app.post("/api/sheets-config", (req, res) => {
+  app.post("/api/sheets-config", async (req, res) => {
+    const user = await verifySession(req);
+    if (!user) return res.status(401).json({ ok: false, error: "Sesi tidak valid." });
+    if (rejectCrossOriginWrite(req, res)) return;
+    if (!new Set(["admin", "super admin", "superadmin"]).has(String(user.role || "").trim().toLowerCase())) {
+      return res.status(403).json({ ok: false, error: "Akses administrator diperlukan." });
+    }
     const { webAppUrl, sheetId, apiKey } = req.body || {};
     const cleanUrl = String(webAppUrl || "").trim();
     const cleanSheetId = String(sheetId || "").trim();
@@ -409,7 +415,223 @@ async function startServer() {
     console.warn("Neon pool connection error:", err?.message || err);
   });
 
-  app.get("/api/neon/state", async (_req, res) => {
+  const authSecret = process.env.BETTER_AUTH_SECRET;
+  if (!authSecret || authSecret.length < 32) {
+    throw new Error("BETTER_AUTH_SECRET harus diatur dengan minimal 32 karakter.");
+  }
+  const sessionCookieName = "__Host-sim_haji_session";
+  const sessionDurationSeconds = 60 * 60 * 12;
+  const signSession = (value: string) => createHmac("sha256", authSecret).update(value).digest("base64url");
+  const verifySession = async (req: express.Request) => {
+    const cookieHeader = req.headers.cookie || "";
+    const cookieValue = cookieHeader.split(";").map(part => part.trim()).find(part => part.startsWith(`${sessionCookieName}=`))?.slice(sessionCookieName.length + 1);
+    if (!cookieValue || !neonStatePool) return null;
+    const [encoded, signature] = cookieValue.split(".");
+    if (!encoded || !signature) return null;
+    const expected = signSession(encoded);
+    const actualBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+    try {
+      const session = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+      if (!session?.userId || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) return null;
+      const result = await neonStatePool.query(
+        "SELECT id, username, full_name, role, department, assigned_building, phone, email, nip, status, permissions, signature_url, qr_code_url, raw_data FROM users WHERE id = $1 LIMIT 1",
+        [session.userId]
+      );
+      const row = result.rows[0];
+      const status = String(row?.status || "").trim().toLowerCase();
+      if (!row || ["non-aktif", "nonaktif", "inactive", "disabled", "menunggu persetujuan"].includes(status)) return null;
+      return { ...row, role: String(row.role || "") };
+    } catch {
+      return null;
+    }
+  };
+  const rejectCrossOriginWrite = (req: express.Request, res: express.Response) => {
+    const origin = req.get("origin");
+    if (!origin) {
+      if (req.get("sec-fetch-site") !== "cross-site") return false;
+    } else {
+      try {
+        if (new URL(origin).host === req.get("host")) return false;
+      } catch {}
+    }
+    res.status(403).json({ ok: false, error: "Permintaan lintas origin ditolak." });
+    return true;
+  };
+  const toPublicUser = (row: any) => {
+    const user = row?.raw_data && typeof row.raw_data === "object" ? { ...row.raw_data } : {};
+    Object.assign(user, {
+      id: row.id, username: row.username, fullName: row.full_name, role: String(row.role || ""),
+      department: row.department, assignedBuilding: row.assigned_building, phone: row.phone,
+      email: row.email, nip: row.nip, status: row.status, permissions: row.permissions,
+      signatureUrl: row.signature_url, qrCodeUrl: row.qr_code_url
+    });
+    delete user.password;
+    delete user.raw_data;
+    return user;
+  };
+  const derivePasswordKey = (password: string, salt: Buffer) => new Promise<Buffer>((resolve, reject) => {
+    scryptCallback(password, salt, 64, (error, derivedKey) => error ? reject(error) : resolve(derivedKey as Buffer));
+  });
+  const hashPassword = async (password: string) => {
+    const salt = randomBytes(16);
+    const key = await derivePasswordKey(password, salt);
+    return `scrypt-v1$${salt.toString("hex")}$${key.toString("hex")}`;
+  };
+  const verifyPassword = async (password: string, stored: string) => {
+    if (stored.startsWith("scrypt-v1$")) {
+      const [, saltHex, keyHex] = stored.split("$");
+      if (!/^[a-f0-9]{32}$/i.test(saltHex || "") || !/^[a-f0-9]{128}$/i.test(keyHex || "")) return false;
+      const expected = Buffer.from(keyHex, "hex");
+      const actual = await derivePasswordKey(password, Buffer.from(saltHex, "hex"));
+      return timingSafeEqual(actual, expected);
+    }
+    const expected = Buffer.from(stored);
+    const actual = Buffer.from(password);
+    return expected.length === actual.length && timingSafeEqual(actual, expected);
+  };
+  const financialTransactionFields = [
+    "paymentStatus", "isPaid", "paidAmount", "dpAmount", "alreadyPaid", "remainingAmount", "totalPrice", "totalAmount",
+    "pricePerNight", "extraBedPrice", "dpDate", "dpMethod", "dpNote", "paymentDispensation", "dispensationNote",
+    "paymentMethod", "paymentDate", "paymentNote", "vaNumber",
+    "vaAccountName", "bankAccountNumber", "bankName", "kwitansiNo", "invoiceNo"
+  ];
+  const sanitizeStateForRole = (state: any, user: any) => {
+    const sanitized = structuredClone(state);
+    for (const record of sanitized.users || []) {
+      delete record.password;
+      delete record.raw_data;
+    }
+    const role = String(user.role || "").trim().toLowerCase();
+    const isAdmin = ["admin", "super admin", "superadmin"].includes(role);
+    const canRecordPayment = isAdmin || (user.permissions && Object.prototype.hasOwnProperty.call(user.permissions, "canRecordPayment")
+      ? Boolean(user.permissions.canRecordPayment)
+      : role.includes("keuangan") || role.includes("bendahara"));
+    if (!canRecordPayment) {
+      for (const transaction of sanitized.transactions || []) {
+        for (const field of financialTransactionFields) delete transaction[field];
+      }
+    }
+    if (Array.isArray(sanitized.workSessions) && !canViewAllSessions(user)) {
+      sanitized.workSessions = sanitized.workSessions.filter((session: any) => session.userId === user.id);
+    }
+    if (Array.isArray(sanitized.auditLogs) && !canViewAllSessions(user)) sanitized.auditLogs = [];
+    if (Array.isArray(sanitized.chatChannels)) {
+      sanitized.chatChannels = sanitized.chatChannels.filter((channel: any) => channelVisibleToUser(channel, user));
+      const channelIds = new Set(sanitized.chatChannels.map((channel: any) => channel.id));
+      if (Array.isArray(sanitized.chatMessages)) {
+        sanitized.chatMessages = sanitized.chatMessages.filter((message: any) => channelIds.has(message.channelId) || message.senderId === user.id);
+      }
+    }
+    return sanitized;
+  };
+  const canViewAllSessions = (user: any) => {
+    const role = String(user?.role || "").trim().toLowerCase();
+    if (["admin", "super admin", "superadmin"].includes(role)) return true;
+    if (user?.permissions && Object.prototype.hasOwnProperty.call(user.permissions, "canViewAuditLog")) {
+      return Boolean(user.permissions.canViewAuditLog);
+    }
+    return ["resepsionis", "keuangan", "bendahara", "teknisi", "quality control", "qc", "koperasi"].some(value => role.includes(value));
+  };
+  const channelVisibleToUser = (channel: any, user: any) => {
+    const role = String(user?.role || "").trim().toLowerCase();
+    if (["admin", "super admin", "superadmin"].includes(role)) return true;
+    return Array.isArray(channel?.participantIds) && channel.participantIds.includes(user?.id);
+  };
+  const sanitizeRealtimeSnapshot = (user: any) => {
+    const visibleChannels = realtimeState.chatChannels.filter(channel => channelVisibleToUser(channel, user));
+    const visibleChannelIds = new Set(visibleChannels.map(channel => channel.id));
+    return {
+      presences: Object.values(realtimeState.presences),
+      workSessions: canViewAllSessions(user) ? realtimeState.workSessions : realtimeState.workSessions.filter(session => session.userId === user.id),
+      chatChannels: visibleChannels,
+      chatMessages: realtimeState.chatMessages.filter(message => visibleChannelIds.has(message.channelId) || message.senderId === user.id),
+    };
+  };
+  const filterRealtimeEvent = (type: string, payload: any, user: any) => {
+    if (!user) return null;
+    const role = String(user.role || "").trim().toLowerCase();
+    const isAdmin = ["admin", "super admin", "superadmin"].includes(role);
+    if (type === "init") return { ...payload, ...sanitizeRealtimeSnapshot(user) };
+    if (type.startsWith("session:") && !canViewAllSessions(user)) {
+      if (type === "session:upsert") return payload?.userId === user.id ? payload : null;
+      if (type === "session:sync_bulk") return Array.isArray(payload) ? payload.filter(session => session.userId === user.id) : null;
+      if (type === "session:delete" || type === "session:clear") return null;
+    }
+    if (type.startsWith("chat:") && !isAdmin) {
+      const channelId = payload?.channelId || payload?.message?.channelId || payload?.channel?.id;
+      const channel = payload?.channel || realtimeState.chatChannels.find(item => item.id === channelId);
+      const ownMessage = payload?.message?.senderId === user.id || payload?.senderId === user.id;
+      if (!channelVisibleToUser(channel, user) && !ownMessage) return null;
+    }
+    if (type === "database:sync" && payload?.db) return { ...payload, db: undefined };
+    return payload;
+  };
+
+  app.get("/api/auth/session", async (req, res) => {
+    const row = await verifySession(req);
+    if (!row) return res.status(401).json({ ok: false, user: null });
+    return res.json({ ok: true, user: toPublicUser(row) });
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    if (!neonStatePool) return res.status(503).json({ ok: false, error: "Layanan login belum tersedia." });
+    if (rejectCrossOriginWrite(req, res)) return;
+    const username = String(req.body?.username || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+    if (!username || !password || username.length > 100 || password.length > 255) {
+      return res.status(401).json({ ok: false, error: "Username atau kata sandi tidak valid." });
+    }
+    try {
+      const result = await neonStatePool.query(
+        "SELECT id, username, full_name, role, department, assigned_building, phone, email, nip, status, password, permissions, signature_url, qr_code_url, raw_data FROM users WHERE lower(username) = $1 LIMIT 1",
+        [username]
+      );
+      const row = result.rows[0];
+      const status = String(row?.status || "").trim().toLowerCase();
+      const isActive = row && !["non-aktif", "nonaktif", "inactive", "disabled", "menunggu persetujuan"].includes(status);
+      const passwordValid = isActive && row.password ? await verifyPassword(password, String(row.password)) : false;
+      if (!passwordValid) {
+        return res.status(401).json({ ok: false, error: "Username atau kata sandi tidak valid." });
+      }
+      if (!String(row.password).startsWith("scrypt-v1$")) {
+        try {
+          const upgradedHash = await hashPassword(password);
+          await neonStatePool.query("UPDATE users SET password = $1 WHERE id = $2 AND password = $3", [upgradedHash, row.id, row.password]);
+        } catch (err: any) {
+          console.warn("Password hash upgrade deferred:", err?.message || err);
+        }
+      }
+      const encoded = Buffer.from(JSON.stringify({ userId: row.id, expiresAt: Date.now() + sessionDurationSeconds * 1000 })).toString("base64url");
+      const rememberDevice = req.body?.rememberDevice === true;
+      const maxAge = rememberDevice ? `; Max-Age=${sessionDurationSeconds}` : "";
+      res.setHeader("Set-Cookie", `${sessionCookieName}=${encoded}.${signSession(encoded)}; Path=/; HttpOnly; Secure; SameSite=None${maxAge}`);
+      return res.json({ ok: true, user: toPublicUser(row) });
+    } catch (err: any) {
+      console.error("Server login failed:", err?.message || err);
+      return res.status(500).json({ ok: false, error: "Login sementara tidak dapat diproses." });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    if (rejectCrossOriginWrite(req, res)) return;
+    res.setHeader("Set-Cookie", `${sessionCookieName}=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0`);
+    return res.json({ ok: true });
+  });
+
+  app.use("/api", async (req, res, next) => {
+    if (req.path === "/auth/login" || req.path === "/auth/logout" || req.path === "/auth/session") return next();
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && rejectCrossOriginWrite(req, res)) return;
+    const user = await verifySession(req);
+    if (!user) return res.status(401).json({ ok: false, error: "Sesi tidak valid. Silakan login kembali." });
+    (req as any).authUser = user;
+    next();
+  });
+
+  app.get("/api/neon/state", async (req, res) => {
+    const user = await verifySession(req);
+    if (!user) return res.status(401).json({ ok: false, error: "Sesi tidak valid. Silakan login kembali." });
     if (!neonStatePool) {
       return res.status(503).json({ ok: false, error: "Neon DATABASE_URL belum tersedia." });
     }
@@ -425,7 +647,7 @@ async function startServer() {
       const row = result.rows[0];
       return res.json({
         ok: true,
-        data: row.payload,
+        data: sanitizeStateForRole(row.payload, user),
         revision: Number(row.revision),
         updatedAt: row.updated_at
       });
@@ -436,11 +658,15 @@ async function startServer() {
   });
 
   app.put("/api/neon/state", async (req, res) => {
+    const user = await verifySession(req);
+    if (!user) return res.status(401).json({ ok: false, error: "Sesi tidak valid. Silakan login kembali." });
+    if (rejectCrossOriginWrite(req, res)) return;
     if (!neonStatePool) {
       return res.status(503).json({ ok: false, error: "Neon DATABASE_URL belum tersedia." });
     }
 
-    const { data, expectedRevision } = req.body || {};
+    const { data: incomingData, expectedRevision } = req.body || {};
+    let data = incomingData;
     if (
       !data || typeof data !== "object" || Array.isArray(data) ||
       !Number.isSafeInteger(expectedRevision) || expectedRevision < 0 ||
@@ -451,6 +677,86 @@ async function startServer() {
     }
 
     try {
+      const currentStateResult = await neonStatePool.query(
+        "SELECT payload FROM public.sim_haji_database_state WHERE id = $1 LIMIT 1",
+        ["primary"]
+      );
+      const currentState = currentStateResult.rows[0]?.payload;
+      const role = user.role.trim().toLowerCase();
+      const isAdmin = ["admin", "super admin", "superadmin"].includes(role);
+      if (!currentState && !isAdmin) return res.status(403).json({ ok: false, error: "Administrator harus menginisialisasi data aplikasi." });
+      const roleDefaults: Record<string, boolean> = {
+        canCrudRooms: isAdmin || role.includes("resepsionis"),
+        canCrudCheckin: isAdmin || role.includes("resepsionis"),
+        canCrudBooking: isAdmin || role.includes("resepsionis"),
+        canCrudGroup: isAdmin || role.includes("resepsionis"),
+        canCrudAula: isAdmin || role.includes("resepsionis"),
+        canRecordPayment: isAdmin || role.includes("keuangan") || role.includes("bendahara"),
+        canIssueInvoice: isAdmin || role.includes("keuangan") || role.includes("bendahara") || role.includes("resepsionis"),
+        canIssueKwitansi: isAdmin || role.includes("keuangan") || role.includes("bendahara"),
+        canCrudMaintenance: isAdmin || role.includes("teknisi") || role.includes("quality control") || role.includes("qc"),
+        canCrudQc: isAdmin || role.includes("quality control") || role.includes("qc"),
+        canCrudCleaning: isAdmin || role.includes("petugas gedung") || role.includes("quality control") || role.includes("qc"),
+        canCrudCatering: isAdmin || role.includes("koperasi"),
+        canManageUsers: isAdmin,
+        canConfigApp: isAdmin,
+      };
+      const can = (permission: string) => isAdmin || (user.permissions && Object.prototype.hasOwnProperty.call(user.permissions, permission)
+        ? Boolean(user.permissions[permission])
+        : Boolean(roleDefaults[permission]));
+      if (currentState && !can("canManageUsers")) {
+        const currentUsers = new Map((currentState.users || []).map((item: any) => [item.id, item]));
+        const incomingUsers = new Map((data.users || []).map((item: any) => [item.id, item]));
+        data.users = (currentState.users || []).map((stored: any) => {
+          const item = incomingUsers.get(stored.id) as any;
+          return item ? { ...item, role: stored.role, permissions: stored.permissions, status: stored.status, password: stored.password, raw_data: stored.raw_data } : stored;
+        });
+        for (const [id, item] of incomingUsers) {
+          if (!currentUsers.has(id)) data.users.push({ ...(item as any), status: "Menunggu Persetujuan", password: "", permissions: {}, raw_data: undefined });
+        }
+      }
+      if (currentState) {
+        for (const key of ["buildings", "rooms", "meetingRooms", "roomCapacityRates"] as const) {
+          if (!can("canCrudRooms")) data[key] = currentState[key] || [];
+        }
+        if (!can("canCrudCheckin") && !can("canCrudBooking") && !can("canCrudGroup") && !can("canCrudAula")) {
+          data.transactions = currentState.transactions || [];
+        } else if (!can("canRecordPayment")) {
+          const currentTransactions = new Map((currentState.transactions || []).map((item: any) => [item.id, item]));
+          data.transactions = data.transactions.map((item: any) => {
+            const stored = currentTransactions.get(item.id) as any;
+            const preserved = { ...item };
+            for (const field of financialTransactionFields) {
+              if (Object.prototype.hasOwnProperty.call(stored || {}, field)) preserved[field] = stored[field];
+              else delete preserved[field];
+            }
+            return preserved;
+          });
+        }
+        if (!can("canCrudMaintenance")) data.maintenances = currentState.maintenances || [];
+        if (!can("canCrudQc")) data.qcInspections = currentState.qcInspections || [];
+        if (!can("canCrudCleaning")) data.cleaningLogs = currentState.cleaningLogs || [];
+        if (!can("canCrudCatering")) {
+          data.breakfastMenuItems = currentState.breakfastMenuItems || [];
+          data.breakfastOrders = currentState.breakfastOrders || [];
+        }
+        if (!can("canConfigApp")) data.appSettings = currentState.appSettings;
+        if (!isAdmin) {
+          data.workSessions = currentState.workSessions || [];
+          data.auditLogs = currentState.auditLogs || [];
+          const visibleCurrentChannels = (currentState.chatChannels || []).filter((channel: any) => channelVisibleToUser(channel, user));
+          const visibleChannelIds = new Set(visibleCurrentChannels.map((channel: any) => channel.id));
+          data.chatChannels = [
+            ...(currentState.chatChannels || []).filter((channel: any) => !channelVisibleToUser(channel, user)),
+            ...(data.chatChannels || []).filter((channel: any) => channelVisibleToUser(channel, user))
+          ];
+          data.chatMessages = [
+            ...(currentState.chatMessages || []).filter((message: any) => !visibleChannelIds.has(message.channelId) && message.senderId !== user.id),
+            ...(data.chatMessages || []).filter((message: any) => visibleChannelIds.has(message.channelId) || message.senderId === user.id)
+          ];
+        }
+      }
+
       const result = expectedRevision === 0
         ? await neonStatePool.query(
             `INSERT INTO public.sim_haji_database_state (id, payload, revision, updated_at)
@@ -4098,7 +4404,8 @@ async function startServer() {
 
   // Server-Sent Events (SSE) Stream for instant real-time updates
   app.get("/api/realtime/stream", (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const user = (req as any).authUser;
+    if (!user) return res.status(401).end();
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform, no-store");
     res.setHeader("Connection", "keep-alive");
@@ -4106,6 +4413,7 @@ async function startServer() {
     res.flushHeaders?.();
 
     sseClients.add(res);
+    sseClientUsers.set(res, user);
 
     // Send initial authoritative state immediately upon connect
     const now = Date.now();
@@ -4117,14 +4425,7 @@ async function startServer() {
 
     const initPayload = JSON.stringify({
       type: "init",
-      payload: {
-        presences: Object.values(realtimeState.presences),
-        workSessions: realtimeState.workSessions,
-        chatChannels: realtimeState.chatChannels,
-        chatMessages: realtimeState.chatMessages,
-        sheetsConfig: activeSheetsConfig,
-        databaseConfig: activeSheetsConfig,
-      },
+      payload: sanitizeRealtimeSnapshot(user),
       timestamp: Date.now(),
     });
     res.write(`data: ${initPayload}\n\n`);
@@ -4141,11 +4442,13 @@ async function startServer() {
     req.on("close", () => {
       clearInterval(keepAlive);
       sseClients.delete(res);
+      sseClientUsers.delete(res);
     });
   });
 
-  app.get("/api/realtime/state", (_req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+  app.get("/api/realtime/state", (req, res) => {
+    const user = (req as any).authUser;
+    if (!user) return res.status(401).json({ ok: false, error: "Sesi tidak valid." });
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     const now = Date.now();
     for (const [key, p] of Object.entries(realtimeState.presences)) {
@@ -4153,19 +4456,13 @@ async function startServer() {
         delete realtimeState.presences[key];
       }
     }
-    res.json({
-      ok: true,
-      presences: Object.values(realtimeState.presences),
-      workSessions: realtimeState.workSessions,
-      chatChannels: realtimeState.chatChannels,
-      chatMessages: realtimeState.chatMessages,
-      timestamp: Date.now(),
-    });
+    res.json({ ok: true, ...sanitizeRealtimeSnapshot(user), timestamp: Date.now() });
   });
 
   app.post("/api/session/auto-checkout", (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    const authenticatedUser = (req as any).authUser;
+    if (!authenticatedUser) return res.status(401).json({ ok: false, error: "Sesi tidak valid." });
 
     let data = req.body;
     if (typeof data === "string") {
@@ -4174,7 +4471,8 @@ async function startServer() {
       } catch (_) {}
     }
 
-    const { sessionId, userId, logoutTime, durationSeconds } = data || {};
+    const { sessionId, logoutTime, durationSeconds } = data || {};
+    const userId = authenticatedUser.id;
     if (!sessionId && !userId) {
       res.json({ ok: true, message: "No session or user specified" });
       return;
@@ -4186,7 +4484,7 @@ async function startServer() {
     let updatedSession: any = null;
 
     realtimeState.workSessions = realtimeState.workSessions.map((s: any) => {
-      const isMatch = (sessionId && s.id === sessionId) || (userId && s.userId === userId && s.status === "AKTIF");
+      const isMatch = s.userId === userId && ((sessionId && s.id === sessionId) || s.status === "AKTIF");
       if (isMatch) {
         let diffSec = Number(durationSeconds) || 0;
         if (!diffSec && s.loginTime) {
@@ -4243,41 +4541,59 @@ async function startServer() {
 
   app.post("/api/realtime/event", (req, res) => {
     const { type, payload, clientId } = req.body || {};
-    if (!type) {
+    const authenticatedUser = (req as any).authUser;
+    const role = String(authenticatedUser?.role || "").trim().toLowerCase();
+    const isAdmin = ["admin", "super admin", "superadmin"].includes(role);
+    if (!type || !authenticatedUser) {
       res.status(400).json({ error: "Missing event type" });
       return;
     }
 
-    if (type === "presence:heartbeat" && payload?.userId) {
-      const key = `${payload.userId}___${clientId || "default"}`;
-      realtimeState.presences[key] = {
+    if (type === "presence:heartbeat") {
+      const presence = {
         ...payload,
-        clientId: clientId || "default",
-        lastSeenMs: Date.now(),
+        userId: authenticatedUser.id,
+        userName: authenticatedUser.full_name,
+        userRole: authenticatedUser.role,
+        department: authenticatedUser.department,
+        assignedBuilding: authenticatedUser.assigned_building,
       };
+      const key = `${authenticatedUser.id}___${clientId || "default"}`;
+      realtimeState.presences[key] = { ...presence, clientId: clientId || "default", lastSeenMs: Date.now() };
       broadcastRealtimeEvent("presence:sync", Object.values(realtimeState.presences), clientId);
-    } else if (type === "presence:leave" && payload?.userId) {
+    } else if (type === "presence:leave") {
       for (const [key, p] of Object.entries(realtimeState.presences)) {
-        if (p.userId === payload.userId && (!clientId || p.clientId === clientId || payload.allDevices)) {
+        if (p.userId === authenticatedUser.id && (!clientId || p.clientId === clientId || (isAdmin && payload?.allDevices))) {
           delete realtimeState.presences[key];
         }
       }
       broadcastRealtimeEvent("presence:sync", Object.values(realtimeState.presences), clientId);
     } else if (type === "session:upsert" && payload?.id) {
       const idx = realtimeState.workSessions.findIndex((s: any) => s.id === payload.id);
+      const existing = idx >= 0 ? realtimeState.workSessions[idx] : null;
+      if (existing && existing.userId !== authenticatedUser.id && !isAdmin) {
+        return res.status(403).json({ ok: false, error: "Tidak dapat mengubah sesi petugas lain." });
+      }
+      const sessionPayload = { ...payload, userId: isAdmin ? payload.userId : authenticatedUser.id };
+      if (!isAdmin) {
+        sessionPayload.userName = authenticatedUser.full_name;
+        sessionPayload.userRole = authenticatedUser.role;
+        sessionPayload.department = authenticatedUser.department;
+        sessionPayload.assignedBuilding = authenticatedUser.assigned_building;
+      }
       if (idx >= 0) {
-        realtimeState.workSessions[idx] = { ...realtimeState.workSessions[idx], ...payload };
+        realtimeState.workSessions[idx] = { ...realtimeState.workSessions[idx], ...sessionPayload };
       } else {
-        realtimeState.workSessions.unshift(payload);
+        realtimeState.workSessions.unshift(sessionPayload);
       }
       // If this session is AKTIF, automatically close any older AKTIF session for the same user across all devices
-      if (payload.userId && payload.status === "AKTIF") {
+      if (sessionPayload.userId && sessionPayload.status === "AKTIF") {
         realtimeState.workSessions = realtimeState.workSessions.map((s: any) => {
-          if (s.userId === payload.userId && s.id !== payload.id && s.status === "AKTIF") {
+          if (s.userId === sessionPayload.userId && s.id !== sessionPayload.id && s.status === "AKTIF") {
             return {
               ...s,
               status: "SELESAI",
-              logoutTime: payload.loginTime || new Date().toISOString().replace("T", " ").substring(0, 19),
+              logoutTime: sessionPayload.loginTime || new Date().toISOString().replace("T", " ").substring(0, 19),
               notes: s.notes ? `${s.notes} • Dialihkan karena login di perangkat baru` : "Dialihkan karena login di perangkat baru",
             };
           }
@@ -4285,27 +4601,28 @@ async function startServer() {
         });
       }
       triggerAsyncWorkSessionSpreadsheetSync();
-      broadcastRealtimeEvent("session:upsert", payload, clientId);
+      broadcastRealtimeEvent("session:upsert", sessionPayload, clientId);
     } else if (type === "session:sync_bulk" && Array.isArray(payload)) {
       const byId = new Map<string, any>();
       for (const s of realtimeState.workSessions) {
         if (s?.id) byId.set(s.id, s);
       }
-      for (const s of payload) {
-        if (!s?.id) continue;
+      for (const submitted of payload) {
+        if (!submitted?.id || (!isAdmin && submitted.userId !== authenticatedUser.id)) continue;
+        const s = isAdmin ? submitted : {
+          ...submitted, userId: authenticatedUser.id, userName: authenticatedUser.full_name,
+          userRole: authenticatedUser.role, department: authenticatedUser.department,
+          assignedBuilding: authenticatedUser.assigned_building
+        };
         const existing = byId.get(s.id);
-        if (!existing) {
-          byId.set(s.id, s);
-        } else if (existing.status === "SELESAI" && s.status === "AKTIF") {
-          // Keep SELESAI so finished sessions never revert to AKTIF
-          byId.set(s.id, existing);
-        } else {
-          byId.set(s.id, { ...existing, ...s });
-        }
+        if (existing && existing.userId !== authenticatedUser.id && !isAdmin) continue;
+        if (existing?.status === "SELESAI" && s.status === "AKTIF") continue;
+        byId.set(s.id, existing ? { ...existing, ...s } : s);
       }
       realtimeState.workSessions = Array.from(byId.values());
       triggerAsyncWorkSessionSpreadsheetSync();
     } else if (type === "session:clear") {
+      if (!isAdmin) return res.status(403).json({ ok: false, error: "Akses administrator diperlukan." });
       realtimeState.workSessions = [];
       const pool = getActiveAivenPool();
       if (pool) {
@@ -4314,6 +4631,7 @@ async function startServer() {
       triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:clear", {}, clientId);
     } else if (type === "session:delete" && (payload?.id || payload?.ids)) {
+      if (!isAdmin) return res.status(403).json({ ok: false, error: "Akses administrator diperlukan." });
       const idsToDelete = new Set<string>(
         Array.isArray(payload.ids) ? payload.ids : [payload.id].filter(Boolean)
       );
@@ -4327,7 +4645,13 @@ async function startServer() {
       triggerAsyncWorkSessionSpreadsheetSync();
       broadcastRealtimeEvent("session:delete", payload, clientId);
     } else if (type === "chat:message" && payload?.message?.id) {
-      const msg = payload.message;
+      const msg = {
+        ...payload.message,
+        senderId: authenticatedUser.id,
+        senderName: authenticatedUser.full_name,
+        senderRole: authenticatedUser.role,
+        senderDepartment: authenticatedUser.department || "Operasional"
+      };
       const channel = payload.channel;
       if (!realtimeState.chatMessages.some((m: any) => m.id === msg.id)) {
         realtimeState.chatMessages.push(msg);
@@ -4355,8 +4679,9 @@ async function startServer() {
       }
       saveChatStorageToDisk();
       broadcastRealtimeEvent("chat:message", { message: msg, channel }, clientId);
-    } else if (type === "chat:read" && payload?.channelId && payload?.userId) {
-      const { channelId, userId } = payload;
+    } else if (type === "chat:read" && payload?.channelId) {
+      const channelId = payload.channelId;
+      const userId = authenticatedUser.id;
       let readChanged = false;
       realtimeState.chatMessages = realtimeState.chatMessages.map((m: any) => {
         if (m.channelId === channelId && Array.isArray(m.readBy) && !m.readBy.includes(userId)) {
@@ -4370,6 +4695,11 @@ async function startServer() {
       }
       broadcastRealtimeEvent("chat:read", { channelId, userId }, clientId);
     } else if (type === "chat:channel" && payload?.id) {
+      const existingChannel = realtimeState.chatChannels.find((c: any) => c.id === payload.id);
+      const participants = payload.participantIds || existingChannel?.participantIds || [];
+      if (!isAdmin && !participants.includes(authenticatedUser.id)) {
+        return res.status(403).json({ ok: false, error: "Anda bukan peserta kanal ini." });
+      }
       const cIdx = realtimeState.chatChannels.findIndex((c: any) => c.id === payload.id);
       if (cIdx >= 0) {
         realtimeState.chatChannels[cIdx] = { ...realtimeState.chatChannels[cIdx], ...payload, updatedAt: new Date().toISOString() };
@@ -4379,6 +4709,7 @@ async function startServer() {
       saveChatStorageToDisk();
       broadcastRealtimeEvent("chat:channel", payload, clientId);
     } else if (type === "chat:clear") {
+      if (!isAdmin) return res.status(403).json({ ok: false, error: "Akses administrator diperlukan." });
       const channelId = payload?.channelId;
       if (channelId) {
         realtimeState.chatMessages = realtimeState.chatMessages.filter((m: any) => m.channelId !== channelId);
@@ -4387,9 +4718,10 @@ async function startServer() {
       }
       saveChatStorageToDisk();
       broadcastRealtimeEvent("chat:clear", { channelId }, clientId);
-    } else if (type === "chat:typing" && payload?.channelId && payload?.userId) {
-      broadcastRealtimeEvent("chat:typing", payload, clientId);
+    } else if (type === "chat:typing" && payload?.channelId) {
+      broadcastRealtimeEvent("chat:typing", { ...payload, userId: authenticatedUser.id, userName: authenticatedUser.full_name }, clientId);
     } else if (type === "database:sync") {
+      if (!isAdmin) return res.status(403).json({ ok: false, error: "Akses administrator diperlukan." });
       if (payload?.db && typeof payload.db === "object") {
         serverDatabaseCache = payload.db;
         try {

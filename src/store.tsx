@@ -232,7 +232,7 @@ interface AppContextType {
   dismissChatNotification: () => void;
   simulateIncomingChatMessage: (channelId?: string) => void;
   
-  login: (user: User, preferNamespace?: StorageNamespace, rememberDevice?: boolean) => void;
+  login: (user: User, preferNamespace?: StorageNamespace, rememberDevice?: boolean) => Promise<void>;
   logout: () => void;
   setActiveTab: (tab: string) => void;
   selectedBuilding: string | null;
@@ -365,46 +365,25 @@ const AppContext = createContext<AppContextType | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [storageNamespace, setStorageNamespace] = useState<StorageNamespace>(() => dataStorage.getNamespace());
   const [emailNotifications, setEmailNotifications] = useState<EmailNotificationItem[]>(() => getEmailNotifications());
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      // Sesi tab aktif menggunakan sessionStorage (otomatis keluar saat browser/tab ditutup sesuai standar website)
-      const sessionSaved = sessionStorage.getItem('sim_haji_current_user');
-      if (sessionSaved) {
-        const u = JSON.parse(sessionSaved);
-        if (u && u.id) return u;
-      }
-      // Periksa localStorage HANYA jika fitur Ingat Sesi aktif secara eksplisit (default: false)
-      const isRemember = localStorage.getItem('sim_haji_remember_session');
-      if (isRemember === 'true') {
-        const localSaved = localStorage.getItem('sim_haji_current_user');
-        if (localSaved) {
-          const u = JSON.parse(localSaved);
-          if (u && u.id) return u;
-        }
-      } else {
-        // Bersihkan data sesi lokal agar tidak tersisa saat browser baru dibuka
-        localStorage.removeItem('sim_haji_current_user');
-      }
-    } catch (_) {}
-    return null;
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   useEffect(() => {
+    let active = true;
     try {
-      if (currentUser) {
-        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(currentUser));
-        const isRemember = localStorage.getItem('sim_haji_remember_session');
-        if (isRemember === 'true') {
-          localStorage.setItem('sim_haji_current_user', JSON.stringify(currentUser));
-        } else {
-          localStorage.removeItem('sim_haji_current_user');
-        }
-      } else {
-        localStorage.removeItem('sim_haji_current_user');
-        sessionStorage.removeItem('sim_haji_current_user');
-      }
+      localStorage.removeItem('sim_haji_current_user');
+      localStorage.removeItem('sim_haji_remembered_password');
+      sessionStorage.removeItem('sim_haji_current_user');
     } catch (_) {}
-  }, [currentUser]);
+
+    fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async response => response.ok ? response.json() : null)
+      .then(result => {
+        if (active && result?.ok && result.user?.id) setCurrentUser(result.user as User);
+      })
+      .catch(() => {});
+
+    return () => { active = false; };
+  }, []);
   const [users, setUsers] = useState<User[]>(() => dataStorage.getUsers());
   const [buildings, setBuildings] = useState<Building[]>(() => dataStorage.getBuildings());
   const [meetingRooms, setMeetingRooms] = useState<MeetingRoom[]>(() => dataStorage.getMeetingRooms());
@@ -521,10 +500,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
     setCurrentUser(updatedUser);
     dataStorage.saveUser(updatedUser);
-    try {
-      localStorage.setItem('sim_haji_current_user', JSON.stringify(updatedUser));
-      sessionStorage.setItem('sim_haji_current_user', JSON.stringify(updatedUser));
-    } catch (_) {}
     logAudit('Edit Akun Mandiri', `Pengguna ${updatedUser.fullName} memperbarui informasi profil akun & tanda tangan digital.`);
     showToast('Profil akun & tanda tangan berhasil diperbarui dan disimpan ke database!', 'success');
   };
@@ -2252,7 +2227,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('sim_haji_audit_log_added', handleLogAdded);
   }, []);
 
-  const login = (user: User, _preferNamespace?: StorageNamespace, rememberDevice: boolean = false) => {
+  const login = async (user: User, _preferNamespace?: StorageNamespace, rememberDevice: boolean = false) => {
+    try {
+      const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+      const result = response.ok ? await response.json() : null;
+      if (!result?.ok || !result.user?.id) {
+        setCurrentUser(null);
+        showToast('Sesi server tidak tersedia. Silakan masuk kembali.', 'error');
+        return;
+      }
+      if (result.user.id !== user.id) {
+        showToast('Peralihan akun tidak diizinkan. Keluar lalu masuk dengan akun yang diinginkan.', 'warning');
+        return;
+      }
+      user = result.user as User;
+    } catch {
+      showToast('Tidak dapat memverifikasi sesi dengan server.', 'error');
+      return;
+    }
+
     if (user.status === 'Menunggu Persetujuan') {
       showToast("Pendaftaran akun Anda masih menunggu persetujuan (ACC) dari Administrator!", "warning");
       return;
@@ -2263,15 +2256,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      if (rememberDevice) {
-        localStorage.setItem('sim_haji_remember_session', 'true');
-        localStorage.setItem('sim_haji_current_user', JSON.stringify(user));
-        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(user));
-      } else {
-        localStorage.setItem('sim_haji_remember_session', 'false');
-        localStorage.removeItem('sim_haji_current_user');
-        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(user));
-      }
+      localStorage.setItem('sim_haji_remember_session', String(rememberDevice));
+      localStorage.removeItem('sim_haji_current_user');
+      localStorage.removeItem('sim_haji_remembered_password');
+      sessionStorage.removeItem('sim_haji_current_user');
     } catch (_) {}
 
     // Tarik data terbaru dari Neon saat berhasil masuk (login) agar aplikasi selalu sinkron
@@ -2282,12 +2270,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const freshUser = cloudDb.users.find(u => u.id === user.id || u.username === user.username);
           if (freshUser) {
             setCurrentUser(freshUser);
-            try {
-              sessionStorage.setItem('sim_haji_current_user', JSON.stringify(freshUser));
-              if (rememberDevice) {
-                localStorage.setItem('sim_haji_current_user', JSON.stringify(freshUser));
-              }
-            } catch (_) {}
           }
         }
         if (Array.isArray(cloudDb.buildings)) setBuildings(cloudDb.buildings);
@@ -2390,6 +2372,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).catch(() => {});
     if (currentUser) {
       const now = new Date();
       const logoutTimeStr = getRealLocalDateTimeStr(now);
@@ -2592,10 +2575,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dataStorage.saveUser(safeUpdatedUser);
     if (currentUser && currentUser.id === safeUpdatedUser.id) {
       setCurrentUser(safeUpdatedUser);
-      try {
-        localStorage.setItem('sim_haji_current_user', JSON.stringify(safeUpdatedUser));
-        sessionStorage.setItem('sim_haji_current_user', JSON.stringify(safeUpdatedUser));
-      } catch (_) {}
     }
     logAudit("Ubah Akun", `Memperbarui akun: ${safeUpdatedUser.username} (${safeUpdatedUser.fullName}) - ${safeUpdatedUser.role}`);
     showToast(`Data petugas ${safeUpdatedUser.fullName} berhasil diperbarui di sistem!`, "success");

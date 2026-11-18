@@ -131,10 +131,8 @@ export function Header() {
   };
 
   const handleSwitchAccount = (user: typeof users[0]) => {
-    login(user);
+    void login(user);
     setIsSwitchOpen(false);
-    setActiveTab('dashboard');
-    showToast(`Beralih akun: ${user.fullName} (${user.role}) - Membuka Dashboard`, 'success');
   };
 
   const tabs = ALL_TABS_CONFIG.filter(tab => tab.roles.includes(currentUser.role));
