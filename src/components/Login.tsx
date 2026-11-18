@@ -43,17 +43,7 @@ export function Login() {
     }
   });
 
-  const [password, setPassword] = useState<string>(() => {
-    try {
-      const isRemember = localStorage.getItem('sim_haji_remember_session');
-      if (isRemember === 'true') {
-        return localStorage.getItem('sim_haji_remembered_password') || '';
-      }
-      return '';
-    } catch {
-      return '';
-    }
-  });
+  const [password, setPassword] = useState('');
 
   const [showPassword, setShowPassword] = useState(false);
 
@@ -103,69 +93,40 @@ export function Login() {
     const startMs = Date.now();
 
     try {
-      // 1. Tarik & sinkronkan data termutakhir dari Basis Data Utama Neon PostgreSQL agar data di setiap akun yang login identik
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ username: cleanUser, password: cleanPass, rememberDevice })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.user) {
+        showToast(result.error || 'Username atau kata sandi tidak valid.', 'error');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      const foundUser = result.user;
+      try {
+        localStorage.setItem('sim_haji_remember_session', String(rememberDevice));
+        if (rememberDevice) localStorage.setItem('sim_haji_remembered_username', cleanUser);
+        else localStorage.removeItem('sim_haji_remembered_username');
+        localStorage.removeItem('sim_haji_remembered_password');
+      } catch (_) {}
+
       try {
         await Promise.race([
           pullFromCentralDatabase(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
         ]);
       } catch (_) {
-        // Fallback jika timeout / offline
+        // Login is already validated by the server; state hydration can retry after entry.
       }
 
-      // Berikan jeda halus minimal 400ms agar animasi titik berjalan terlihat jelas
       const elapsed = Date.now() - startMs;
-      if (elapsed < 400) {
-        await new Promise(r => setTimeout(r, 400 - elapsed));
-      }
-
-      // 2. Ambil daftar users terbaru setelah penarikan database menggunakan dataStorage.getUserByUsername
-      let foundUser = dataStorage.getUserByUsername(cleanUser);
-      if (!foundUser) {
-        const currentUsers = dataStorage.getUsers();
-        const userList = currentUsers && currentUsers.length > 0 ? currentUsers : users;
-        foundUser = userList.find(u => u.username.toLowerCase() === cleanUser);
-      }
-      
-      if (!foundUser) {
-        showToast("Username / NIP tidak terdaftar di pangkalan data!", "error");
-        setIsLoggingIn(false);
-        return;
-      }
-
-      if (foundUser.status === 'Menunggu Persetujuan') {
-        showToast("Pendaftaran akun Anda masih menunggu persetujuan (ACC) dari Administrator!", "warning");
-        setIsLoggingIn(false);
-        return;
-      }
-
-      if (foundUser.status === 'Non-Aktif' && cleanUser !== 'superadmin' && cleanUser !== 'admin') {
-        showToast("Akses Ditolak: Akun petugas ini berstatus Non-Aktif. Hubungi Administrator!", "error");
-        setIsLoggingIn(false);
-        return;
-      }
-
-      const expectedPassword = foundUser.password || '12345';
-      const isSuperOrAdminBypass = (cleanUser === 'superadmin' || cleanUser === 'admin') && (cleanPass === '12345' || cleanPass === expectedPassword);
-      if (cleanPass !== expectedPassword && !isSuperOrAdminBypass) {
-        showToast("Kata sandi yang Anda masukkan tidak cocok!", "error");
-        setIsLoggingIn(false);
-        return;
-      }
-
-      try {
-        if (rememberDevice) {
-          localStorage.setItem('sim_haji_remember_session', 'true');
-          localStorage.setItem('sim_haji_remembered_username', cleanUser);
-          localStorage.setItem('sim_haji_remembered_password', cleanPass);
-        } else {
-          localStorage.setItem('sim_haji_remember_session', 'false');
-          localStorage.removeItem('sim_haji_remembered_username');
-          localStorage.removeItem('sim_haji_remembered_password');
-        }
-      } catch (_) {}
-
-      login(foundUser, undefined, rememberDevice);
+      if (elapsed < 400) await new Promise(r => setTimeout(r, 400 - elapsed));
+      await login(foundUser, undefined, rememberDevice);
+      setIsLoggingIn(false);
     } catch (err: any) {
       showToast(`Terjadi kesalahan saat masuk: ${err?.message || 'Error'}`, 'error');
       setIsLoggingIn(false);
@@ -370,7 +331,7 @@ export function Login() {
                       if (val) {
                         localStorage.setItem('sim_haji_remember_session', 'true');
                         if (username.trim()) localStorage.setItem('sim_haji_remembered_username', username.trim().toLowerCase());
-                        if (password.trim()) localStorage.setItem('sim_haji_remembered_password', password);
+                        localStorage.removeItem('sim_haji_remembered_password');
                       } else {
                         localStorage.setItem('sim_haji_remember_session', 'false');
                         localStorage.removeItem('sim_haji_remembered_username');
